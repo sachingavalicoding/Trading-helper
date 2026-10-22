@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { getFunds } from '../services/walletService.js';
 import { sizePosition } from '../scanner/sizing.js';
+import { summarizeIdeas } from '../scanner/stats.js';
+import { ScanIdea } from '../models/index.js';
 
 export const SCANNER_DISCLAIMER = 'Rule-based ideas for learning. Not investment advice, and no idea is guaranteed to work.';
 
@@ -28,6 +30,12 @@ export function scannerRoutes({ scanner, config }) {
       done: done.map((d) => ({ id: String(d._id), symbol: d.symbol, setup: d.setup, side: d.side, entry: d.entry, stopLoss: d.stopLoss, target1: d.target1, status: d.status, exitPrice: d.exitPrice, closedAt: d.closedAt })),
       disclaimer: SCANNER_DISCLAIMER,
     });
+  });
+
+  // How finished ideas ended, by setup, side, hour and score.
+  router.get('/stats', async (_req, res) => {
+    const ideas = await ScanIdea.find({ status: { $ne: 'OPEN' } }, 'setup side status entry stopLoss exitPrice score createdAt').lean();
+    res.json({ ...summarizeIdeas(ideas.map((i) => ({ ...i, openedAt: i.createdAt }))), disclaimer: SCANNER_DISCLAIMER });
   });
 
   // The pre-market plan: stocks worth watching today and the level to wait for.

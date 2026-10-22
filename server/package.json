@@ -7,7 +7,8 @@
     "dev": "nodemon --watch src --watch .env src/index.js",
     "start": "node src/index.js",
     "test": "node --test --test-concurrency=1 \"test/**/*.test.js\"",
-    "upstox:token": "node scripts/upstox-token.js"
+    "upstox:token": "node scripts/upstox-token.js",
+    "replay": "node scripts/replay.js"
   },
   "license": "UNLICENSED",
   "dependencies": {

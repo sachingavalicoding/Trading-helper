@@ -256,6 +256,13 @@ The news code is in `server/src/news/` and its tests are in `server/test/news.te
 
 The code is in `server/src/scanner/plan.js` and `client/src/lib/alerts.js`; tests are in `server/test/alerts.test.js`.
 
+## Track record and replay
+
+- **Track record.** The Scanner tab shows how finished ideas ended: how many hit target 1, were stopped or expired, and the average result in **R** (1R is what the idea risked). It is split by setup, hour of the day, side and score band (`GET /api/scanner/stats`). Under 20 finished ideas the screen warns that the numbers are mostly luck.
+- **Replay.** `npm run replay -- --days 3 --symbols INFY,TCS` (in `server/`) runs the same scanner rules over recent 1-minute history and prints how each idea would have ended. Use it with live Upstox data; on the mock feed history is random and the result is meaningless. Limits: Upstox serves only a few days of 1-minute history, there is no order book in a replay, and a bar that touches both the stop and the target counts as stopped. Treat it as a sanity check, not proof. Real proof is weeks of live paper results.
+
+The code is in `server/src/scanner/stats.js`, `replay.js` and `server/scripts/replay.js`; tests are in `server/test/track.test.js`.
+
 ## Honest limitations
 
 - Fills are idealized. They happen at LTP with no slippage, no partial fills and no queue position, so real results will be worse.
