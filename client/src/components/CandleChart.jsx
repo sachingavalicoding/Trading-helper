@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createChart, CandlestickSeries, ColorType, LineStyle, CrosshairMode } from 'lightweight-charts';
-import { ZoomIn, ZoomOut, RotateCcw, Maximize2, Minimize2, Activity, X, Check } from 'lucide-react';
+import { Maximize2, X, Check, ChevronsRight, SlidersHorizontal } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { subscribeTick, getTick } from '../lib/tickStore.js';
 import { INTERVAL_SEC, applyTick, toChartTime } from '../lib/chart.js';
 import { INDICATORS, DEFAULT_INDICATORS, addIndicator } from '../lib/chartIndicators.js';
-import { formatPrice, formatQtyCompact } from '../lib/format.js';
+import { markGesture } from '../lib/useDeliberateTap.js';
+import { formatPrice } from '../lib/format.js';
 import { useTheme } from '../context/ThemeContext.jsx';
-import { Segmented, Skeleton } from './ui.jsx';
+import { Skeleton } from './ui.jsx';
 
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const withAlpha = (hex, a) => {
@@ -24,34 +25,56 @@ const loadIndicators = () => {
   }
   return DEFAULT_INDICATORS;
 };
-const DEFAULT_BARS = { '1m': 90, '5m': 75, '15m': 60 };
+const DEFAULT_BARS = { '1m': 70, '5m': 60, '15m': 50 };
+const TIMEFRAMES = ['1m', '5m', '15m'];
+// Bar spacing limits keep pinch-zoom in a useful range instead of zooming to a blur or a single candle.
+const MIN_BAR_SPACING = 3;
+const MAX_BAR_SPACING = 22;
 
-function ToolButton({ label, onClick, active, children }) {
+function IndicatorSheet({ active, available, onToggle, onClose }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className={`flex h-8 min-w-8 items-center justify-center gap-1 rounded-md px-1.5 text-xs font-medium ${active ? 'bg-accent text-white' : 'text-muted hover:bg-surface-2 hover:text-fg'}`}
-    >
-      {children}
-    </button>
+    <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Indicators">
+      <button type="button" aria-label="Close" className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="sheet-in pb-safe relative w-full rounded-t-2xl border border-line bg-surface sm:max-w-sm sm:rounded-2xl">
+        <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-line sm:hidden" />
+        <div className="flex items-center justify-between px-4 pt-3 pb-1">
+          <h3 className="font-semibold">Indicators</h3>
+          <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-accent">
+            Done
+          </button>
+        </div>
+        <ul className="px-2 pb-3">
+          {available.map((i) => {
+            const on = active.includes(i.id);
+            return (
+              <li key={i.id}>
+                <button type="button" role="menuitemcheckbox" aria-checked={on} onClick={() => onToggle(i.id)} className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm active:bg-surface-2">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: i.color }} />
+                  <span className="flex-1">{i.label}</span>
+                  <span className={`flex h-5 w-5 items-center justify-center rounded-md border ${on ? 'border-accent bg-accent text-white' : 'border-line'}`}>{on && <Check className="h-3.5 w-3.5" />}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </div>
   );
 }
 
 /**
- * TradingView-style candlestick chart: 1m/5m/15m, indicators (VWAP, EMA, SMA, Bollinger,
- * RSI, MACD, volume), zoom buttons plus pinch / wheel / axis-drag zoom, and fullscreen.
+ * Mobile-first candlestick chart in the spirit of TradingView's app: one slim toolbar
+ * (timeframe, indicators, fullscreen), pinch to zoom, drag to pan, tap for the crosshair.
  * `lines` draws horizontal price lines (position average, stop-loss, target).
  */
 export function CandleChart({ symbol, isIndex = false, lines = [] }) {
   const { theme } = useTheme();
   const [interval, setIntervalValue] = useState('5m');
   const [indicators, setIndicators] = useState(loadIndicators);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [legend, setLegend] = useState(null);
+  const [awayFromLatest, setAwayFromLatest] = useState(false);
   const [state, setState] = useState({ loading: true, error: null, simulated: false });
 
   const wrapRef = useRef(null);
@@ -59,8 +82,10 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
   const chartRef = useRef(null); // { chart, candles, items: [{ series, compute }] }
   const dataRef = useRef({ key: null, candles: [] });
 
-  const active = indicators.filter((id) => !(isIndex && INDICATORS.find((i) => i.id === id)?.needsVolume));
+  const available = INDICATORS.filter((i) => !(isIndex && i.needsVolume));
+  const active = indicators.filter((id) => available.some((i) => i.id === id));
   const activeKey = active.join(',');
+  const extraPanes = active.filter((id) => INDICATORS.find((i) => i.id === id)?.pane).length;
 
   useEffect(() => {
     try {
@@ -70,11 +95,11 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
     }
   }, [indicators]);
 
-  const showDefaultRange = useCallback(() => {
+  const showLatest = useCallback(() => {
     const c = chartRef.current;
     const n = dataRef.current.candles.length;
     if (!c || !n) return;
-    const bars = Math.min(n, DEFAULT_BARS[interval] || 75);
+    const bars = Math.min(n, DEFAULT_BARS[interval] || 60);
     c.chart.timeScale().setVisibleLogicalRange({ from: n - bars, to: n + 3 });
     c.candles.priceScale().applyOptions({ autoScale: true });
   }, [interval]);
@@ -85,9 +110,11 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
     if (!c) return;
     c.candles.setData(candles);
     for (const it of c.items) it.series.setData(it.compute(candles));
+    const last = candles[candles.length - 1];
+    setLegend(last ? { ...last, live: true } : null);
   }, []);
 
-  // Build the chart. Rebuilt when theme or indicator set changes (cheap; data is cached in dataRef).
+  // Build the chart. Rebuilt when theme or indicator set changes (data is cached in dataRef).
   useEffect(() => {
     const el = elRef.current;
     if (!el) return undefined;
@@ -96,16 +123,17 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
     const border = cssVar('--border');
     const chart = createChart(el, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: cssVar('--muted'), fontSize: 11, panes: { separatorColor: border } },
-      grid: { vertLines: { color: withAlpha(border, 0.35) }, horzLines: { color: withAlpha(border, 0.35) } },
-      rightPriceScale: { borderColor: border },
-      timeScale: { borderColor: border, timeVisible: true, secondsVisible: false, rightOffset: 4 },
-      crosshair: { mode: CrosshairMode.Normal },
-      handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true } },
+      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: cssVar('--muted'), fontSize: 10, panes: { separatorColor: border, enableResize: false } },
+      grid: { vertLines: { visible: false }, horzLines: { color: withAlpha(border, 0.3) } },
+      rightPriceScale: { borderVisible: false, minimumWidth: 52 },
+      timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false, rightOffset: 3, minBarSpacing: MIN_BAR_SPACING, maxBarSpacing: MAX_BAR_SPACING },
+      crosshair: { mode: CrosshairMode.Magnet, vertLine: { labelBackgroundColor: cssVar('--surface-2') }, horzLine: { labelBackgroundColor: cssVar('--surface-2') } },
+      kineticScroll: { touch: true, mouse: false },
+      handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: false }, axisDoubleClickReset: { time: true, price: true } },
       handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
     });
     const candles = chart.addSeries(CandlestickSeries, { upColor: up, downColor: down, wickUpColor: up, wickDownColor: down, borderVisible: false });
-    candles.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: active.includes('volume') ? 0.22 : 0.06 } });
+    candles.priceScale().applyOptions({ scaleMargins: { top: 0.12, bottom: active.includes('volume') ? 0.2 : 0.06 } });
 
     let pane = 0;
     const items = [];
@@ -119,13 +147,18 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
 
     chart.subscribeCrosshairMove((p) => {
       const bar = p?.time ? p.seriesData.get(candles) : null;
-      setLegend(bar ? { ...bar, volume: dataRef.current.candles.find((c) => c.time === p.time)?.volume } : null);
+      const all = dataRef.current.candles;
+      setLegend(bar ? { ...bar, live: false } : all.length ? { ...all[all.length - 1], live: true } : null);
+    });
+    chart.timeScale().subscribeVisibleLogicalRangeChange((r) => {
+      const n = dataRef.current.candles.length;
+      setAwayFromLatest(Boolean(r && n && r.to < n - 3));
     });
 
     chartRef.current = { chart, candles, items };
     if (dataRef.current.candles.length) {
       paintAll();
-      showDefaultRange();
+      showLatest();
     }
     return () => {
       chart.remove();
@@ -148,7 +181,7 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
         if (!alive) return;
         dataRef.current = { key, candles: res.candles.map((c) => ({ ...c, time: toChartTime(c.time) })) };
         paintAll();
-        showDefaultRange();
+        showLatest();
         setState({ loading: false, error: null, simulated: res.simulated });
       })
       .catch((err) => alive && setState({ loading: false, error: err.message, simulated: false }));
@@ -165,12 +198,13 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
         const pts = it.compute(data);
         if (pts.length) it.series.update(pts[pts.length - 1]);
       }
+      setLegend((l) => (!l || l.live ? { ...bar, live: true } : l));
     });
     return () => {
       alive = false;
       unsub();
     };
-  }, [symbol, interval, paintAll, showDefaultRange]);
+  }, [symbol, interval, paintAll, showLatest]);
 
   // Position / SL / target lines.
   useEffect(() => {
@@ -183,7 +217,7 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
     };
   }, [lines, theme, activeKey]);
 
-  // Fullscreen: real browser fullscreen where supported (Android, desktop), CSS overlay otherwise (iPhone).
+  // Fullscreen: real browser fullscreen where supported (Android, desktop), full-page overlay otherwise (iPhone).
   useEffect(() => {
     if (!fullscreen) return undefined;
     const prevOverflow = document.body.style.overflow;
@@ -209,104 +243,86 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
     };
   }, [fullscreen]);
 
-  const zoom = (factor) => {
-    const c = chartRef.current;
-    const n = dataRef.current.candles.length;
-    const ts = c?.chart.timeScale();
-    const r = ts?.getVisibleLogicalRange();
-    if (!r) return;
-    const len = r.to - r.from;
-    const next = Math.min(Math.max(len * factor, 10), n + 50);
-    ts.setVisibleLogicalRange({ from: r.to - next, to: r.to });
-  };
-
   const toggleIndicator = (id) => setIndicators((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
   const legendTone = legend ? (legend.close >= legend.open ? 'text-up' : 'text-down') : '';
-  const available = INDICATORS.filter((i) => !(isIndex && i.needsVolume));
   const activeDefs = active.map((id) => INDICATORS.find((i) => i.id === id));
+  const heightClass = fullscreen ? 'min-h-0 flex-1' : ['h-[320px]', 'h-[420px]', 'h-[500px]'][Math.min(extraPanes, 2)];
 
   return (
-    <div ref={wrapRef} className={fullscreen ? 'fixed inset-0 z-[60] flex flex-col bg-bg p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))]' : ''}>
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        {fullscreen && <span className="mr-1 text-sm font-bold">{symbol}</span>}
-        <Segmented
-          size="sm"
-          value={interval}
-          onChange={setIntervalValue}
-          options={[
-            { value: '1m', label: '1m' },
-            { value: '5m', label: '5m' },
-            { value: '15m', label: '15m' },
-          ]}
-        />
-        <div className="relative">
-          <ToolButton label="Indicators" onClick={() => setPickerOpen((v) => !v)} active={pickerOpen}>
-            <Activity className="h-4 w-4" /> <span>Indicators</span>
-          </ToolButton>
-          {pickerOpen && (
-            <>
-              <button type="button" aria-label="Close indicators" className="fixed inset-0 z-[70] cursor-default" onClick={() => setPickerOpen(false)} />
-              <div className="fixed inset-x-4 top-1/4 z-[71] rounded-xl border border-line bg-surface p-1 shadow-xl sm:absolute sm:inset-x-auto sm:top-auto sm:left-0 sm:mt-1 sm:w-64" role="menu">
-                {available.map((i) => {
-                  const on = indicators.includes(i.id);
-                  return (
-                    <button key={i.id} type="button" role="menuitemcheckbox" aria-checked={on} onClick={() => toggleIndicator(i.id)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-surface-2">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: i.color }} />
-                      <span className="flex-1">{i.label}</span>
-                      {on && <Check className="h-4 w-4 text-accent" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </div>
-        <div className="ml-auto flex items-center">
-          <ToolButton label="Zoom out" onClick={() => zoom(1.4)}>
-            <ZoomOut className="h-4 w-4" />
-          </ToolButton>
-          <ToolButton label="Zoom in" onClick={() => zoom(0.7)}>
-            <ZoomIn className="h-4 w-4" />
-          </ToolButton>
-          <ToolButton label="Reset view" onClick={showDefaultRange}>
-            <RotateCcw className="h-4 w-4" />
-          </ToolButton>
-          <ToolButton label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} onClick={() => setFullscreen((v) => !v)}>
-            {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-          </ToolButton>
-        </div>
+    <div ref={wrapRef} className={fullscreen ? 'fixed inset-0 z-[60] flex flex-col bg-bg px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))]' : ''}>
+      {/* One slim toolbar: timeframe · indicators · fullscreen */}
+      <div className="mb-1 flex items-center gap-1">
+        {fullscreen && <span className="mr-2 text-sm font-bold">{symbol}</span>}
+        {TIMEFRAMES.map((tf) => (
+          <button
+            key={tf}
+            type="button"
+            onClick={() => setIntervalValue(tf)}
+            aria-pressed={interval === tf}
+            className={`rounded-md px-2.5 py-1.5 text-xs font-semibold ${interval === tf ? 'bg-surface-2 text-fg' : 'text-muted'}`}
+          >
+            {tf}
+          </button>
+        ))}
+        <button type="button" onClick={() => setSheetOpen(true)} aria-label="Indicators" className="ml-1 flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold text-muted">
+          <SlidersHorizontal className="h-4 w-4" />
+          {active.length > 0 && <span className="rounded bg-surface-2 px-1 text-[10px] text-fg">{active.length}</span>}
+        </button>
+        <button type="button" onClick={() => setFullscreen((v) => !v)} aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} className="ml-auto rounded-md p-1.5 text-muted">
+          {fullscreen ? <X className="h-5 w-5" /> : <Maximize2 className="h-4 w-4" />}
+        </button>
       </div>
 
-      {activeDefs.length > 0 && (
-        <div className="no-scrollbar mb-1 flex gap-1.5 overflow-x-auto">
-          {activeDefs.map((i) => (
-            <span key={i.id} className="flex shrink-0 items-center gap-1 rounded-md bg-surface-2 py-0.5 pr-0.5 pl-2 text-[11px] text-muted">
-              <span className="h-2 w-2 rounded-full" style={{ background: i.color }} />
-              {i.label}
-              <button type="button" aria-label={`Remove ${i.label}`} onClick={() => toggleIndicator(i.id)} className="rounded p-0.5 hover:text-fg">
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      <div className={`relative w-full ${fullscreen ? 'min-h-0 flex-1' : active.some((id) => INDICATORS.find((i) => i.id === id)?.pane) ? 'h-[62vh] max-h-[600px] min-h-[360px]' : 'h-[52vh] max-h-[460px] min-h-[280px]'}`}>
+      <div
+        className={`relative w-full touch-pan-y ${heightClass}`}
+        onPointerMove={(e) => e.buttons && markGesture()}
+        onTouchMove={markGesture}
+        onWheel={markGesture}
+      >
         <div ref={elRef} className="absolute inset-0" />
+
+        {/* Legend: OHLC of the bar under the crosshair (or the live bar), then active indicators */}
         {legend && (
-          <div className="num pointer-events-none absolute top-1 left-1 z-10 flex flex-wrap gap-x-2 rounded bg-bg/70 px-1.5 py-0.5 text-[11px]">
-            <span className="text-muted">O <span className={legendTone}>{formatPrice(legend.open)}</span></span>
-            <span className="text-muted">H <span className={legendTone}>{formatPrice(legend.high)}</span></span>
-            <span className="text-muted">L <span className={legendTone}>{formatPrice(legend.low)}</span></span>
-            <span className="text-muted">C <span className={legendTone}>{formatPrice(legend.close)}</span></span>
-            {!isIndex && legend.volume != null && <span className="text-muted">V {formatQtyCompact(legend.volume)}</span>}
+          <div className="num pointer-events-none absolute top-0 left-0 z-10 text-[10px] leading-4">
+            <div className="flex gap-1.5">
+              <span className="text-muted">O</span>
+              <span className={legendTone}>{formatPrice(legend.open)}</span>
+              <span className="text-muted">H</span>
+              <span className={legendTone}>{formatPrice(legend.high)}</span>
+              <span className="text-muted">L</span>
+              <span className={legendTone}>{formatPrice(legend.low)}</span>
+              <span className="text-muted">C</span>
+              <span className={legendTone}>{formatPrice(legend.close)}</span>
+            </div>
+            {activeDefs.length > 0 && (
+              <button type="button" onClick={() => setSheetOpen(true)} className="pointer-events-auto mt-0.5 flex flex-wrap gap-x-2 text-left text-muted">
+                {activeDefs.map((i) => (
+                  <span key={i.id} className="flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: i.color }} />
+                    {i.label.replace(/ \(.*\)$/, '')}
+                  </span>
+                ))}
+              </button>
+            )}
           </div>
+        )}
+
+        {awayFromLatest && !state.loading && (
+          <button
+            type="button"
+            onClick={showLatest}
+            aria-label="Jump to latest"
+            className="absolute right-14 bottom-8 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-line bg-surface text-muted shadow"
+          >
+            <ChevronsRight className="h-4 w-4" />
+          </button>
         )}
         {state.loading && <Skeleton className="absolute inset-0" />}
         {state.error && <div className="absolute inset-0 flex items-center justify-center text-sm text-down">{state.error}</div>}
       </div>
-      {state.simulated && !fullscreen && <p className="mt-1 text-[11px] text-warn">Simulated prices from the mock feed, not real market data.</p>}
-      {!fullscreen && <p className="mt-1 text-[11px] text-muted">Pinch or scroll to zoom, drag to pan, drag the price axis to stretch, double-tap an axis to reset.</p>}
+      {state.simulated && !fullscreen && <p className="mt-1 text-[10px] text-warn">Simulated prices (mock feed), not real market data.</p>}
+
+      {sheetOpen && <IndicatorSheet active={active} available={available} onToggle={toggleIndicator} onClose={() => setSheetOpen(false)} />}
     </div>
   );
 }

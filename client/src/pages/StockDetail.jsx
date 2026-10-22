@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { useMarket } from '../context/MarketContext.jsx';
 import { useTick } from '../lib/tickStore.js';
 import { useApi } from '../lib/useApi.js';
+import { useDeliberateTap } from '../lib/useDeliberateTap.js';
 import { api } from '../lib/api.js';
 import { formatPrice, formatPct, formatPnl, formatQtyCompact, pnlClass } from '../lib/format.js';
 import { CandleChart } from '../components/CandleChart.jsx';
@@ -26,6 +27,9 @@ export default function StockDetail() {
   const { instruments, subscribeDepth, version, status } = useMarket();
   const tick = useTick(symbol);
   const [sheet, setSheet] = useState(null);
+  // Only a deliberate tap opens the order sheet, never a chart drag that ends on the button.
+  const buyTap = useDeliberateTap(() => setSheet('BUY'));
+  const sellTap = useDeliberateTap(() => setSheet('SELL'));
   const stock = instruments?.stocks.find((s) => s.symbol === symbol);
   const known = !instruments || stock;
 
@@ -64,7 +68,7 @@ export default function StockDetail() {
   }
 
   return (
-    <div className="space-y-3 pb-16 md:pb-0">
+    <div className="space-y-3 pb-24 md:pb-0">
       <div className="flex items-start gap-2">
         <Link to="/" aria-label="Back" className="-ml-2 rounded-lg p-2 text-muted hover:bg-surface-2">
           <ArrowLeft className="h-5 w-5" />
@@ -93,14 +97,10 @@ export default function StockDetail() {
         </div>
       </div>
 
-      <Card className="num grid grid-cols-3 gap-3 p-3 sm:grid-cols-6">
-        <Stat label="Open" value={formatPrice(tick?.open)} />
-        <Stat label="High" value={formatPrice(tick?.high)} />
-        <Stat label="Low" value={formatPrice(tick?.low)} />
-        <Stat label="Prev close" value={formatPrice(tick?.prevClose)} />
-        <Stat label="Volume" value={formatQtyCompact(tick?.volume)} />
-        <Stat label="ATP" value={formatPrice(tick?.atp)} />
-      </Card>
+      {/* Chart first and edge-to-edge on phones, like TradingView's app */}
+      <div className="-mx-4 min-w-0 border-y border-line bg-surface px-2 py-2 sm:mx-0 sm:rounded-xl sm:border sm:p-3">
+        <CandleChart symbol={symbol} lines={lines} />
+      </div>
 
       {position && (
         <Card className="flex items-center justify-between gap-3 p-3">
@@ -119,10 +119,17 @@ export default function StockDetail() {
         </Card>
       )}
 
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <Card className="min-w-0 p-3">
-          <CandleChart symbol={symbol} lines={lines} />
+
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-2">
+        <Card className="num grid grid-cols-3 gap-3 p-3 sm:grid-cols-6">
+        <Stat label="Open" value={formatPrice(tick?.open)} />
+        <Stat label="High" value={formatPrice(tick?.high)} />
+        <Stat label="Low" value={formatPrice(tick?.low)} />
+        <Stat label="Prev close" value={formatPrice(tick?.prevClose)} />
+        <Stat label="Volume" value={formatQtyCompact(tick?.volume)} />
+        <Stat label="ATP" value={formatPrice(tick?.atp)} />
         </Card>
+
         <DepthPanel symbol={symbol} />
       </div>
 
@@ -134,12 +141,12 @@ export default function StockDetail() {
       )}
 
       {/* Sticky Buy/Sell bar: sits above the bottom tab bar on phones */}
-      <div className="fixed inset-x-0 bottom-[calc(57px+env(safe-area-inset-bottom))] z-30 border-t border-line bg-surface/95 px-4 py-2 backdrop-blur md:static md:border-0 md:bg-transparent md:p-0">
+      <div className="fixed inset-x-0 bottom-[calc(57px+env(safe-area-inset-bottom))] z-30 border-t border-line bg-surface/95 px-4 py-1.5 backdrop-blur md:static md:border-0 md:bg-transparent md:p-0">
         <div className="mx-auto grid max-w-5xl grid-cols-2 gap-3">
-          <button type="button" onClick={() => setSheet('BUY')} disabled={!tick} className="rounded-xl bg-up py-3.5 text-base font-bold text-white disabled:opacity-50">
+          <button type="button" {...buyTap} disabled={!tick} className="rounded-xl bg-up py-3 text-base font-bold text-white disabled:opacity-50">
             BUY
           </button>
-          <button type="button" onClick={() => setSheet('SELL')} disabled={!tick} className="rounded-xl bg-down py-3.5 text-base font-bold text-white disabled:opacity-50">
+          <button type="button" {...sellTap} disabled={!tick} className="rounded-xl bg-down py-3 text-base font-bold text-white disabled:opacity-50">
             SELL
           </button>
         </div>

@@ -170,17 +170,14 @@ Then register it in `providers/index.js`. Nothing else in the app talks to the b
 
 ## Charts
 
-The stock page chart works like a lightweight TradingView:
+The stock page chart is built for phones first:
 
-- **Timeframes:** 1m, 5m and 15m.
-- **Indicators:** pick from Volume, VWAP, EMA 9, EMA 21, SMA 50, Bollinger Bands (20, 2), RSI (14) and MACD (12, 26, 9). RSI and MACD get their own panes, and your selection is remembered on the device.
-- **Zoom and pan:** use the zoom in, zoom out and reset buttons, or:
-  - pinch or scroll the mouse wheel to zoom
-  - drag to pan
-  - drag the price axis to stretch it
-  - double-tap an axis to reset it
+- **Toolbar:** one slim row with 1m / 5m / 15m, an indicators button (with a count of what is on) and fullscreen.
+- **Indicators:** tap the indicators button to open a bottom sheet and tick Volume, VWAP, EMA 9, EMA 21, SMA 50, Bollinger Bands (20, 2), RSI (14) or MACD (12, 26, 9). RSI and MACD get their own panes. Only Volume is on by default, and your selection is remembered on the device.
+- **Zoom and pan:** pinch or scroll the mouse wheel to zoom, drag to pan. Zoom is capped so candles never get too thin or too fat, and the price axis does not stretch by accident. A "jump to latest" button appears when you scroll back in time.
+- **Legend:** the top-left corner shows open, high, low and close for the bar under your finger, or for the live bar.
+- **No accidental orders:** the Buy and Sell buttons ignore a finger that slides, and ignore taps for a moment after you pan or zoom the chart.
 - **Fullscreen:** opens real fullscreen where the browser allows it. On Android it also rotates to landscape. iPhone uses a full-page view instead.
-- **Crosshair:** shows open, high, low, close and volume for the bar under it.
 
 Indicator maths lives in `client/src/lib/indicators.js` and has unit tests.
 
