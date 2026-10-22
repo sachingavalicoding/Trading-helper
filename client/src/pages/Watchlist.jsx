@@ -4,12 +4,16 @@ import { Search, Star, X } from 'lucide-react';
 import { useMarket } from '../context/MarketContext.jsx';
 import { useTick } from '../lib/tickStore.js';
 import { useStarred } from '../lib/useStarred.js';
+import { useDeliberateTap } from '../lib/useDeliberateTap.js';
 import { formatPrice, formatPct, pnlClass } from '../lib/format.js';
 import { OrderSheet } from '../components/OrderSheet.jsx';
 import { Card, Flash, Segmented, Skeleton, EmptyState } from '../components/ui.jsx';
 
 const Row = memo(function Row({ stock, starred, onStar, onTrade }) {
   const t = useTick(stock.symbol);
+  // Scrolling the list past these buttons must not open the order sheet.
+  const buyTap = useDeliberateTap(() => onTrade(stock, 'BUY'));
+  const sellTap = useDeliberateTap(() => onTrade(stock, 'SELL'));
   return (
     <li className="flex items-center gap-2 border-b border-line px-3 py-3 last:border-0">
       <button type="button" onClick={() => onStar(stock.symbol)} aria-label={starred ? `Unstar ${stock.symbol}` : `Star ${stock.symbol}`} className="p-1 text-muted">
@@ -35,10 +39,10 @@ const Row = memo(function Row({ stock, starred, onStar, onTrade }) {
         )}
       </Link>
       <div className="ml-1 flex gap-1">
-        <button type="button" onClick={() => onTrade(stock, 'BUY')} className="rounded-lg bg-up px-2.5 py-2 text-xs font-bold text-white" aria-label={`Buy ${stock.symbol}`}>
+        <button type="button" {...buyTap} className="rounded-lg bg-up px-2.5 py-2 text-xs font-bold text-white" aria-label={`Buy ${stock.symbol}`}>
           B
         </button>
-        <button type="button" onClick={() => onTrade(stock, 'SELL')} className="rounded-lg bg-down px-2.5 py-2 text-xs font-bold text-white" aria-label={`Sell ${stock.symbol}`}>
+        <button type="button" {...sellTap} className="rounded-lg bg-down px-2.5 py-2 text-xs font-bold text-white" aria-label={`Sell ${stock.symbol}`}>
           S
         </button>
       </div>

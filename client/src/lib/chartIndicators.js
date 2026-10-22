@@ -13,7 +13,7 @@ export const INDICATORS = [
   { id: 'rsi', label: 'RSI (14)', color: '#c084fc', pane: true },
   { id: 'macd', label: 'MACD (12, 26, 9)', color: '#38bdf8', pane: true },
 ];
-export const DEFAULT_INDICATORS = ['volume', 'vwap'];
+export const DEFAULT_INDICATORS = ['volume'];
 
 const line = (color, extra = {}) => ({ color, lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, ...extra });
 const alpha = (hex, a) => {
