@@ -30,5 +30,10 @@ export function scannerRoutes({ scanner, config }) {
     });
   });
 
+  // The pre-market plan: stocks worth watching today and the level to wait for.
+  router.get('/plan', async (_req, res) => {
+    res.json({ ...(await scanner.plan()), warming: scanner.store.loadedCount < scanner.symbols.length, disclaimer: SCANNER_DISCLAIMER });
+  });
+
   return router;
 }

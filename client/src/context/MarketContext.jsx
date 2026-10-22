@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api, API_BASE } from '../lib/api.js';
 import { setTick, clearTicks } from '../lib/tickStore.js';
+import { entryText, closedText, planText, systemNotify } from '../lib/alerts.js';
 import { useAuth } from './AuthContext.jsx';
 
 const MarketContext = createContext(null);
@@ -13,6 +15,7 @@ const MarketContext = createContext(null);
  */
 export function MarketProvider({ children }) {
   const { token } = useAuth();
+  const navigate = useNavigate();
   const [instruments, setInstruments] = useState(null);
   const [status, setStatus] = useState(null);
   const [connected, setConnected] = useState(false);
@@ -54,6 +57,19 @@ export function MarketProvider({ children }) {
       else if (evt.order?.status === 'REJECTED') toast.error(evt.message || 'Order rejected');
     });
 
+    socket.on('scanner:entry', (idea) => {
+      toast.info(`New idea: ${entryText(idea)}`, { duration: 10_000, action: { label: 'View', onClick: () => navigate('/scanner') } });
+      systemNotify('New scanner idea', entryText(idea), `entry-${idea.symbol}`);
+    });
+    socket.on('scanner:closed', (idea) => {
+      toast(closedText(idea));
+      systemNotify('Scanner idea closed', closedText(idea), `closed-${idea.symbol}`);
+    });
+    socket.on('scanner:plan', (plan) => {
+      toast.info(planText(plan), { duration: 10_000, action: { label: 'View', onClick: () => navigate('/scanner') } });
+      systemNotify('Morning plan', planText(plan), 'plan');
+    });
+
     return () => {
       alive = false;
       socket.close();
@@ -61,7 +77,7 @@ export function MarketProvider({ children }) {
       clearTicks();
       setReady(false);
     };
-  }, [token, refresh]);
+  }, [token, refresh, navigate]);
 
   const subscribeDepth = useCallback((symbol) => {
     const s = socketRef.current;

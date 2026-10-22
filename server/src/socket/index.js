@@ -12,8 +12,9 @@ const valid = new Set(ALL_SYMBOLS);
  *   depth:<SYMBOL>  full ticks with 5-level depth (stock detail page)
  *   indices         index ticks, joined automatically
  *   user:<id>       order/fill/square-off notifications for one user
+ * Scanner alerts go to everyone: scanner:entry, scanner:closed and scanner:plan.
  */
-export function attachSocket(httpServer, { market, engine, config }) {
+export function attachSocket(httpServer, { market, engine, config, scanner }) {
   const io = new Server(httpServer, { cors: { origin: config.clientOrigin, credentials: true } });
 
   io.use((socket, next) => {
@@ -74,9 +75,20 @@ export function attachSocket(httpServer, { market, engine, config }) {
 
   engine.on('update', (evt) => io.to(`user:${evt.userId}`).emit('order:update', evt));
 
+  let stopScanner = () => {};
+  if (scanner) {
+    const slim = (i) => ({ symbol: i.symbol, side: i.side, setup: i.setup, entry: i.entry, stopLoss: i.stopLoss, target1: i.target1, score: i.score, status: i.status });
+    const onEntry = (idea) => io.emit('scanner:entry', slim(idea));
+    const onClosed = (idea) => io.emit('scanner:closed', { ...slim(idea), exitPrice: idea.exitPrice });
+    const onPlan = (plan) => io.emit('scanner:plan', { count: plan.items.length, symbols: plan.items.slice(0, 3).map((i) => `${i.symbol} ${i.bias}`) });
+    scanner.on('entry', onEntry).on('closed', onClosed).on('plan', onPlan);
+    stopScanner = () => scanner.off('entry', onEntry).off('closed', onClosed).off('plan', onPlan);
+  }
+
   io.closeAll = () => {
     clearInterval(flush);
     clearInterval(statusTimer);
+    stopScanner();
     io.close();
   };
   return io;

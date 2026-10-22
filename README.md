@@ -249,6 +249,13 @@ Headlines for each Nifty 50 stock come from the free Google News RSS feeds, plus
 
 The news code is in `server/src/news/` and its tests are in `server/test/news.test.js`.
 
+## Alerts and the morning plan
+
+- **Alerts.** When the scanner raises a new idea, or an idea reaches target 1, its stop or expiry, every open browser gets a message (a toast in the app). Tap the bell on the Scanner tab to also get a phone or desktop notification while the tab is in the background. Browsers only deliver these while the page is open; real push when the app is closed needs the installable app (a later step).
+- **Today's plan.** From 09:00 IST on each trading day the server builds a watch list and sends one "Morning plan ready" alert. The Scanner tab shows it under "Today's plan" (also at `GET /api/scanner/plan`). A stock is listed when its score reaches 1.5 from: fresh news (up to 3 points either way), yesterday's close in the top or bottom quarter of its range (1 point) and a gap of 0.7% or more at the open (1 point). Each entry names the level to wait for: yesterday's high for a buy, yesterday's low for a sell. It is a watch list, not a signal.
+
+The code is in `server/src/scanner/plan.js` and `client/src/lib/alerts.js`; tests are in `server/test/alerts.test.js`.
+
 ## Honest limitations
 
 - Fills are idealized. They happen at LTP with no slippage, no partial fills and no queue position, so real results will be worse.

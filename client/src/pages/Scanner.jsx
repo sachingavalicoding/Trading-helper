@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronDown, Radar, RefreshCw } from 'lucide-react';
+import { Bell, BellOff, ChevronDown, Radar, RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
 import { useMarket } from '../context/MarketContext.jsx';
 import { useApi } from '../lib/useApi.js';
 import { useTick } from '../lib/tickStore.js';
 import { formatPrice, formatPct, formatINR, formatTime, pnlClass } from '../lib/format.js';
 import { OrderSheet } from '../components/OrderSheet.jsx';
+import { MorningPlan } from '../components/MorningPlan.jsx';
+import { alertsOn, alertsSupported, setAlerts } from '../lib/alerts.js';
 import { NewsLine, NewsCard } from '../components/NewsCard.jsx';
 import { Badge, Card, EmptyState, Segmented, Skeleton } from '../components/ui.jsx';
 
@@ -191,6 +194,13 @@ function Section({ title, hint, children }) {
 export default function Scanner() {
   const [risk, setRisk] = useState(loadRisk);
   const [side, setSide] = useState('ALL');
+  const [alerts, setAlertsState] = useState(alertsOn);
+  async function toggleAlerts() {
+    const on = await setAlerts(!alerts);
+    setAlertsState(on);
+    if (!alerts && !on) toast.error('Notifications are blocked for this site. Allow them in your browser settings.');
+    else toast(on ? 'Alerts on. You get a phone notification when this tab is in the background.' : 'Alerts off');
+  }
   const [sheet, setSheet] = useState(null);
   const { instruments } = useMarket();
   const { data, loading, error, reload } = useApi(`/scanner?risk=${risk}`, [risk]);
@@ -223,10 +233,19 @@ export default function Scanner() {
             {data?.updatedAt ? `Updated ${formatTime(data.updatedAt)} IST · ${data.scanned} of ${data.total} Nifty 50 stocks scanned` : 'Nifty 50 intraday ideas'}
           </p>
         </div>
-        <button type="button" onClick={reload} aria-label="Refresh" className="rounded-lg p-2 text-muted hover:bg-surface-2">
-          <RefreshCw className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        <div className="flex items-center">
+          {alertsSupported() && (
+            <button type="button" onClick={toggleAlerts} aria-pressed={alerts} aria-label={alerts ? 'Turn phone alerts off' : 'Turn phone alerts on'} className={`rounded-lg p-2 hover:bg-surface-2 ${alerts ? 'text-accent' : 'text-muted'}`}>
+              {alerts ? <Bell className="h-5 w-5" /> : <BellOff className="h-5 w-5" />}
+            </button>
+          )}
+          <button type="button" onClick={reload} aria-label="Refresh" className="rounded-lg p-2 text-muted hover:bg-surface-2">
+            <RefreshCw className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
+
+      <MorningPlan />
 
       <Card className="space-y-3 p-3">
         <div className="flex items-center justify-between gap-3">
