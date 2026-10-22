@@ -6,6 +6,7 @@ import { OrderEngine } from '../src/services/orderEngine.js';
 import { createApp } from '../src/app.js';
 import { SignalTracker } from '../src/signals/tracker.js';
 import { ScannerService } from '../src/scanner/service.js';
+import { NewsService } from '../src/news/service.js';
 
 process.env.NODE_ENV = 'test';
 
@@ -24,7 +25,7 @@ export const baseConfig = {
   maxOrderQty: 100000,
 };
 
-export async function setup(overrides = {}, { now } = {}) {
+export async function setup(overrides = {}, { now, fetchText = async () => '<rss></rss>' } = {}) {
   if (mongoose.connection.readyState !== 1) await mongoose.connect(MONGO_TEST_URI);
   await mongoose.connection.db.dropDatabase();
   await Promise.all(Object.values(mongoose.models).map((m) => m.syncIndexes()));
@@ -38,14 +39,17 @@ export async function setup(overrides = {}, { now } = {}) {
   await tracker.init();
   const scanner = new ScannerService({ market, config, now });
   await scanner.init();
-  const app = createApp({ market, engine, config, tracker, scanner });
-  return { config, provider, market, engine, tracker, scanner, app };
+  const news = new NewsService({ market, store: scanner.store, fetchText, now });
+  scanner.news = news;
+  const app = createApp({ market, engine, config, tracker, scanner, news });
+  return { config, provider, market, engine, tracker, scanner, news, app };
 }
 
 export async function teardown(ctx) {
   ctx?.engine.stop();
   ctx?.tracker.stop();
   ctx?.scanner.stop();
+  ctx?.news.stop();
   await ctx?.market.stop();
 }
 

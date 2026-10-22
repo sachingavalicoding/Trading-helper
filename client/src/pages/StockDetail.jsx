@@ -11,6 +11,7 @@ import { formatPrice, formatPct, formatPnl, formatQtyCompact, pnlClass } from '.
 import { CandleChart } from '../components/CandleChart.jsx';
 import { DepthPanel } from '../components/DepthPanel.jsx';
 import { SignalCard } from '../components/SignalCard.jsx';
+import { NewsCard } from '../components/NewsCard.jsx';
 import { OrderSheet } from '../components/OrderSheet.jsx';
 import { Card, Flash, Skeleton, Badge, EmptyState } from '../components/ui.jsx';
 
@@ -122,6 +123,8 @@ export default function StockDetail() {
 
 
       {stock && <SignalCard symbol={symbol} onUsePlan={(side, plan) => setSheet({ side, plan })} />}
+
+      {stock && <NewsCard symbol={symbol} title={`${symbol} news`} />}
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-2">
         <Card className="num grid grid-cols-3 gap-3 p-3 sm:grid-cols-6">

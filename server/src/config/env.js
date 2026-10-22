@@ -19,6 +19,9 @@ export const env = {
   // Comma separated YYYY-MM-DD dates when NSE is closed. Keep this in sync with NSE's holiday circular.
   nseHolidays: (process.env.NSE_HOLIDAYS || '').split(',').map((s) => s.trim()).filter(Boolean),
 
+  // Free headline feeds (Google News RSS). Turn off if the server cannot reach the internet.
+  newsEnabled: bool(process.env.NEWS_ENABLED, true),
+
   startingBalance: num(process.env.STARTING_BALANCE, 100000),
   misLeverage: num(process.env.MIS_LEVERAGE, 5),
   maxOrderQty: num(process.env.MAX_ORDER_QTY, 100000),

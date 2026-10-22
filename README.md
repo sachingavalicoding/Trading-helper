@@ -220,7 +220,7 @@ The **Scanner** tab checks all 50 Nifty stocks every minute and shows a short ra
 - **VWAP pullback:** a stock in a trend dips back to VWAP, holds it, and a 5-minute bar confirms the bounce.
 - **Level retest:** a swing high or low (or the previous day's high or low) is broken, then retested from the other side and held.
 
-Not included yet: gap fill, and news (the next delivery).
+Not included yet: gap fill.
 
 **Status and score**
 
@@ -236,6 +236,18 @@ Not included yet: gap fill, and news (the next delivery).
 On the mock feed prices are random, so the setups mean nothing. The scanner only means something on live data. With Upstox, history for each stock is loaded once and then kept current from the live feed, so it does not hammer the API.
 
 The rules are in `server/src/scanner/` and the tests are in `server/test/scanner.test.js`.
+
+## News (free, no AI)
+
+Headlines for each Nifty 50 stock come from the free Google News RSS feeds, plus two market-wide feeds. The server loads a few stocks per minute (a full pass takes about ten minutes), keeps 3 days of headlines in the `NewsItem` collection, and drops duplicates and loose matches that do not mention the company.
+
+- **Tagging.** Each headline is scored from -3 to +3 by keyword rules (results beat or miss, profit up or down, orders won, brokerage upgrade or downgrade, dividend or buyback, SEBI or legal trouble, management exit, plant fire, policy hits). Headlines that ask a question or say "may" and "could" count for less. The rules are in `server/src/news/tagger.js` and every tag lists its reasons. They are simple, so a tag can be wrong. Gemini or Claude can later replace `tagHeadline` with the same return shape.
+- **Does the market agree?** For good or bad news, the price now is compared with the price when the headline came out: moved 0.3% or more the same way is **agrees**, 0.3% or more the other way is **fading** ("sell the news"), anything else is **no reaction yet**.
+- **In the scanner.** News that points the same way as an idea and is confirmed by the price adds up to 10 points (5 when the price has not reacted). Good news that is being sold costs 8. News pointing the other way costs 10, or 15 when the price agrees with it.
+- **Screens.** Each stock page has a news card, the scanner has a market headlines card, and an idea shows the headline that affected its score.
+- **Turn it off** with `NEWS_ENABLED=false` if the server cannot reach the internet. The scanner works without news.
+
+The news code is in `server/src/news/` and its tests are in `server/test/news.test.js`.
 
 ## Honest limitations
 

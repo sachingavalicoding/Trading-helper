@@ -16,8 +16,9 @@ const STATUS_ORDER = { ENTRY: 0, WATCHING: 1, MISSED: 2 };
  * target, stop loss or expiry.
  */
 export class ScannerService extends EventEmitter {
-  constructor({ market, config, now = () => new Date(), intervalMs = 60_000 }) {
+  constructor({ market, config, news = null, now = () => new Date(), intervalMs = 60_000 }) {
     super();
+    this.news = news; // optional NewsService; the scanner works without it
     this.market = market;
     this.config = config;
     this.now = now;
@@ -161,6 +162,7 @@ export class ScannerService extends EventEmitter {
     try {
       const enforceWindows = Boolean(this.config.enforceMarketHours);
       const niftyChangePct = this.market.getTick('NIFTY 50')?.changePct ?? null;
+      const newsBySymbol = await this.news?.signals().catch((e) => (logger.warn(`news unavailable: ${e.message}`), {})) ?? {};
       const entries = [];
       const watching = [];
       let scanned = 0;
@@ -177,7 +179,7 @@ export class ScannerService extends EventEmitter {
           for (const idea of open) entries.push(this.#ideaItem(idea, tick));
           continue;
         }
-        const { candidates } = evaluateStock({ symbol, tick, c1, niftyChangePct }, { now: this.now(), enforceWindows });
+        const { candidates } = evaluateStock({ symbol, tick, c1, niftyChangePct, news: newsBySymbol[symbol] ?? null }, { now: this.now(), enforceWindows });
         const top = candidates.find((c) => c.score >= MIN_SCORE);
         if (!top) continue;
         const item = { ...top, symbol, ltp: tick.ltp, changePct: tick.changePct };

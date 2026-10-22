@@ -7,6 +7,7 @@ import { OrderEngine } from './services/orderEngine.js';
 import { createApp } from './app.js';
 import { SignalTracker } from './signals/tracker.js';
 import { ScannerService } from './scanner/service.js';
+import { NewsService } from './news/service.js';
 import { attachSocket } from './socket/index.js';
 import { logger } from './utils/logger.js';
 
@@ -30,9 +31,12 @@ async function main() {
   await tracker.init();
   const scanner = new ScannerService({ market, config: env });
   await scanner.init();
+  const news = new NewsService({ market, store: scanner.store });
+  scanner.news = news;
+  if (env.newsEnabled) news.start();
   scanner.start();
 
-  const app = createApp({ market, engine, config: env, tracker, scanner });
+  const app = createApp({ market, engine, config: env, tracker, scanner, news });
   const server = http.createServer(app);
   const io = attachSocket(server, { market, engine, config: env });
 
@@ -46,6 +50,7 @@ async function main() {
     engine.stop();
     tracker.stop();
     scanner.stop();
+    news.stop();
     io.closeAll();
     await market.stop();
     server.close();
