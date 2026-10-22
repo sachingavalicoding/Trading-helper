@@ -5,6 +5,7 @@ import { createProvider } from './market/providers/index.js';
 import { MarketDataService } from './market/MarketDataService.js';
 import { OrderEngine } from './services/orderEngine.js';
 import { createApp } from './app.js';
+import { SignalTracker } from './signals/tracker.js';
 import { attachSocket } from './socket/index.js';
 import { logger } from './utils/logger.js';
 
@@ -24,8 +25,10 @@ async function main() {
     market.provider.setStatus(false, `Feed offline: ${err.message}`);
   }
   engine.startScheduler();
+  const tracker = new SignalTracker({ market });
+  await tracker.init();
 
-  const app = createApp({ market, engine, config: env });
+  const app = createApp({ market, engine, config: env, tracker });
   const server = http.createServer(app);
   const io = attachSocket(server, { market, engine, config: env });
 
@@ -37,6 +40,7 @@ async function main() {
   const shutdown = async (signal) => {
     logger.info(`${signal} received, shutting down`);
     engine.stop();
+    tracker.stop();
     io.closeAll();
     await market.stop();
     server.close();

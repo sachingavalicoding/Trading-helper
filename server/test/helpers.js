@@ -4,6 +4,7 @@ import { MockProvider } from '../src/market/providers/MockProvider.js';
 import { MarketDataService } from '../src/market/MarketDataService.js';
 import { OrderEngine } from '../src/services/orderEngine.js';
 import { createApp } from '../src/app.js';
+import { SignalTracker } from '../src/signals/tracker.js';
 
 process.env.NODE_ENV = 'test';
 
@@ -32,12 +33,15 @@ export async function setup(overrides = {}, { now } = {}) {
   const engine = new OrderEngine({ market, config, now });
   await engine.init();
   await market.start();
-  const app = createApp({ market, engine, config });
-  return { config, provider, market, engine, app };
+  const tracker = new SignalTracker({ market, now });
+  await tracker.init();
+  const app = createApp({ market, engine, config, tracker });
+  return { config, provider, market, engine, tracker, app };
 }
 
 export async function teardown(ctx) {
   ctx?.engine.stop();
+  ctx?.tracker.stop();
   await ctx?.market.stop();
 }
 

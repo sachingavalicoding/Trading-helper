@@ -181,6 +181,35 @@ The stock page chart is built for phones first:
 
 Indicator maths lives in `client/src/lib/indicators.js` and has unit tests.
 
+## Chart signals (Buy / Sell / No trade)
+
+Each stock page has a **Chart signal** card. It reads the 5-minute and 15-minute charts and gives one of three answers: **BUY**, **SELL** or **NO TRADE**.
+
+It runs eight checks, and each one votes bullish, bearish or neutral:
+
+- price against VWAP
+- EMA 9 against EMA 21 on 5-minute bars
+- EMA 9 against EMA 21 on 15-minute bars
+- RSI (14)
+- MACD histogram
+- a volume spike on the last bar
+- buy against sell quantity in the order book
+- the Nifty 50 move today
+
+A BUY or SELL needs at least four net votes, and none of the three trend checks may disagree. RSI above 75 (or below 25) means "stretched, wait".
+
+For a BUY or SELL, the card suggests:
+
+- an entry zone
+- a stop loss just past the nearest support or resistance (at least 0.3% away)
+- a target just before the next level
+
+If reward is less than 1.5 times risk, the answer becomes NO TRADE. Tap **Why?** to see every check, the nearby levels, and what would prove the idea wrong. If you already hold the stock, the card says **Hold** or **Consider exit**.
+
+Every BUY/SELL you are shown is logged and followed. The dashboard's **Signal track record** shows how often signals reached their target before their stop loss. A signal that does neither within two hours is marked expired.
+
+This is a rule-based reading of the chart for learning. It is not investment advice, and no signal is guaranteed to work. News is not part of it yet. The rules live in `server/src/signals/analyze.js` and have tests in `server/test/signals.test.js`.
+
 ## Honest limitations
 
 - Fills are idealized. They happen at LTP with no slippage, no partial fills and no queue position, so real results will be worse.
