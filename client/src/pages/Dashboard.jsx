@@ -4,9 +4,9 @@ import { useMarket } from '../context/MarketContext.jsx';
 import { useApi } from '../lib/useApi.js';
 import { useLtps } from '../lib/tickStore.js';
 import { IST_OFFSET_SEC } from '../lib/chart.js';
-import { formatPnl, formatINR, formatDateTime, pnlClass } from '../lib/format.js';
+import { formatPnl, formatINR, formatDateTime, formatPrice, pnlClass } from '../lib/format.js';
 import { MiniChart } from '../components/MiniChart.jsx';
-import { Card, Skeleton, EmptyState, Disclaimer } from '../components/ui.jsx';
+import { Card, Skeleton, EmptyState, Disclaimer, Badge } from '../components/ui.jsx';
 
 function Stat({ label, value, tone, sub }) {
   return (
@@ -14,6 +14,49 @@ function Stat({ label, value, tone, sub }) {
       <div className="text-[11px] text-muted">{label}</div>
       <div className={`num mt-1 text-lg font-bold ${tone || ''}`}>{value}</div>
       {sub && <div className="num mt-0.5 truncate text-[11px] text-muted">{sub}</div>}
+    </Card>
+  );
+}
+
+const OUTCOME = {
+  OPEN: { label: 'Open', tone: 'muted' },
+  TARGET_HIT: { label: 'Target hit', tone: 'up' },
+  SL_HIT: { label: 'Stopped out', tone: 'down' },
+  EXPIRED: { label: 'Expired', tone: 'muted' },
+};
+
+/** How the chart signals you were shown actually played out. */
+function SignalRecord({ version }) {
+  const { data } = useApi('/signals/stats', [version]);
+  if (!data) return null;
+  return (
+    <Card className="p-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold">Signal track record</h3>
+        <span className="num text-xs text-muted">
+          {data.hitRate == null ? 'No results yet' : `${data.hitRate}% hit target (${data.wins} of ${data.wins + data.losses})`}
+        </span>
+      </div>
+      {data.total === 0 ? (
+        <p className="mt-2 text-xs text-muted">Buy and sell signals you see on stock pages are tracked here, so you can see how often they worked.</p>
+      ) : (
+        <ul className="mt-2 divide-y divide-line">
+          {data.recent.map((r) => (
+            <li key={r._id} className="flex items-center justify-between gap-2 py-2 text-sm">
+              <div className="min-w-0">
+                <span className={`font-semibold ${r.action === 'BUY' ? 'text-up' : 'text-down'}`}>{r.action}</span> <span className="font-medium">{r.symbol}</span>
+                <div className="num truncate text-[11px] text-muted">
+                  {formatDateTime(r.createdAt)} · @ {formatPrice(r.entry)}
+                </div>
+              </div>
+              <div className="text-right">
+                <Badge tone={OUTCOME[r.status].tone}>{OUTCOME[r.status].label}</Badge>
+                {r.movePct != null && <div className={`num text-[11px] ${pnlClass(r.movePct)}`}>{r.movePct > 0 ? '+' : ''}{r.movePct}%</div>}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </Card>
   );
 }
@@ -95,6 +138,7 @@ export default function Dashboard() {
           </Card>
         </div>
       )}
+      <SignalRecord version={version} />
       <Disclaimer />
     </div>
   );

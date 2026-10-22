@@ -10,6 +10,7 @@ import { api } from '../lib/api.js';
 import { formatPrice, formatPct, formatPnl, formatQtyCompact, pnlClass } from '../lib/format.js';
 import { CandleChart } from '../components/CandleChart.jsx';
 import { DepthPanel } from '../components/DepthPanel.jsx';
+import { SignalCard } from '../components/SignalCard.jsx';
 import { OrderSheet } from '../components/OrderSheet.jsx';
 import { Card, Flash, Skeleton, Badge, EmptyState } from '../components/ui.jsx';
 
@@ -26,10 +27,10 @@ export default function StockDetail() {
   const symbol = decodeURIComponent(useParams().symbol || '').toUpperCase();
   const { instruments, subscribeDepth, version, status } = useMarket();
   const tick = useTick(symbol);
-  const [sheet, setSheet] = useState(null);
+  const [sheet, setSheet] = useState(null); // { side, plan? }
   // Only a deliberate tap opens the order sheet, never a chart drag that ends on the button.
-  const buyTap = useDeliberateTap(() => setSheet('BUY'));
-  const sellTap = useDeliberateTap(() => setSheet('SELL'));
+  const buyTap = useDeliberateTap(() => setSheet({ side: 'BUY' }));
+  const sellTap = useDeliberateTap(() => setSheet({ side: 'SELL' }));
   const stock = instruments?.stocks.find((s) => s.symbol === symbol);
   const known = !instruments || stock;
 
@@ -120,6 +121,8 @@ export default function StockDetail() {
       )}
 
 
+      {stock && <SignalCard symbol={symbol} onUsePlan={(side, plan) => setSheet({ side, plan })} />}
+
       <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-2">
         <Card className="num grid grid-cols-3 gap-3 p-3 sm:grid-cols-6">
         <Stat label="Open" value={formatPrice(tick?.open)} />
@@ -152,7 +155,7 @@ export default function StockDetail() {
         </div>
       </div>
 
-      {sheet && <OrderSheet symbol={symbol} name={stock?.name} side={sheet} onClose={() => setSheet(null)} />}
+      {sheet && <OrderSheet symbol={symbol} name={stock?.name} side={sheet.side} plan={sheet.plan} onClose={() => setSheet(null)} />}
     </div>
   );
 }

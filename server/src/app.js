@@ -7,12 +7,13 @@ import { authRoutes } from './routes/auth.js';
 import { marketRoutes } from './routes/market.js';
 import { tradingRoutes } from './routes/trading.js';
 import { upstoxRoutes } from './routes/upstox.js';
+import { signalRoutes } from './routes/signals.js';
 import { requireAuth } from './middleware/auth.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 export const DISCLAIMER = 'Paper trading for learning. Not investment advice.';
 
-export function createApp({ market, engine, config }) {
+export function createApp({ market, engine, config, tracker }) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
@@ -29,6 +30,7 @@ export function createApp({ market, engine, config }) {
 
   const auth = requireAuth(config.jwtSecret);
   app.use('/api/market', auth, marketRoutes({ market }));
+  app.use('/api/signals', auth, signalRoutes({ market, tracker }));
   app.use('/api', auth, tradingRoutes({ engine, market, config }));
 
   if (config.nodeEnv !== 'production') app.use('/upstox', upstoxRoutes(config));
