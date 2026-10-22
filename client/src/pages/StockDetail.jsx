@@ -119,8 +119,8 @@ export default function StockDetail() {
         </Card>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-[1fr_300px]">
-        <Card className="p-3">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <Card className="min-w-0 p-3">
           <CandleChart symbol={symbol} lines={lines} />
         </Card>
         <DepthPanel symbol={symbol} />

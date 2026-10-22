@@ -168,6 +168,22 @@ Then register it in `providers/index.js`. Nothing else in the app talks to the b
 
 ---
 
+## Charts
+
+The stock page chart works like a lightweight TradingView:
+
+- **Timeframes:** 1m, 5m and 15m.
+- **Indicators:** pick from Volume, VWAP, EMA 9, EMA 21, SMA 50, Bollinger Bands (20, 2), RSI (14) and MACD (12, 26, 9). RSI and MACD get their own panes, and your selection is remembered on the device.
+- **Zoom and pan:** use the zoom in, zoom out and reset buttons, or:
+  - pinch or scroll the mouse wheel to zoom
+  - drag to pan
+  - drag the price axis to stretch it
+  - double-tap an axis to reset it
+- **Fullscreen:** opens real fullscreen where the browser allows it. On Android it also rotates to landscape. iPhone uses a full-page view instead.
+- **Crosshair:** shows open, high, low, close and volume for the bar under it.
+
+Indicator maths lives in `client/src/lib/indicators.js` and has unit tests.
+
 ## Honest limitations
 
 - Fills are idealized. They happen at LTP with no slippage, no partial fills and no queue position, so real results will be worse.
