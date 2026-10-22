@@ -1,0 +1,38 @@
+{
+  "name": "nifty-paper-trader-server",
+  "version": "1.0.0",
+  "description": "Paper trading backend for NSE (Nifty 50). Paper trading for learning. Not investment advice.",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "nodemon --watch src --watch .env src/index.js",
+    "start": "node src/index.js",
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.js\"",
+    "upstox:token": "node scripts/upstox-token.js"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.8",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.11.3",
+    "morgan": "^1.12.1",
+    "protobufjs": "^8.8.1",
+    "socket.io": "^4.8.4",
+    "ws": "^8.22.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14",
+    "socket.io-client": "^4.8.4",
+    "supertest": "^7.3.1"
+  },
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  }
+}

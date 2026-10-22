@@ -1,0 +1,117 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Theme tokens. Dark is the default; `html.light` switches to the light palette. */
+:root,
+.dark {
+  --bg: #0b0f17;
+  --surface: #121826;
+  --surface-2: #1a2233;
+  --border: #253048;
+  --text: #e6ebf5;
+  --muted: #8b97b0;
+  --up: #22c55e;
+  --up-soft: rgba(34, 197, 94, 0.14);
+  --down: #ef4444;
+  --down-soft: rgba(239, 68, 68, 0.14);
+  --accent: #3b82f6;
+  --warn: #f59e0b;
+  color-scheme: dark;
+}
+
+.light {
+  --bg: #f4f6fa;
+  --surface: #ffffff;
+  --surface-2: #eef1f6;
+  --border: #dde3ec;
+  --text: #0f172a;
+  --muted: #5b6780;
+  --up: #16a34a;
+  --up-soft: rgba(22, 163, 74, 0.12);
+  --down: #dc2626;
+  --down-soft: rgba(220, 38, 38, 0.1);
+  --accent: #2563eb;
+  --warn: #d97706;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--border);
+  --color-fg: var(--text);
+  --color-muted: var(--muted);
+  --color-up: var(--up);
+  --color-up-soft: var(--up-soft);
+  --color-down: var(--down);
+  --color-down-soft: var(--down-soft);
+  --color-accent: var(--accent);
+  --color-warn: var(--warn);
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+body {
+  font-feature-settings: 'tnum' 1; /* tabular numbers so prices don't jiggle */
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Live price flash on tick */
+@keyframes flash-up {
+  from { background-color: var(--up-soft); }
+  to { background-color: transparent; }
+}
+@keyframes flash-down {
+  from { background-color: var(--down-soft); }
+  to { background-color: transparent; }
+}
+.flash-up { animation: flash-up 0.7s ease-out; }
+.flash-down { animation: flash-down 0.7s ease-out; }
+
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: 0.375rem;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  animation: shimmer 1.3s infinite;
+}
+
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.sheet-in { animation: sheet-in 0.22s ease-out; }
+
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type='number'] { -moz-appearance: textfield; }
+
+@media (prefers-reduced-motion: reduce) {
+  .flash-up, .flash-down, .sheet-in, .skeleton::after { animation: none; }
+}
