@@ -210,6 +210,33 @@ Every BUY/SELL you are shown is logged and followed. The dashboard's **Signal tr
 
 This is a rule-based reading of the chart for learning. It is not investment advice, and no signal is guaranteed to work. News is not part of it yet. The rules live in `server/src/signals/analyze.js` and have tests in `server/test/signals.test.js`.
 
+## Stocks in play (intraday scanner)
+
+The **Scanner** tab checks all 50 Nifty stocks every minute and shows a short ranked list of ideas. Each idea has a setup, an entry zone, a stop loss, two targets, the reward-to-risk ratio and a share quantity.
+
+**Setups**
+
+- **Opening range breakout:** a 5-minute bar closes past the high or low of the first 15 minutes. It becomes **Gap and go** when the stock also gapped that way by 0.7% or more and held the gap.
+- **VWAP pullback:** a stock in a trend dips back to VWAP, holds it, and a 5-minute bar confirms the bounce.
+- **Level retest:** a swing high or low (or the previous day's high or low) is broken, then retested from the other side and held.
+
+Not included yet: gap fill, and news (the next delivery).
+
+**Status and score**
+
+- Each idea is **Entry now** (trigger fired and price is still in the entry zone), **Watching** (setup forming) or **Missed** (price ran too far to chase).
+- Each idea scores out of 100: the setup (30), trend agreement on VWAP and 5m/15m EMAs (20), volume against normal for that time of day (20), strength against Nifty 50 (15), order book (8) and RSI (7). Penalties apply when Nifty 50 moves against the trade or RSI is stretched. Only ideas scoring 60 or more are shown.
+- An idea needs at least 1.5 times reward to risk, or it is dropped. The stop is never tighter than 0.3% of the price.
+- With market hours enforced, nothing is suggested before 09:30 or after 14:45 IST.
+
+**Plans do not move.** When an idea goes to Entry now it is saved with its entry, stop and targets, and followed until target 1, the stop loss or two hours pass (or 15:15 IST). There is one idea per stock, setup and side per day. Outcomes are stored in the `ScanIdea` collection and listed under **Done today**.
+
+**Position size.** Pick a risk per trade (0.5%, 1% or 2% of your balance). Each idea shows the quantity that loses about that much if the stop is hit, limited by your free margin. "Buy with stop loss and target 1" opens the order sheet with the quantity, stop loss and target filled in.
+
+On the mock feed prices are random, so the setups mean nothing. The scanner only means something on live data. With Upstox, history for each stock is loaded once and then kept current from the live feed, so it does not hammer the API.
+
+The rules are in `server/src/scanner/` and the tests are in `server/test/scanner.test.js`.
+
 ## Honest limitations
 
 - Fills are idealized. They happen at LTP with no slippage, no partial fills and no queue position, so real results will be worse.

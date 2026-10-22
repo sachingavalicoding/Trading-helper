@@ -5,6 +5,7 @@ import { MarketDataService } from '../src/market/MarketDataService.js';
 import { OrderEngine } from '../src/services/orderEngine.js';
 import { createApp } from '../src/app.js';
 import { SignalTracker } from '../src/signals/tracker.js';
+import { ScannerService } from '../src/scanner/service.js';
 
 process.env.NODE_ENV = 'test';
 
@@ -35,13 +36,16 @@ export async function setup(overrides = {}, { now } = {}) {
   await market.start();
   const tracker = new SignalTracker({ market, now });
   await tracker.init();
-  const app = createApp({ market, engine, config, tracker });
-  return { config, provider, market, engine, tracker, app };
+  const scanner = new ScannerService({ market, config, now });
+  await scanner.init();
+  const app = createApp({ market, engine, config, tracker, scanner });
+  return { config, provider, market, engine, tracker, scanner, app };
 }
 
 export async function teardown(ctx) {
   ctx?.engine.stop();
   ctx?.tracker.stop();
+  ctx?.scanner.stop();
   await ctx?.market.stop();
 }
 

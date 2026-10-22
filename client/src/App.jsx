@@ -10,6 +10,7 @@ import AuthPage from './pages/AuthPage.jsx';
 import Watchlist from './pages/Watchlist.jsx';
 
 const StockDetail = lazy(() => import('./pages/StockDetail.jsx'));
+const Scanner = lazy(() => import('./pages/Scanner.jsx'));
 const Positions = lazy(() => import('./pages/Positions.jsx'));
 const Orders = lazy(() => import('./pages/Orders.jsx'));
 const Dashboard = lazy(() => import('./pages/Dashboard.jsx'));
@@ -51,6 +52,7 @@ export default function App() {
               <Route path="/register" element={<AuthPage mode="register" />} />
               <Route element={<Protected />}>
                 <Route index element={<Watchlist />} />
+                <Route path="scanner" element={<Scanner />} />
                 <Route path="stock/:symbol" element={<StockDetail />} />
                 <Route path="positions" element={<Positions />} />
                 <Route path="orders" element={<Orders />} />
