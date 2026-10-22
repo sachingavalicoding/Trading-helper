@@ -35,8 +35,26 @@ export function scoreCandidate(ctx, c) {
   const rsiOk = ctx.rsi != null && (d > 0 ? ctx.rsi >= 50 && ctx.rsi <= 72 : ctx.rsi >= 28 && ctx.rsi <= 50);
   checks.push(check('rsi', 'RSI', rsiOk ? 7 : 0, 7, ctx.rsi == null ? 'No RSI yet' : `RSI ${ctx.rsi.toFixed(0)}${rsiOk ? ' supports the move' : ' does not support the move'}`));
 
-  let score = checks.reduce((s, x) => s + x.points, 0);
   const penalties = [];
+  let newsDelta = 0;
+  const n = ctx.news;
+  if (n) {
+    const aligned = (n.label === 'BULLISH') === (d > 0);
+    const r = n.reaction;
+    const headline = `"${n.title}"`;
+    if (aligned && r === 'FADING') {
+      newsDelta = -8;
+      penalties.push(`Good news for this trade is being sold (${headline}); the price fell ${Math.abs(n.movePct)}% since`);
+    } else if (aligned) {
+      const pts = r === 'AGREES' ? 10 : 5;
+      checks.push(check('news', 'News (bonus)', pts, 10, r === 'AGREES' ? `${headline}, and the price confirms it (${n.movePct > 0 ? '+' : ''}${n.movePct}% since)` : `${headline}; the price has not reacted yet`));
+    } else {
+      newsDelta = r === 'AGREES' ? -15 : -10;
+      penalties.push(`News points the other way: ${headline}${r === 'AGREES' ? ' and the price agrees' : ''}`);
+    }
+  }
+
+  let score = checks.reduce((s, x) => s + x.points, 0) + newsDelta;
   if (ctx.niftyChangePct != null && d * ctx.niftyChangePct <= -0.6) {
     score -= 15;
     penalties.push(`Nifty 50 is moving against this trade (${ctx.niftyChangePct.toFixed(2)}%)`);
@@ -45,7 +63,7 @@ export function scoreCandidate(ctx, c) {
     score -= 10;
     penalties.push(`RSI ${ctx.rsi.toFixed(0)} is stretched, so a pullback is likely`);
   }
-  return { ...c, score: Math.max(0, Math.min(100, score)), checks, penalties };
+  return { ...c, score: Math.max(0, Math.min(100, score)), checks, penalties, news: ctx.news ?? null };
 }
 
 /** Only suggest entries between 09:30 and 14:45 IST. */

@@ -33,7 +33,7 @@ const trend = (fast, slow) => (fast == null || slow == null || Math.abs(fast - s
  * Everything the setups need to know about one stock right now.
  * `c1` is 1-minute candles, oldest first; the last bar is still forming.
  */
-export function buildContext({ symbol, tick, c1, niftyChangePct = null }) {
+export function buildContext({ symbol, tick, c1, niftyChangePct = null, news = null }) {
   if (!tick || !c1 || c1.length < 40) return null;
   const c5 = aggregateCandles(c1, '5m');
   const c15 = aggregateCandles(c1, '15m');
@@ -90,5 +90,6 @@ export function buildContext({ symbol, tick, c1, niftyChangePct = null }) {
     bookShare: buy && sell ? buy / (buy + sell) : null,
     gapPct: tick.prevClose ? ((tick.open - tick.prevClose) / tick.prevClose) * 100 : 0,
     prevClose: tick.prevClose,
+    news,
   };
 }

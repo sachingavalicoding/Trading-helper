@@ -6,6 +6,7 @@ import { useApi } from '../lib/useApi.js';
 import { useTick } from '../lib/tickStore.js';
 import { formatPrice, formatPct, formatINR, formatTime, pnlClass } from '../lib/format.js';
 import { OrderSheet } from '../components/OrderSheet.jsx';
+import { NewsLine, NewsCard } from '../components/NewsCard.jsx';
 import { Badge, Card, EmptyState, Segmented, Skeleton } from '../components/ui.jsx';
 
 const REFRESH_MS = 30_000;
@@ -98,6 +99,8 @@ function IdeaCard({ idea, onBuy }) {
           </span>
         </div>
       )}
+
+      <NewsLine news={idea.news} />
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg bg-surface-2 p-3">
         <Cell label="Entry zone">
@@ -301,6 +304,8 @@ export default function Scanner() {
           )}
         </>
       )}
+
+      <NewsCard symbol="MARKET" title="Market headlines" limit={5} />
 
       {data?.disclaimer && <p className="text-center text-[11px] text-muted">{data.disclaimer}</p>}
 
