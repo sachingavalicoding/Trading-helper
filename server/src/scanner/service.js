@@ -1,11 +1,13 @@
 import { EventEmitter } from 'node:events';
 import { NIFTY50 } from '../market/instruments.js';
-import { istParts, SQUARE_OFF_MIN } from '../market/marketHours.js';
+import { istParts, isTradingDay, SQUARE_OFF_MIN } from '../market/marketHours.js';
 import { ScanIdea } from '../models/index.js';
 import { logger } from '../utils/logger.js';
 import { CandleStore } from './candleStore.js';
 import { evaluateStock, MIN_SCORE } from './evaluate.js';
+import { buildPlan } from './plan.js';
 
+const PLAN_AT_MIN = 9 * 60; // the morning plan goes out at 09:00 IST
 const IDEA_TTL_MS = 2 * 60 * 60 * 1000;
 const MAX_WATCHING = 6;
 const STATUS_ORDER = { ENTRY: 0, WATCHING: 1, MISSED: 2 };
@@ -13,7 +15,7 @@ const STATUS_ORDER = { ENTRY: 0, WATCHING: 1, MISSED: 2 };
 /**
  * Looks at all 50 Nifty stocks every minute and keeps a short ranked list of ideas.
  * Events: 'entry' (idea) when a new idea is raised, 'closed' (idea) when one reaches its
- * target, stop loss or expiry.
+ * target, stop loss or expiry, 'plan' (plan) once on each trading day from 09:00 IST.
  */
 export class ScannerService extends EventEmitter {
   constructor({ market, config, news = null, now = () => new Date(), intervalMs = 60_000 }) {
@@ -30,6 +32,7 @@ export class ScannerService extends EventEmitter {
     this.result = { items: [], scanned: 0, total: this.symbols.length, updatedAt: null };
     this.scanning = false;
     this.warm = null;
+    this.planSentOn = null;
     this.onTick = (tick) => {
       this.store.onTick(tick);
       this.#check(tick).catch((e) => logger.error('scanner tick check failed', e));
@@ -60,6 +63,7 @@ export class ScannerService extends EventEmitter {
       this.store
         .refreshSome(3)
         .then(() => this.scanOnce())
+        .then(() => this.announcePlan())
         .catch((e) => logger.error('scan failed', e));
     }, this.intervalMs);
     this.timer.unref?.();
@@ -200,6 +204,23 @@ export class ScannerService extends EventEmitter {
     } finally {
       this.scanning = false;
     }
+  }
+
+  /** Today's pre-market plan (see plan.js). */
+  async plan() {
+    const signals = (await this.news?.signals().catch(() => ({}))) ?? {};
+    return buildPlan({ store: this.store, market: this.market, signals, now: this.now() });
+  }
+
+  /** Emit 'plan' once per trading day, at or after 09:00 IST. */
+  async announcePlan() {
+    const now = this.now();
+    const { dateKey, minutes } = istParts(now);
+    if (this.planSentOn === dateKey || minutes < PLAN_AT_MIN || !isTradingDay(now, this.config.nseHolidays)) return null;
+    this.planSentOn = dateKey;
+    const plan = await this.plan();
+    this.emit('plan', plan);
+    return plan;
   }
 
   /** Ideas that finished today (target, stop loss or expiry), newest first. */

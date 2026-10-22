@@ -38,7 +38,7 @@ async function main() {
 
   const app = createApp({ market, engine, config: env, tracker, scanner, news });
   const server = http.createServer(app);
-  const io = attachSocket(server, { market, engine, config: env });
+  const io = attachSocket(server, { market, engine, config: env, scanner });
 
   server.listen(env.port, () => {
     const feed = market.status().feed;
