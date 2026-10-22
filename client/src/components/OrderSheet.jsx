@@ -14,14 +14,14 @@ const fix2 = (p) => Number(roundTick(p).toFixed(2));
 /**
  * Bottom sheet on phones, centred dialog on larger screens.
  * Defaults to a market order so a trade is: tap Buy -> tap confirm.
- * Pass `plan` ({ stopLoss, target }) to pre-fill the stop loss and target.
+ * Pass `plan` ({ stopLoss, target }) and `qty` to pre-fill the stop loss, target and quantity.
  */
-export function OrderSheet({ symbol, name, side: initialSide, plan, onClose }) {
+export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initialQty, onClose }) {
   const tick = useTick(symbol);
   const { refresh } = useMarket();
   const [side, setSide] = useState(initialSide);
   const [orderType, setOrderType] = useState('MARKET');
-  const [qty, setQty] = useState(1);
+  const [qty, setQty] = useState(initialQty >= 1 ? initialQty : 1);
   const [price, setPrice] = useState('');
   // `plan` comes from the chart signal and pre-fills the stop loss and target.
   const [withBracket, setWithBracket] = useState(Boolean(plan));

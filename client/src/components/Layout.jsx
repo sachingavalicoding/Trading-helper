@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, LineChart, Briefcase, ListOrdered, UserRound, Sun, Moon } from 'lucide-react';
+import { LayoutDashboard, LineChart, Briefcase, ListOrdered, UserRound, Radar, Sun, Moon } from 'lucide-react';
 import { IndexStrip } from './IndexStrip.jsx';
 import { MarketStatus } from './MarketStatus.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
@@ -7,6 +7,7 @@ import { Disclaimer } from './ui.jsx';
 
 const NAV = [
   { to: '/', label: 'Watchlist', icon: LineChart, end: true },
+  { to: '/scanner', label: 'Scanner', icon: Radar },
   { to: '/positions', label: 'Positions', icon: Briefcase },
   { to: '/orders', label: 'Orders', icon: ListOrdered },
   { to: '/dashboard', label: 'P&L', icon: LayoutDashboard },
@@ -61,13 +62,13 @@ export function Layout() {
 
         {/* Mobile bottom tab bar */}
         <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur md:hidden">
-          <div className="grid grid-cols-5">
+          <div className="grid grid-cols-6">
             {NAV.map(({ to, label, icon: Icon, end }) => (
               <NavLink
                 key={to}
                 to={to}
                 end={end}
-                className={({ isActive }) => `flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium ${isActive ? 'text-accent' : 'text-muted'}`}
+                className={({ isActive }) => `flex flex-col items-center gap-0.5 py-2.5 text-[10px] font-medium ${isActive ? 'text-accent' : 'text-muted'}`}
               >
                 <Icon className="h-5 w-5" />
                 {label}

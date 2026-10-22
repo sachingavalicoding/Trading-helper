@@ -6,6 +6,7 @@ import { MarketDataService } from './market/MarketDataService.js';
 import { OrderEngine } from './services/orderEngine.js';
 import { createApp } from './app.js';
 import { SignalTracker } from './signals/tracker.js';
+import { ScannerService } from './scanner/service.js';
 import { attachSocket } from './socket/index.js';
 import { logger } from './utils/logger.js';
 
@@ -27,8 +28,11 @@ async function main() {
   engine.startScheduler();
   const tracker = new SignalTracker({ market });
   await tracker.init();
+  const scanner = new ScannerService({ market, config: env });
+  await scanner.init();
+  scanner.start();
 
-  const app = createApp({ market, engine, config: env, tracker });
+  const app = createApp({ market, engine, config: env, tracker, scanner });
   const server = http.createServer(app);
   const io = attachSocket(server, { market, engine, config: env });
 
@@ -41,6 +45,7 @@ async function main() {
     logger.info(`${signal} received, shutting down`);
     engine.stop();
     tracker.stop();
+    scanner.stop();
     io.closeAll();
     await market.stop();
     server.close();
