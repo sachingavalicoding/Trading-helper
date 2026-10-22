@@ -8,6 +8,7 @@ import { useTick } from '../lib/tickStore.js';
 import { formatPrice, formatPct, formatINR, formatTime, pnlClass } from '../lib/format.js';
 import { OrderSheet } from '../components/OrderSheet.jsx';
 import { MorningPlan } from '../components/MorningPlan.jsx';
+import { ScannerRecord } from '../components/ScannerRecord.jsx';
 import { alertsOn, alertsSupported, setAlerts } from '../lib/alerts.js';
 import { NewsLine, NewsCard } from '../components/NewsCard.jsx';
 import { Badge, Card, EmptyState, Segmented, Skeleton } from '../components/ui.jsx';
@@ -323,6 +324,8 @@ export default function Scanner() {
           )}
         </>
       )}
+
+      <ScannerRecord />
 
       <NewsCard symbol="MARKET" title="Market headlines" limit={5} />
 
