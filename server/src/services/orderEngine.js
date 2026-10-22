@@ -77,6 +77,59 @@ export class OrderEngine extends EventEmitter {
     });
   }
 
+  /**
+   * Move the price of a resting order (limit price, or the trigger of a stop-loss). Used by the
+   * chart's draggable SL / target / limit lines.
+   */
+  modifyOrder(userId, orderId, newPrice) {
+    return this.locks.run(String(userId), async () => {
+      const order = await Order.findOne({ _id: orderId, user: userId });
+      if (!order) throw notFound('Order not found');
+      if (order.status !== 'OPEN') throw badRequest(`Order is already ${order.status.toLowerCase()}`, 'NOT_OPEN');
+
+      const price = roundToTick(Number(newPrice));
+      if (!(price > 0)) throw badRequest('Price must be greater than zero', 'INVALID_PRICE');
+      const ltp = this.market.getLtp(order.symbol);
+      if (!ltp) throw unavailable('No live price for this stock yet. Try again in a moment.', 'NO_PRICE');
+
+      const isBuy = order.side === 'BUY';
+      if (order.role === 'STOPLOSS') {
+        // A buy-stop (covering a short) sits above the market, a sell-stop below it.
+        if (isBuy ? price <= ltp : price >= ltp) {
+          throw badRequest(`Stop-loss must be ${isBuy ? 'above' : 'below'} the current price`, 'INVALID_SL');
+        }
+        order.triggerPrice = price;
+      } else if (order.role === 'TARGET') {
+        if (isBuy ? price >= ltp : price <= ltp) {
+          throw badRequest(`Target must be ${isBuy ? 'below' : 'above'} the current price`, 'INVALID_TARGET');
+        }
+        order.price = price;
+      } else if (order.orderType === 'LIMIT') {
+        if (Math.abs(price - ltp) / ltp > MAX_LIMIT_DEVIATION) {
+          throw badRequest('Limit price is more than 20% away from the current price', 'INVALID_PRICE');
+        }
+        const position = await Position.findOne({ user: userId, symbol: order.symbol, status: 'OPEN' });
+        const openingQty = this.#openingQty(position, order.side, order.qty);
+        if (openingQty > 0) {
+          const funds = await getFunds(userId, this.config.startingBalance);
+          const required = this.#marginFor(openingQty, price) + calculateCharges({ side: order.side, qty: order.qty, price }).total;
+          if (required > funds.available + order.blockedMargin) {
+            throw badRequest(`Insufficient funds. Required ₹${round2(required)}, available ₹${round2(funds.available + order.blockedMargin)}.`, 'INSUFFICIENT_FUNDS');
+          }
+        }
+        order.price = price;
+        order.blockedMargin = round2(this.#marginFor(openingQty, price));
+      } else {
+        throw badRequest('This order cannot be modified', 'NOT_MODIFIABLE');
+      }
+
+      await order.save();
+      this.#addToBook(order.toObject()); // replaces the cached trigger/price
+      this.emit('update', { userId: String(userId), kind: 'order', order: order.toJSON() });
+      return order;
+    });
+  }
+
   /** One-tap exit of an open position at market. */
   exitPosition(userId, symbol) {
     return this.locks.run(String(userId), async () => {
@@ -301,6 +354,7 @@ export class OrderEngine extends EventEmitter {
     const trades = [];
     let remaining = qty;
     let pnlDelta = 0;
+    let closedHere = false;
 
     if (position && sign(side) !== Math.sign(position.netQty)) {
       const closeQty = Math.min(remaining, Math.abs(position.netQty));
@@ -321,7 +375,10 @@ export class OrderEngine extends EventEmitter {
       trades.push(this.#trade(order, position, closeQty, price, ch, pnl, now, tradingDay));
       pnlDelta += pnl;
       remaining -= closeQty;
-      if (position.status === 'CLOSED') position = null;
+      if (position.status === 'CLOSED') {
+        position = null;
+        closedHere = true;
+      }
     }
 
     if (remaining > 0) {
@@ -365,7 +422,8 @@ export class OrderEngine extends EventEmitter {
       }
     }
     const stillOpen = await Position.findOne({ user: userId, symbol, status: 'OPEN' });
-    if (!stillOpen) {
+    // Also when an order flips the position: the old side's SL/target legs no longer apply.
+    if (!stillOpen || closedHere) {
       for (const leg of await Order.find({ user: userId, symbol, status: 'OPEN', role: { $in: EXIT_ROLES } })) {
         await this.#cancel(leg, 'Position closed');
       }

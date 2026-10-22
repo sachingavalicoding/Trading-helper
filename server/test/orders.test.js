@@ -137,6 +137,24 @@ test('stop-loss leg exits the position and cancels the target (OCO)', async () =
   assert.equal(dash.totals.grossRealized, -110);
 });
 
+test('modifying a stop-loss moves its trigger and validates the side', async () => {
+  await place({ symbol: 'RELIANCE', side: 'BUY', qty: 10, stopLoss: 990, target: 1020 }).expect(201);
+  const orders = (await api().get('/api/orders?status=OPEN').set(user.auth)).body.orders;
+  const sl = orders.find((o) => o.role === 'STOPLOSS');
+  const tg = orders.find((o) => o.role === 'TARGET');
+  const patch = (id, price) => api().patch(`/api/orders/${id}`).set(user.auth).send({ price });
+
+  await patch(sl._id, 1005).expect(400); // sell-stop must stay below the market
+  await patch(tg._id, 995).expect(400); // sell-target must stay above the market
+  const res = await patch(sl._id, 995).expect(200);
+  assert.equal(res.body.order.triggerPrice, 995);
+
+  ctx.provider.setPrice('RELIANCE', 994);
+  await settle();
+  assert.equal((await openPositions()).length, 0); // the moved trigger fired, the old 990 level did not matter
+  await patch(sl._id, 990).expect(400); // already filled
+});
+
 test('target leg books profit on a short', async () => {
   await place({ symbol: 'RELIANCE', side: 'SELL', qty: 4, stopLoss: 1010, target: 980 }).expect(201);
   ctx.provider.setPrice('RELIANCE', 979.5);

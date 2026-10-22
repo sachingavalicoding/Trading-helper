@@ -18,7 +18,9 @@ const orderSchema = z
   })
   .refine((o) => o.orderType !== 'LIMIT' || o.price, { message: 'price is required for LIMIT orders', path: ['price'] });
 
-const listQuery = z.object({
+const modifySchema = z.object({ price: z.coerce.number().positive() });
+
+const listQuery =z.object({
   status: z.enum(['OPEN', 'FILLED', 'CANCELLED', 'REJECTED']).optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
@@ -45,6 +47,10 @@ export function tradingRoutes({ engine, market, config }) {
   router.post('/orders', validate(orderSchema), async (req, res) => {
     const { order, trades } = await engine.placeOrder(req.userId, req.body);
     res.status(order.status === 'REJECTED' ? 200 : 201).json({ order, trades });
+  });
+
+  router.patch('/orders/:id', validate(modifySchema), async (req, res) => {
+    res.json({ order: await engine.modifyOrder(req.userId, req.params.id, req.body.price) });
   });
 
   router.delete('/orders/:id', async (req, res) => {

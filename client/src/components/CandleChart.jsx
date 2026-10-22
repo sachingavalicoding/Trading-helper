@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createChart, CandlestickSeries, ColorType, LineStyle, CrosshairMode } from 'lightweight-charts';
+import { createChart, CandlestickSeries, LineSeries, AreaSeries, ColorType, LineStyle, CrosshairMode } from 'lightweight-charts';
 import { ZoomIn, ZoomOut, RotateCcw, Maximize2, Minimize2, Activity, X, Check } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { subscribeTick, getTick } from '../lib/tickStore.js';
+import { QuickTrade } from './QuickTrade.jsx';
 import { INTERVAL_SEC, applyTick, toChartTime } from '../lib/chart.js';
 import { INDICATORS, DEFAULT_INDICATORS, addIndicator } from '../lib/chartIndicators.js';
 import { formatPrice, formatQtyCompact } from '../lib/format.js';
@@ -25,6 +26,21 @@ const loadIndicators = () => {
   return DEFAULT_INDICATORS;
 };
 const DEFAULT_BARS = { '1m': 90, '5m': 75, '15m': 60 };
+const TYPE_KEY = 'npt_chart_type';
+const CHART_TYPES = ['candles', 'line', 'area'];
+const loadChartType = () => {
+  try {
+    const t = localStorage.getItem(TYPE_KEY);
+    if (CHART_TYPES.includes(t)) return t;
+  } catch {
+    /* ignore */
+  }
+  return 'candles';
+};
+const roundTick = (p) => Number((Math.round(p / 0.05) * 0.05).toFixed(2));
+const DRAG_HIT_PX = 10;
+const SCROLL_ON = (vertTouchDrag) => ({ mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag });
+const SCALE_ON = { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true } };
 
 function ToolButton({ label, onClick, active, children }) {
   return (
@@ -43,11 +59,31 @@ function ToolButton({ label, onClick, active, children }) {
 /**
  * TradingView-style candlestick chart: 1m/5m/15m, indicators (VWAP, EMA, SMA, Bollinger,
  * RSI, MACD, volume), zoom buttons plus pinch / wheel / axis-drag zoom, and fullscreen.
- * `lines` draws horizontal price lines (position average, stop-loss, target).
+ * `lines` draws horizontal price lines (position average, stop-loss, target); a line with
+ * `draggable` + `orderId` can be dragged to a new price (calls trade.onModify).
+ * `trade` (optional) turns on trading from the chart:
+ *   { position, onOrderAt(side, price), onModify(line, price) }
+ * which adds the one-tap BUY/SELL bar and a click-on-chart menu for limit orders.
  */
-export function CandleChart({ symbol, isIndex = false, lines = [] }) {
+export function CandleChart({ symbol, isIndex = false, lines = [], trade = null }) {
   const { theme } = useTheme();
   const [interval, setIntervalValue] = useState('5m');
+  const [chartType, setChartTypeState] = useState(loadChartType);
+  const [menu, setMenu] = useState(null); // { x, y, price } from a click on the chart
+  const [dragging, setDragging] = useState(false);
+  const tradeRef = useRef(trade);
+  tradeRef.current = trade;
+  const tradable = Boolean(trade);
+  const priceLinesRef = useRef([]); // [{ def, pl }]
+  const fullscreenRef = useRef(false);
+  const setChartType = (t) => {
+    setChartTypeState(t);
+    try {
+      localStorage.setItem(TYPE_KEY, t);
+    } catch {
+      /* ignore */
+    }
+  };
   const [indicators, setIndicators] = useState(loadIndicators);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -83,7 +119,7 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
     const c = chartRef.current;
     const { candles } = dataRef.current;
     if (!c) return;
-    c.candles.setData(candles);
+    c.candles.setData(candles.map(c.toPoint));
     for (const it of c.items) it.series.setData(it.compute(candles));
   }, []);
 
@@ -104,7 +140,13 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
       handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true } },
       handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
     });
-    const candles = chart.addSeries(CandlestickSeries, { upColor: up, downColor: down, wickUpColor: up, wickDownColor: down, borderVisible: false });
+    const accent = cssVar('--accent');
+    let candles;
+    if (chartType === 'line') candles = chart.addSeries(LineSeries, { color: accent, lineWidth: 2 });
+    else if (chartType === 'area') {
+      candles = chart.addSeries(AreaSeries, { lineColor: accent, lineWidth: 2, topColor: withAlpha(accent, 0.35), bottomColor: withAlpha(accent, 0.02) });
+    } else candles = chart.addSeries(CandlestickSeries, { upColor: up, downColor: down, wickUpColor: up, wickDownColor: down, borderVisible: false });
+    const toPoint = chartType === 'candles' ? (b) => b : (b) => ({ time: b.time, value: b.close });
     candles.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: active.includes('volume') ? 0.22 : 0.06 } });
 
     let pane = 0;
@@ -118,11 +160,19 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
     for (let i = 1; i < panes.length; i++) panes[i].setStretchFactor(1);
 
     chart.subscribeCrosshairMove((p) => {
-      const bar = p?.time ? p.seriesData.get(candles) : null;
-      setLegend(bar ? { ...bar, volume: dataRef.current.candles.find((c) => c.time === p.time)?.volume } : null);
+      // Read the OHLC from our own data so the legend also works for line / area charts.
+      setLegend((p?.time && dataRef.current.candles.find((c) => c.time === p.time)) || null);
     });
 
-    chartRef.current = { chart, candles, items };
+    // Click on the chart -> menu to place a limit order at that price.
+    chart.subscribeClick((p) => {
+      if (!tradeRef.current) return;
+      const price = p.point ? candles.coordinateToPrice(p.point.y) : null;
+      if (price == null || !(price > 0)) return;
+      setMenu((cur) => (cur ? null : { x: p.point.x, y: p.point.y, price: roundTick(price) }));
+    });
+
+    chartRef.current = { chart, candles, items, toPoint };
     if (dataRef.current.candles.length) {
       paintAll();
       showDefaultRange();
@@ -132,7 +182,7 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
       chartRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme, activeKey]);
+  }, [theme, activeKey, chartType]);
 
   // Load history for symbol/interval, then stream ticks into the last bar.
   useEffect(() => {
@@ -160,7 +210,7 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
       if (!t || !c || !data.length || dataRef.current.key !== key) return;
       const bar = applyTick(data, t, sec, tickState);
       if (!bar) return;
-      c.candles.update(bar);
+      c.candles.update(c.toPoint(bar));
       for (const it of c.items) {
         const pts = it.compute(data);
         if (pts.length) it.series.update(pts[pts.length - 1]);
@@ -176,12 +226,141 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
   useEffect(() => {
     const c = chartRef.current;
     if (!c) return undefined;
-    const created = lines.filter((l) => l.price).map((l) => c.candles.createPriceLine({ price: l.price, color: l.color, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: l.title }));
+    const created = lines
+      .filter((l) => l.price)
+      .map((l) => {
+        const drag = tradable && l.draggable && l.orderId;
+        const pl = c.candles.createPriceLine({
+          price: l.price,
+          color: l.color,
+          lineWidth: drag ? 2 : 1,
+          lineStyle: drag ? LineStyle.LargeDashed : LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: drag ? `${l.title} ⇕` : l.title,
+        });
+        return { def: l, pl, drag };
+      });
+    priceLinesRef.current = created.filter((x) => x.drag);
     return () => {
+      priceLinesRef.current = [];
       // The chart may already be disposed if it was rebuilt in the same commit.
-      if (chartRef.current === c) created.forEach((pl) => c.candles.removePriceLine(pl));
+      if (chartRef.current === c) created.forEach((x) => c.candles.removePriceLine(x.pl));
     };
-  }, [lines, theme, activeKey]);
+  }, [lines, theme, activeKey, chartType, tradable]);
+
+  // Drag a stop-loss / target / limit line to a new price. Mouse and touch listeners run in the
+  // capture phase so a grab on a line wins over the chart's own pan, which is switched off meanwhile.
+  useEffect(() => {
+    const el = elRef.current;
+    if (!el || !tradable) return undefined;
+    let drag = null; // { item, price }
+
+    const localY = (clientY) => clientY - el.getBoundingClientRect().top;
+    const hit = (clientY) => {
+      const c = chartRef.current;
+      if (!c) return null;
+      const y = localY(clientY);
+      let best = null;
+      let bestDist = DRAG_HIT_PX;
+      for (const item of priceLinesRef.current) {
+        const ly = c.candles.priceToCoordinate(item.def.price);
+        if (ly == null) continue;
+        const dist = Math.abs(ly - y);
+        if (dist <= bestDist) {
+          best = item;
+          bestDist = dist;
+        }
+      }
+      return best;
+    };
+    const lock = (on) => {
+      chartRef.current?.chart.applyOptions({ handleScroll: on ? SCROLL_ON(fullscreenRef.current) : false, handleScale: on ? SCALE_ON : false });
+    };
+    const begin = (item) => {
+      drag = { item, price: item.def.price };
+      lock(false);
+      setMenu(null);
+      setDragging(true);
+    };
+    const move = (clientY) => {
+      const c = chartRef.current;
+      if (!drag || !c) return;
+      const p = c.candles.coordinateToPrice(localY(clientY));
+      if (p == null || !(p > 0)) return;
+      drag.price = roundTick(p);
+      drag.item.pl.applyOptions({ price: drag.price, title: `${drag.item.def.title} ${drag.price.toFixed(2)} ⇕` });
+    };
+    const end = () => {
+      if (!drag) return;
+      const { item, price } = drag;
+      drag = null;
+      lock(true);
+      setDragging(false);
+      const revert = () => {
+        if (chartRef.current) item.pl.applyOptions({ price: item.def.price, title: `${item.def.title} ⇕` });
+      };
+      if (price === item.def.price) return revert();
+      Promise.resolve(tradeRef.current?.onModify?.(item.def, price)).catch(revert);
+    };
+
+    const onMouseDown = (e) => {
+      if (e.button !== 0) return;
+      const item = hit(e.clientY);
+      if (!item) return;
+      e.preventDefault();
+      e.stopPropagation();
+      begin(item);
+    };
+    const onMouseMove = (e) => {
+      if (drag) move(e.clientY);
+      else el.style.cursor = hit(e.clientY) ? 'ns-resize' : '';
+    };
+    const onTouchStart = (e) => {
+      const t = e.touches[0];
+      const item = e.touches.length === 1 && t ? hit(t.clientY) : null;
+      if (!item) return;
+      e.preventDefault();
+      e.stopPropagation();
+      begin(item);
+    };
+    const onTouchMove = (e) => {
+      if (!drag) return;
+      e.preventDefault();
+      move(e.touches[0].clientY);
+    };
+
+    el.addEventListener('mousedown', onMouseDown, true);
+    el.addEventListener('mousemove', onMouseMove, true);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', end);
+    el.addEventListener('touchstart', onTouchStart, { capture: true, passive: false });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', end);
+    window.addEventListener('touchcancel', end);
+    return () => {
+      el.removeEventListener('mousedown', onMouseDown, true);
+      el.removeEventListener('mousemove', onMouseMove, true);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', end);
+      el.removeEventListener('touchstart', onTouchStart, true);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', end);
+      window.removeEventListener('touchcancel', end);
+      if (drag) lock(true);
+      el.style.cursor = '';
+    };
+  }, [tradable, chartType, theme, activeKey]);
+
+  useEffect(() => {
+    fullscreenRef.current = fullscreen;
+  }, [fullscreen]);
+
+  useEffect(() => {
+    if (!menu) return undefined;
+    const onKey = (e) => e.key === 'Escape' && setMenu(null);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [menu]);
 
   // Fullscreen: real browser fullscreen where supported (Android, desktop), CSS overlay otherwise (iPhone).
   useEffect(() => {
@@ -239,6 +418,16 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
             { value: '15m', label: '15m' },
           ]}
         />
+        <Segmented
+          size="sm"
+          value={chartType}
+          onChange={setChartType}
+          options={[
+            { value: 'candles', label: 'Candles' },
+            { value: 'line', label: 'Line' },
+            { value: 'area', label: 'Area' },
+          ]}
+        />
         <div className="relative">
           <ToolButton label="Indicators" onClick={() => setPickerOpen((v) => !v)} active={pickerOpen}>
             <Activity className="h-4 w-4" /> <span>Indicators</span>
@@ -277,6 +466,8 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
         </div>
       </div>
 
+      {tradable && <QuickTrade symbol={symbol} position={trade.position} />}
+
       {activeDefs.length > 0 && (
         <div className="no-scrollbar mb-1 flex gap-1.5 overflow-x-auto">
           {activeDefs.map((i) => (
@@ -302,11 +493,43 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
             {!isIndex && legend.volume != null && <span className="text-muted">V {formatQtyCompact(legend.volume)}</span>}
           </div>
         )}
+        {menu && tradable && (
+          <>
+            <button type="button" aria-label="Close menu" className="absolute inset-0 z-20 cursor-default" onClick={() => setMenu(null)} />
+            <div
+              className="absolute z-30 w-48 rounded-xl border border-line bg-surface p-1 shadow-xl"
+              style={{ left: Math.max(4, Math.min(menu.x + 8, (elRef.current?.clientWidth || 300) - 196)), top: Math.max(4, Math.min(menu.y - 20, (elRef.current?.clientHeight || 300) - 112)) }}
+              role="menu"
+            >
+              <div className="num px-3 pt-1.5 pb-1 text-[11px] text-muted">Limit order at ₹{formatPrice(menu.price)}</div>
+              {(menu.price < (getTick(symbol)?.ltp ?? 0) ? ['BUY', 'SELL'] : ['SELL', 'BUY']).map((side) => (
+                <button
+                  key={side}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenu(null);
+                    trade.onOrderAt?.(side, menu.price);
+                  }}
+                  className={`flex w-full items-center rounded-lg px-3 py-2.5 text-left text-sm font-semibold hover:bg-surface-2 ${side === 'BUY' ? 'text-up' : 'text-down'}`}
+                >
+                  {side === 'BUY' ? 'Buy' : 'Sell'} limit @ {formatPrice(menu.price)}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        {dragging && <div className="pointer-events-none absolute top-1 right-1 z-10 rounded bg-bg/80 px-2 py-0.5 text-[11px] text-muted">Release to set the new price</div>}
         {state.loading && <Skeleton className="absolute inset-0" />}
         {state.error && <div className="absolute inset-0 flex items-center justify-center text-sm text-down">{state.error}</div>}
       </div>
       {state.simulated && !fullscreen && <p className="mt-1 text-[11px] text-warn">Simulated prices from the mock feed, not real market data.</p>}
-      {!fullscreen && <p className="mt-1 text-[11px] text-muted">Pinch or scroll to zoom, drag to pan, drag the price axis to stretch, double-tap an axis to reset.</p>}
+      {!fullscreen && (
+        <p className="mt-1 text-[11px] text-muted">
+          {tradable ? 'Tap the chart to place a limit order at that price. Drag a stop-loss, target or limit line (⇕) to move it. ' : ''}
+          Pinch or scroll to zoom, drag to pan, drag the price axis to stretch, double-tap an axis to reset.
+        </p>
+      )}
     </div>
   );
 }

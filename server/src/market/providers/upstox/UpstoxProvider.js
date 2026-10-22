@@ -190,11 +190,24 @@ export class UpstoxProvider extends BaseProvider {
     ws.on('error', (err) => logger.warn(`Upstox socket error: ${err.message}`));
     ws.on('close', () => {
       this.setStatus(false, 'Upstox feed disconnected');
-      if (this.stopped) return;
-      const delay = Math.min(30000, 1000 * 2 ** this.retry++);
-      logger.warn(`Upstox feed closed, reconnecting in ${delay}ms`);
-      setTimeout(() => this.#open().catch((e) => logger.error('Upstox reconnect failed:', e.message)), delay).unref?.();
+      logger.warn('Upstox feed closed');
+      this.#scheduleReconnect();
     });
+  }
+
+  // Retries with backoff until it connects; a failed attempt (e.g. network down, expired token)
+  // never opens a socket, so no 'close' event would ever trigger the next retry on its own.
+  #scheduleReconnect() {
+    if (this.stopped) return;
+    const delay = Math.min(30000, 1000 * 2 ** this.retry++);
+    logger.warn(`Upstox reconnecting in ${delay}ms`);
+    setTimeout(() => {
+      if (this.stopped) return;
+      this.#open().catch((e) => {
+        logger.error('Upstox reconnect failed:', e.message);
+        this.#scheduleReconnect();
+      });
+    }, delay).unref?.();
   }
 
   #send(method, instrumentKeys) {

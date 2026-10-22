@@ -11,17 +11,36 @@ import { Segmented, Flash } from './ui.jsx';
 const roundTick = (p) => Math.round(p / 0.05) * 0.05;
 const fix2 = (p) => Number(roundTick(p).toFixed(2));
 
+// Quantity is shared with the chart's quick-trade bar so both stay in step.
+export const QTY_KEY = 'npt_qty';
+export const readQty = () => {
+  try {
+    const n = Number(localStorage.getItem(QTY_KEY));
+    return Number.isInteger(n) && n >= 1 ? n : 1;
+  } catch {
+    return 1;
+  }
+};
+export const saveQty = (n) => {
+  try {
+    localStorage.setItem(QTY_KEY, String(n));
+  } catch {
+    /* ignore */
+  }
+};
+
 /**
  * Bottom sheet on phones, centred dialog on larger screens.
  * Defaults to a market order so a trade is: tap Buy -> tap confirm.
  */
-export function OrderSheet({ symbol, name, side: initialSide, onClose }) {
+export function OrderSheet({ symbol, name, side: initialSide, initialPrice, onClose }) {
   const tick = useTick(symbol);
   const { refresh } = useMarket();
   const [side, setSide] = useState(initialSide);
-  const [orderType, setOrderType] = useState('MARKET');
-  const [qty, setQty] = useState(1);
-  const [price, setPrice] = useState('');
+  // Opened from a click on the chart: start as a limit order at the clicked price.
+  const [orderType, setOrderType] = useState(initialPrice ? 'LIMIT' : 'MARKET');
+  const [qty, setQty] = useState(() => readQty());
+  const [price, setPrice] = useState(initialPrice ? String(fix2(initialPrice)) : '');
   const [withBracket, setWithBracket] = useState(false);
   const [stopLoss, setStopLoss] = useState('');
   const [target, setTarget] = useState('');
@@ -93,6 +112,7 @@ export function OrderSheet({ symbol, name, side: initialSide, onClose }) {
         if (tg) body.target = tg;
       }
       const { order } = await api('/orders', { method: 'POST', body });
+      saveQty(qty);
       refresh();
       if (order.status === 'REJECTED') toast.error(order.rejectReason);
       else if (order.status === 'OPEN') {

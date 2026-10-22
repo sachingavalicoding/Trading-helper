@@ -23,9 +23,9 @@ function Stat({ label, value }) {
 
 export default function StockDetail() {
   const symbol = decodeURIComponent(useParams().symbol || '').toUpperCase();
-  const { instruments, subscribeDepth, version, status } = useMarket();
+  const { instruments, subscribeDepth, version, status, refresh } = useMarket();
   const tick = useTick(symbol);
-  const [sheet, setSheet] = useState(null);
+  const [sheet, setSheet] = useState(null); // { side, price? }
   const stock = instruments?.stocks.find((s) => s.symbol === symbol);
   const known = !instruments || stock;
 
@@ -41,9 +41,10 @@ export default function StockDetail() {
     const out = [];
     if (position) out.push({ price: position.avgPrice, color: css('--accent'), title: `Avg ${position.netQty > 0 ? 'L' : 'S'}` });
     for (const o of legs) {
-      if (o.role === 'STOPLOSS') out.push({ price: o.triggerPrice, color: css('--down'), title: 'SL' });
-      else if (o.role === 'TARGET') out.push({ price: o.price, color: css('--up'), title: 'Target' });
-      else if (o.orderType === 'LIMIT') out.push({ price: o.price, color: css('--muted'), title: `${o.side} LMT` });
+      const base = { orderId: o._id, draggable: true };
+      if (o.role === 'STOPLOSS') out.push({ ...base, price: o.triggerPrice, color: css('--down'), title: 'SL' });
+      else if (o.role === 'TARGET') out.push({ ...base, price: o.price, color: css('--up'), title: 'Target' });
+      else if (o.orderType === 'LIMIT') out.push({ ...base, price: o.price, color: css('--muted'), title: `${o.side} LMT` });
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -54,6 +55,22 @@ export default function StockDetail() {
   }
 
   const unrealized = position && tick ? (tick.ltp - position.avgPrice) * position.netQty : null;
+
+  // Chart trading: limit orders from a click, and SL / target / limit lines dragged to a new price.
+  const chartTrade = {
+    position,
+    onOrderAt: (side, price) => setSheet({ side, price }),
+    async onModify(line, price) {
+      try {
+        await api(`/orders/${line.orderId}`, { method: 'PATCH', body: { price } });
+        toast.success(`${line.title} moved to ₹${formatPrice(price)}`);
+        refresh();
+      } catch (err) {
+        toast.error(err.message);
+        throw err; // lets the chart snap the line back
+      }
+    },
+  };
 
   async function exit() {
     try {
@@ -121,7 +138,7 @@ export default function StockDetail() {
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
         <Card className="min-w-0 p-3">
-          <CandleChart symbol={symbol} lines={lines} />
+          <CandleChart symbol={symbol} lines={lines} trade={chartTrade} />
         </Card>
         <DepthPanel symbol={symbol} />
       </div>
@@ -136,16 +153,16 @@ export default function StockDetail() {
       {/* Sticky Buy/Sell bar: sits above the bottom tab bar on phones */}
       <div className="fixed inset-x-0 bottom-[calc(57px+env(safe-area-inset-bottom))] z-30 border-t border-line bg-surface/95 px-4 py-2 backdrop-blur md:static md:border-0 md:bg-transparent md:p-0">
         <div className="mx-auto grid max-w-5xl grid-cols-2 gap-3">
-          <button type="button" onClick={() => setSheet('BUY')} disabled={!tick} className="rounded-xl bg-up py-3.5 text-base font-bold text-white disabled:opacity-50">
+          <button type="button" onClick={() => setSheet({ side: 'BUY' })} disabled={!tick} className="rounded-xl bg-up py-3.5 text-base font-bold text-white disabled:opacity-50">
             BUY
           </button>
-          <button type="button" onClick={() => setSheet('SELL')} disabled={!tick} className="rounded-xl bg-down py-3.5 text-base font-bold text-white disabled:opacity-50">
+          <button type="button" onClick={() => setSheet({ side: 'SELL' })} disabled={!tick} className="rounded-xl bg-down py-3.5 text-base font-bold text-white disabled:opacity-50">
             SELL
           </button>
         </div>
       </div>
 
-      {sheet && <OrderSheet symbol={symbol} name={stock?.name} side={sheet} onClose={() => setSheet(null)} />}
+      {sheet && <OrderSheet symbol={symbol} name={stock?.name} side={sheet.side} initialPrice={sheet.price} onClose={() => setSheet(null)} />}
     </div>
   );
 }

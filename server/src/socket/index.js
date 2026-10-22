@@ -36,7 +36,10 @@ export function attachSocket(httpServer, { market, engine, config }) {
         .filter((s) => valid.has(s))
         .map((s) => `${withDepth ? 'depth' : 'sym'}:${s}`);
 
-    socket.on('subscribe', ({ symbols = [], depth = false } = {}, ack) => {
+    socket.on('subscribe', (payload, ack) => {
+      // Clients send arbitrary data; a null/non-object payload must not throw out of the handler.
+      const { symbols = [], depth = false } = payload && typeof payload === 'object' ? payload : {};
+      if (typeof ack !== 'function') ack = undefined;
       const rooms = roomsFor(symbols, depth);
       if (socket.rooms.size + rooms.length > MAX_SUBSCRIPTIONS + 3) return ack?.({ ok: false, error: 'Too many subscriptions' });
       socket.join(rooms);
@@ -48,7 +51,8 @@ export function attachSocket(httpServer, { market, engine, config }) {
       ack?.({ ok: true });
     });
 
-    socket.on('unsubscribe', ({ symbols = [], depth = false } = {}) => {
+    socket.on('unsubscribe', (payload) => {
+      const { symbols = [], depth = false } = payload && typeof payload === 'object' ? payload : {};
       for (const room of roomsFor(symbols, depth)) socket.leave(room);
     });
   });
