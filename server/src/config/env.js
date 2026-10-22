@@ -26,6 +26,15 @@ export const env = {
   misLeverage: num(process.env.MIS_LEVERAGE, 5),
   maxOrderQty: num(process.env.MAX_ORDER_QTY, 100000),
 
+  angelone: {
+    apiKey: process.env.ANGELONE_API_KEY || '',
+    clientCode: process.env.ANGELONE_CLIENT_CODE || '',
+    pin: process.env.ANGELONE_PIN || '',
+    totpSecret: process.env.ANGELONE_TOTP_SECRET || '',
+    // Optional: your static public IP, if Angel One asks for it on the app.
+    publicIp: process.env.ANGELONE_PUBLIC_IP || '127.0.0.1',
+  },
+
   upstox: {
     accessToken: process.env.UPSTOX_ACCESS_TOKEN || '',
     apiKey: process.env.UPSTOX_API_KEY || '',
