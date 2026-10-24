@@ -154,3 +154,11 @@ test('one failing feed does not stop the others', async () => {
   assert.equal(calls.length, 4); // market feeds come first (2 urls), then one per stock
   await teardown(c);
 });
+
+test('tags guidance changes and promoter or institutional moves', async () => {
+  const { tagHeadline } = await import('../src/news/tagger.js');
+  assert.equal(tagHeadline('Infosys raises FY27 revenue guidance').label, 'BULLISH');
+  assert.equal(tagHeadline('Company cuts guidance on weak demand').label, 'BEARISH');
+  assert.equal(tagHeadline('Promoters offload 2% stake in block deal').label, 'BEARISH');
+  assert.equal(tagHeadline('Mutual funds raise stake in Reliance').label, 'BULLISH');
+});

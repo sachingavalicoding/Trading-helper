@@ -279,6 +279,8 @@ The server can run on your phone so it works while your laptop is off. It serves
 4. Each morning: `bash ~/Trading-helper/termux/start.sh`, then open `http://localhost:5000/upstox/login` once to refresh the Upstox token.
 5. In Android settings, turn off battery optimisation for Termux and keep the phone charged and online 9:00-15:30.
 
+On Android Chrome, open the app and choose menu > Add to Home screen to install it like an app.
+
 The web app is prebuilt in `phone-app/`. After changing the client, run `npm run build:phone` in `client/` and commit the result.
 
 ## Honest limitations

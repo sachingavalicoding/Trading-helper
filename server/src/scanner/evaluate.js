@@ -22,18 +22,22 @@ export function scoreCandidate(ctx, c) {
   checks.push(check('trend15', 'Trend (15m)', d * ctx.trend15 > 0 ? 6 : 0, 6, d * ctx.trend15 > 0 ? 'The 15-minute trend agrees' : 'The 15-minute trend is flat or against'));
 
   const rv = ctx.relVol;
-  const volPts = rv == null ? 0 : rv >= 2 ? 20 : rv >= 1.5 ? 14 : rv >= 1.2 ? 8 : 0;
-  checks.push(check('volume', 'Volume', volPts, 20, rv == null ? 'Not enough history to compare volume yet' : `Volume is ${rv.toFixed(1)}x normal for this time of day`));
+  const volPts = rv == null ? 0 : rv >= 2 ? 18 : rv >= 1.5 ? 13 : rv >= 1.2 ? 7 : 0;
+  checks.push(check('volume', 'Volume', volPts, 18, rv == null ? 'Not enough history to compare volume yet' : `Volume is ${rv.toFixed(1)}x normal for this time of day`));
 
   const rs = ctx.relStrength == null ? null : d * ctx.relStrength;
-  const rsPts = rs == null ? 0 : rs >= 0.5 ? 15 : rs >= 0.2 ? 9 : rs >= 0 ? 4 : 0;
-  checks.push(check('strength', 'Vs Nifty 50', rsPts, 15, rs == null ? 'No Nifty 50 reading' : `${rs >= 0 ? 'Stronger' : 'Weaker'} than Nifty 50 by ${Math.abs(rs).toFixed(2)}%`));
+  const rsPts = rs == null ? 0 : rs >= 0.5 ? 13 : rs >= 0.2 ? 8 : rs >= 0 ? 3 : 0;
+  checks.push(check('strength', 'Vs Nifty 50', rsPts, 13, rs == null ? 'No Nifty 50 reading' : `${rs >= 0 ? 'Stronger' : 'Weaker'} than Nifty 50 by ${Math.abs(rs).toFixed(2)}%`));
 
   const bookOk = ctx.bookShare != null && (d > 0 ? ctx.bookShare > 0.6 : ctx.bookShare < 0.4);
-  checks.push(check('book', 'Order book', bookOk ? 8 : 0, 8, ctx.bookShare == null ? 'No order book' : `${Math.round(ctx.bookShare * 100)}% of pending quantity is on the buy side`));
+  checks.push(check('book', 'Order book', bookOk ? 6 : 0, 6, ctx.bookShare == null ? 'No order book' : `${Math.round(ctx.bookShare * 100)}% of pending quantity is on the buy side`));
 
   const rsiOk = ctx.rsi != null && (d > 0 ? ctx.rsi >= 50 && ctx.rsi <= 72 : ctx.rsi >= 28 && ctx.rsi <= 50);
   checks.push(check('rsi', 'RSI', rsiOk ? 7 : 0, 7, ctx.rsi == null ? 'No RSI yet' : `RSI ${ctx.rsi.toFixed(0)}${rsiOk ? ' supports the move' : ' does not support the move'}`));
+
+  const mh = ctx.macdHist;
+  const macdOk = mh != null && d * mh.now > 0 && d * (mh.now - mh.prev) >= 0;
+  checks.push(check('macd', 'MACD', macdOk ? 6 : 0, 6, mh == null ? 'No MACD yet' : macdOk ? 'MACD momentum is building in this direction' : 'MACD momentum is not backing the move'));
 
   const penalties = [];
   let newsDelta = 0;
@@ -62,6 +66,10 @@ export function scoreCandidate(ctx, c) {
   if (ctx.rsi != null && (d > 0 ? ctx.rsi > 78 : ctx.rsi < 22)) {
     score -= 10;
     penalties.push(`RSI ${ctx.rsi.toFixed(0)} is stretched, so a pullback is likely`);
+  }
+  if (ctx.vwapStretch != null && d * ctx.vwapStretch > 2.5) {
+    score -= 8;
+    penalties.push(`Price is ${Math.abs(ctx.vwapStretch).toFixed(1)} ATR from VWAP, so chasing here is risky`);
   }
   return { ...c, score: Math.max(0, Math.min(100, score)), checks, penalties, news: ctx.news ?? null };
 }
