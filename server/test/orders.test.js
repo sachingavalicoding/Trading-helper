@@ -210,3 +210,36 @@ test('dashboard: win rate, best/worst, equity curve, daily P&L', async () => {
   assert.equal(d.dailyPnl[0].pnl, d.totals.realizedNet);
   assert.equal(d.totals.grossRealized, 150);
 });
+
+test('dashboard breakdown: by stock, direction and hour, with plain-language notes', async () => {
+  const { breakdown } = await import('../src/services/analytics.js');
+  const at = (h) => new Date(Date.UTC(2026, 9, 22, h - 6, 30)); // h:00 IST is (h - 5.5) UTC; 30 minutes in
+  const t = (symbol, direction, net, hour, gross = net + 5) => ({ symbol, direction, net, gross, charges: gross - net, openedAt: at(hour) });
+  assert.deepEqual(breakdown([]).bySymbol, []);
+
+  const few = breakdown([t('SBIN', 'LONG', 100, 10)]);
+  assert.equal(few.enough, false);
+  assert.match(few.insights[0], /Charges took 5% of your gross profit/);
+  assert.equal(few.insights.length, 1); // no habit claims from one trade
+
+  const trades = [
+    ...[100, 80, 60].map((n) => t('SBIN', 'LONG', n, 10)),
+    ...[-50, -70, -40].map((n) => t('ITC', 'SHORT', n, 14)),
+    ...[30, 20, 10, 40].map((n) => t('TCS', 'LONG', n, 10)),
+  ];
+  const b = breakdown(trades);
+  assert.equal(b.enough, true);
+  assert.deepEqual(b.bySymbol.map((r) => r.key), ['SBIN', 'TCS', 'ITC']);
+  assert.equal(b.bySymbol[0].net, 240);
+  assert.equal(b.byDirection.find((r) => r.key === 'SHORT').winRate, 0);
+  assert.deepEqual(b.byHour.map((r) => r.label), ['10:00', '14:00']);
+  const text = b.insights.join(' ');
+  assert.match(text, /Best stock: SBIN/);
+  assert.match(text, /Weakest stock: ITC/);
+  assert.match(text, /Buying works better/);
+  assert.match(text, /weakest time to open trades is 14:00/);
+  assert.match(text, /strongest time is 10:00/);
+
+  const loser = breakdown([t('ITC', 'LONG', -105, 10, -100)]);
+  assert.match(loser.insights[0], /lost ₹100 before charges, and charges added ₹5/);
+});

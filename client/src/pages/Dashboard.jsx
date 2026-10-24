@@ -5,6 +5,7 @@ import { useApi } from '../lib/useApi.js';
 import { useLtps } from '../lib/tickStore.js';
 import { IST_OFFSET_SEC } from '../lib/chart.js';
 import { formatPnl, formatINR, formatDateTime, formatPrice, pnlClass } from '../lib/format.js';
+import { TradeBreakdown } from '../components/TradeBreakdown.jsx';
 import { MiniChart } from '../components/MiniChart.jsx';
 import { Card, Skeleton, EmptyState, Disclaimer, Badge } from '../components/ui.jsx';
 
@@ -138,6 +139,7 @@ export default function Dashboard() {
           </Card>
         </div>
       )}
+      <TradeBreakdown data={data.breakdown} />
       <SignalRecord version={version} />
       <Disclaimer />
     </div>

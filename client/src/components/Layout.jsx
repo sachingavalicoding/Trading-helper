@@ -41,7 +41,7 @@ export function Layout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 border-b border-line bg-bg/90 backdrop-blur">
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 pt-3">
-            <div className="flex items-center gap-2 font-bold md:hidden">
+            <div className="flex items-center gap-2 whitespace-nowrap font-bold md:hidden">
               <img src="/icon.svg" alt="" className="h-6 w-6" /> Nifty Paper
             </div>
             <div className="ml-auto flex items-center gap-2">

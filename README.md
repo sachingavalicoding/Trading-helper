@@ -1,6 +1,6 @@
 # Nifty Paper Trader
 
-A paper-trading web app for the Indian stock market: NSE, Nifty 50 stocks, intraday (MIS) only. It never places real orders.
+A paper-trading web app for the Indian stock market: NSE, Nifty 50 stocks, intraday (MIS) only. **It never places real orders.** Broker connections are read-only price feeds, and a test (`server/test/paperonly.test.js`) fails if any code starts calling a broker's order API. Real-money trading is deliberately not built.
 
 > **Paper trading for learning. Not investment advice.**
 
