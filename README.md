@@ -263,6 +263,24 @@ The code is in `server/src/scanner/plan.js` and `client/src/lib/alerts.js`; test
 
 The code is in `server/src/scanner/stats.js`, `replay.js` and `server/scripts/replay.js`; tests are in `server/test/track.test.js`.
 
+## Run on an Android phone (Termux)
+
+The server can run on your phone so it works while your laptop is off. It serves the web app too, so there is one address: `http://localhost:5000`. Free, but untested on real phones and Android may stop background apps.
+
+1. Install **Termux from F-Droid** (not the Play Store version).
+2. Create a free MongoDB Atlas cluster, add a database user with a strong password, and allow network access from anywhere (your phone's IP changes). Copy the connection string.
+3. In Termux:
+   ```
+   pkg install -y curl
+   curl -fsSL https://raw.githubusercontent.com/sachingavalicoding/Trading-helper/master/termux/setup.sh | bash
+   nano ~/Trading-helper/server/.env
+   ```
+   Set `MONGO_URI`, `MARKET_DATA_PROVIDER=upstox` and the `UPSTOX_*` values. Keep `NODE_ENV=development`. The Upstox redirect URL stays `http://localhost:5000/upstox/callback`.
+4. Each morning: `bash ~/Trading-helper/termux/start.sh`, then open `http://localhost:5000/upstox/login` once to refresh the Upstox token.
+5. In Android settings, turn off battery optimisation for Termux and keep the phone charged and online 9:00-15:30.
+
+The web app is prebuilt in `phone-app/`. After changing the client, run `npm run build:phone` in `client/` and commit the result.
+
 ## Honest limitations
 
 - Fills are idealized. They happen at LTP with no slippage, no partial fills and no queue position, so real results will be worse.

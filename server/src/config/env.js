@@ -1,7 +1,14 @@
 import 'dotenv/config';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const bool = (v, fallback) => (v === undefined || v === '' ? fallback : ['1', 'true', 'yes'].includes(String(v).toLowerCase()));
 const num = (v, fallback) => (v === undefined || v === '' || Number.isNaN(Number(v)) ? fallback : Number(v));
+
+// The finished web app. `phone-app/` is a prebuilt copy kept in the repo so a phone does not have to build it.
+const here = path.dirname(fileURLToPath(import.meta.url));
+const clientDist = [path.resolve(here, '../../../phone-app'), path.resolve(here, '../../../client/dist')].find((d) => existsSync(path.join(d, 'index.html'))) || null;
 
 const provider = (process.env.MARKET_DATA_PROVIDER || 'mock').toLowerCase();
 
@@ -12,6 +19,9 @@ export const env = {
   jwtSecret: process.env.JWT_SECRET || '',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   clientOrigin: (process.env.CLIENT_ORIGIN || 'http://localhost:5173').split(',').map((s) => s.trim()),
+
+  // Serve the web app from this server too (one process, one address). Turn off with SERVE_CLIENT=false.
+  clientDist: bool(process.env.SERVE_CLIENT, true) ? clientDist : null,
 
   provider,
   // Live providers enforce NSE hours for orders by default; the mock feed lets you practise any time.
