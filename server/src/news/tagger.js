@@ -24,6 +24,13 @@ const RULES = [
   [/\b(approval|approved by|usfda (?:nod|approval)|clearance|licen[cs]e (?:granted|win))\b/i, 1, 'POLICY', 'Approval or clearance received'],
   [new RegExp(`\\b(?:shares?|stock)\\b.{0,25}\\b(?:hits?|touch(?:es)?|at) (?:a )?(?:record|52-week|all-time|fresh) high\\b|\\bsurges?\\b|\\brallies\\b`, 'i'), 1, 'PRICE_MOVE', 'The price has already jumped'],
   [new RegExp(`\\b(?:shares?|stock)\\b.{0,25}\\b(?:hits?|touch(?:es)?|at) (?:a )?(?:52-week|all-time|fresh) low\\b|\\bplunges?\\b|\\btanks?\\b|\\bcrash(?:es)?\\b|\\bslumps?\\b`, 'i'), -1, 'PRICE_MOVE', 'The price has already dropped'],
+  [/\b(raises?|hikes?|lifts?|upgrades?)\b.{0,15}\b(guidance|outlook|forecast)\b|\bstrong (?:demand|outlook|guidance)\b/i, 1.5, 'GUIDANCE', 'Management raised its outlook'],
+  [/\b(cuts?|lowers?|trims?|slashes?)\b.{0,15}\b(guidance|outlook|forecast)\b|\bweak (?:demand|outlook|guidance)\b|\bdemand (?:slowdown|slump)\b/i, -1.5, 'GUIDANCE', 'Management cut its outlook'],
+  [/\b(promoter|promoters)\b.{0,25}\b(pledge|sell|sells|offload|stake sale)\b|\bblock deal\b.{0,20}\b(sell|sold|offload)/i, -1.5, 'PROMOTER', 'Promoters or big holders are selling'],
+  [/\b(promoter|promoters)\b.{0,25}\b(buy|buys|raises? stake|increases? stake)\b|\b(fii|fpi|dii|mutual funds?)\b.{0,20}\b(buy|buys|raise|increase|bought)\b/i, 1, 'PROMOTER', 'Promoters or big investors are buying'],
+  [/\b(capacity expansion|capex plan|new plant|commissions?|launches?)\b/i, 0.5, 'GROWTH', 'Expansion or new launch'],
+  [/\b(price hike|raises? prices|volume growth|market share gain)\b/i, 1, 'GROWTH', 'Pricing power or growing volumes'],
+  [/\b(layoffs?|job cuts|loses? (?:key )?client|client loss|order cancell?ed|contract cancell?ed)\b/i, -1.5, 'OPERATIONS', 'Lost business or layoffs'],
 ];
 
 const QUESTION = /^(will|can|should|is|are|does|why|what|how)\b|\?\s*$/i;

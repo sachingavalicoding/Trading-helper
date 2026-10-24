@@ -1,5 +1,5 @@
 import { aggregateCandles } from '../market/providers/BaseProvider.js';
-import { ema, rsi, atr, sessionVwap } from '../signals/indicators.js';
+import { ema, rsi, atr, macd, sessionVwap } from '../signals/indicators.js';
 import { buildLevels } from './levels.js';
 
 const IST = 19800;
@@ -25,6 +25,14 @@ function relativeVolume(c5, n = 3) {
     base = mean(earlier.map((b) => b.volume));
   }
   return base > 0 ? mean(recent.map((b) => b.volume)) / base : null;
+}
+
+/** Latest MACD histogram and the one before it, so we can tell if momentum is building or fading. */
+function macdHistogram(c5) {
+  const m = macd(c5);
+  const h = m?.histogram ?? m?.hist;
+  if (!h || h.length < 2) return null;
+  return { now: h.at(-1).value ?? h.at(-1), prev: h.at(-2).value ?? h.at(-2) };
 }
 
 const trend = (fast, slow) => (fast == null || slow == null || Math.abs(fast - slow) / slow < 0.0005 ? 0 : Math.sign(fast - slow));
@@ -84,6 +92,8 @@ export function buildContext({ symbol, tick, c1, niftyChangePct = null, news = n
     trend5: trend(e9, e21),
     trend15: trend(h9, h21),
     rsi: last(rsi(c5, 14)),
+    macdHist: macdHistogram(c5),
+    vwapStretch: vwap ? (ltp - vwap) / atr5 : null,
     relVol: relativeVolume(c5),
     relStrength: niftyChangePct == null || tick.changePct == null ? null : tick.changePct - niftyChangePct,
     niftyChangePct,
