@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'node:path';
 import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -19,7 +20,9 @@ export function createApp({ market, engine, config, tracker, scanner, news }) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
-  app.use(helmet());
+  // The built web app has one small inline script (it sets the dark theme before the page paints), which helmet's
+  // default content policy would block, so the policy is switched off only when this server also serves the app.
+  app.use(helmet(config.clientDist ? { contentSecurityPolicy: false } : {}));
   app.use(cors({ origin: config.clientOrigin, credentials: true }));
   app.use(express.json({ limit: '50kb' }));
   if (config.nodeEnv === 'development') app.use(morgan('dev'));
@@ -40,6 +43,16 @@ export function createApp({ market, engine, config, tracker, scanner, news }) {
   if (config.nodeEnv !== 'production') app.use('/upstox', upstoxRoutes(config));
 
   app.use('/api', notFoundHandler);
+
+  if (config.clientDist) {
+    app.use(express.static(config.clientDist, { index: false, maxAge: '1h' }));
+    // Any other page address belongs to the single-page app.
+    app.use((req, res, next) => {
+      if (req.method !== 'GET' || /^\/(api|upstox|socket\.io)(\/|$)/.test(req.path) || path.extname(req.path)) return next();
+      res.sendFile(path.join(config.clientDist, 'index.html'));
+    });
+  }
+
   app.use(errorHandler);
   return app;
 }

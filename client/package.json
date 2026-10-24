@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:phone": "vite build --outDir ../phone-app --emptyOutDir",
     "preview": "vite preview",
     "test": "vitest run"
   },
