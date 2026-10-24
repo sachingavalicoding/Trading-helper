@@ -118,13 +118,36 @@ With a live provider, `ENFORCE_MARKET_HOURS` defaults to `true`. That means orde
 
 **GIFT Nifty:** it trades on NSE IX, which Upstox's feed doesn't carry. The header marks it "n/a" instead of inventing a number.
 
-### Adding another broker (Angel One, Fyers, Dhan)
+## Switching to live Angel One data
+
+Angel One signs in with a time-based code, so once set up the server logs itself in every day with no morning step.
+
+1. You need an Angel One trading and demat account (open one in the Angel One app if you do not have it).
+2. Go to <https://smartapi.angelone.in> and sign up or log in with your Angel One client code and the mobile number on the account.
+3. **Enable TOTP.** The portal shows a QR code. Scan it with an authenticator app (Google Authenticator, Authy), and also copy the long text key shown next to the QR code (letters and digits). That key is your `ANGELONE_TOTP_SECRET`. It is not the 6 digit code.
+4. Open **My Apps** and create an app. Pick the type that includes market data and historical data (Trading APIs). If the form asks for a redirect URL, enter `http://localhost:5000`. Copy the **API key**. You do not need the secret key.
+5. In `server/.env` set:
+   ```
+   MARKET_DATA_PROVIDER=angelone
+   ANGELONE_API_KEY=<API key>
+   ANGELONE_CLIENT_CODE=<your Angel One client code, like A123456>
+   ANGELONE_PIN=<your 4 digit Angel One PIN>
+   ANGELONE_TOTP_SECRET=<the long text key from step 3>
+   ```
+6. Check it before starting the app: `cd server && npm run angel:check`. It tests the login, the stock tokens, history and the live feed one step at a time and names the step that fails. It never prints your secrets.
+7. Start the server with `npm run dev`. The header shows the feed as live.
+
+Keep `server/.env` private: it holds your PIN and TOTP secret. Never commit it or paste it in chat. The server computer's clock must be correct, because the TOTP code depends on the time.
+
+This adapter was written without a live Angel One account to test against, so run `npm run angel:check` first. A packet that looks wrong is dropped instead of shown as a price. Angel One's API allows 3 candle requests a second, so loading history for all 50 stocks at start takes about 20 seconds.
+
+### Adding another broker (Fyers, Dhan)
 
 Create `src/market/providers/<broker>/<Broker>Provider.js` that extends `BaseProvider`. It must:
 - implement `connect()`, `subscribe(symbols)`, `getHistory(symbol, interval)` and `disconnect()`
 - emit `'tick'` events in the normalized shape documented in `BaseProvider.js`
 
-Then register it in `providers/index.js`. Nothing else in the app talks to the broker directly.
+Then register it in `providers/index.js`. Nothing else in the app talks to the broker directly. `AngelOneProvider` is a good example.
 
 ---
 

@@ -1,10 +1,12 @@
 import { MockProvider } from './MockProvider.js';
 import { UpstoxProvider } from './upstox/UpstoxProvider.js';
+import { AngelOneProvider } from './angelone/AngelOneProvider.js';
 
-// Register new brokers here (Angel One, Fyers, Dhan...). Each must extend BaseProvider.
+// Register new brokers here (Fyers, Dhan...). Each must extend BaseProvider.
 const registry = {
   mock: (env) => new MockProvider(),
   upstox: (env) => new UpstoxProvider(env.upstox),
+  angelone: (env) => new AngelOneProvider(env.angelone),
 };
 
 export function createProvider(env) {
