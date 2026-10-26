@@ -84,7 +84,7 @@ npm install
 npm run dev                   # http://localhost:5173
 ```
 
-Open the app, create an account and you'll have ₹1,00,000 of virtual money.
+Open the app, create an account and you'll have virtual money to trade with: ₹1,00,000 by default, or whatever `STARTING_BALANCE` is set to in `server/.env`.
 
 **On your phone:** Vite listens on your network. Open `http://<your-computer's-LAN-IP>:5173` on a phone connected to the same Wi-Fi. Add your LAN origin to `CLIENT_ORIGIN` in `server/.env` too (comma-separated).
 
@@ -252,7 +252,7 @@ The news code is in `server/src/news/` and its tests are in `server/test/news.te
 ## Alerts and the morning plan
 
 - **Alerts.** When the scanner raises a new idea, or an idea reaches target 1, its stop or expiry, every open browser gets a message (a toast in the app). Tap the bell on the Scanner tab to also get a phone or desktop notification while the tab is in the background. Browsers only deliver these while the page is open; real push when the app is closed needs the installable app (a later step).
-- **Today's plan.** From 09:00 IST on each trading day the server builds a watch list and sends one "Morning plan ready" alert. The Scanner tab shows it under "Today's plan" (also at `GET /api/scanner/plan`). A stock is listed when its score reaches 1.5 from: fresh news (up to 3 points either way), yesterday's close in the top or bottom quarter of its range (1 point) and a gap of 0.7% or more at the open (1 point). Each entry names the level to wait for: yesterday's high for a buy, yesterday's low for a sell. It is a watch list, not a signal.
+- **Today's plan.** From 09:00 IST on each trading day the server builds a watch list and sends one "Morning plan ready" alert. The Scanner tab shows it under "Today's plan" (also at `GET /api/scanner/plan`). A stock is listed when its score reaches 1.5 from: fresh news (up to 3 points either way), yesterday's close in the top or bottom quarter of its range (1 point) and a gap of 0.7% or more at the open (1 point). The daily candles add one more: a coiled day (yesterday was an **NR7** or **NR4**, the narrowest high-to-low range of the last 7 or 4 sessions, or an **inside bar**) adds half a point in the direction the stock already leans. A coiled day alone never lists a stock, because it has no direction. These show as small tags on each entry, and they need only about 8 sessions of the daily candles the scanner already loads. Each entry names the level to wait for: yesterday's high for a buy, yesterday's low for a sell. It is a watch list, not a signal. This extra rule is not covered by `npm run backtest` yet, so judge it by how the plan's stocks behave over a few weeks.
 
 The code is in `server/src/scanner/plan.js` and `client/src/lib/alerts.js`; tests are in `server/test/alerts.test.js`.
 

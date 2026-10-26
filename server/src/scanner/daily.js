@@ -28,3 +28,26 @@ export function summarizeDaily(daily, ltp, today) {
     prevLow: done.at(-1).low,
   };
 }
+
+const sessionDay = (c) => Math.floor((c.time + 19800) / 86400);
+
+/**
+ * Yesterday-based setups read from finished daily candles (oldest first, today's partial candle ignored):
+ *  - nr4 / nr7: yesterday's high-to-low range was the narrowest of the last 4 / 7 sessions, so the stock is coiled
+ *    and a breakout of yesterday's high or low is more likely to run (Crabel's narrow range days)
+ *  - insideBar: yesterday traded entirely inside the day before it
+ * Every field is false when there is too little data (it needs 8 finished sessions); nothing is guessed.
+ */
+export function dailyPatterns(daily, today) {
+  const done = (daily || []).filter((c) => sessionDay(c) < today);
+  const out = { sessions: done.length, nr4: false, nr7: false, insideBar: false };
+  if (done.length < 8) return out;
+  const range = (c) => c.high - c.low;
+  const last = done.at(-1);
+  const narrowest = (n) => range(last) > 0 && done.slice(-n, -1).every((c) => range(last) < range(c)); // strictly narrower than each of the other n-1
+  out.nr4 = narrowest(4);
+  out.nr7 = narrowest(7);
+  const prev = done.at(-2);
+  out.insideBar = last.high <= prev.high && last.low >= prev.low && (last.high < prev.high || last.low > prev.low);
+  return out;
+}

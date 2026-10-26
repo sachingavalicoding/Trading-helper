@@ -10,6 +10,7 @@ const HISTORY_TTL_MS = 30000;
  * re-emits ticks for the order engine and the Socket.IO relay.
  */
 const DAILY_TTL_MS = 6 * 60 * 60 * 1000;
+const DAILY_DAYS = 45;
 
 export class MarketDataService extends EventEmitter {
   constructor(provider, { holidays = [] } = {}) {
@@ -69,7 +70,7 @@ export class MarketDataService extends EventEmitter {
   }
 
   /** About `days` days of daily candles, cached for hours: the last month does not change while trading. */
-  async getDaily(symbol, days = 45) {
+  async getDaily(symbol, days = DAILY_DAYS) {
     const key = `${symbol}|1d`;
     const hit = this.historyCache.get(key);
     if (hit && Date.now() - hit.at < DAILY_TTL_MS) return hit.candles;

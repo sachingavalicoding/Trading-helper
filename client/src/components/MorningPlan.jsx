@@ -34,6 +34,13 @@ export function MorningPlan() {
                   {formatPrice(i.trigger.price)}
                 </span>
               </div>
+              {i.patterns?.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {i.patterns.map((p) => (
+                    <Badge key={p} tone="accent">{p}</Badge>
+                  ))}
+                </div>
+              )}
               <div className="mt-0.5 text-[11px] leading-snug text-muted">{i.why.join(' · ')}</div>
             </li>
           ))}

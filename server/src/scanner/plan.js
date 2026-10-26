@@ -1,5 +1,6 @@
 import { NIFTY50 } from '../market/instruments.js';
 import { istDay } from './context.js';
+import { dailyPatterns } from './daily.js';
 
 const MAX_ITEMS = 8;
 const GAP_PCT = 0.7;
@@ -16,10 +17,12 @@ function priorSession(c1, today) {
 
 /**
  * The pre-market plan: which Nifty 50 stocks deserve attention today and at what price the
- * idea starts. It leans on three simple things: fresh news (24 hours), where yesterday closed in
- * its range, and a gap at the open. It never says "buy now", it names the level to wait for.
+ * idea starts. It leans on simple things: fresh news (24 hours), where yesterday closed in its range,
+ * a gap at the open, and what the daily candles say (a coiled narrow-range or inside-bar day that tends
+ * to break out). It never says "buy now", it names the level to wait for.
+ * `daily` is a Map of symbol -> daily candles; without it that daily reading is simply skipped.
  */
-export function buildPlan({ store, market, signals = {}, now = new Date() }) {
+export function buildPlan({ store, market, signals = {}, daily = null, now = new Date() }) {
   const today = istDay(now.getTime() / 1000);
   const items = [];
   for (const { symbol, name } of NIFTY50) {
@@ -53,6 +56,20 @@ export function buildPlan({ store, market, signals = {}, now = new Date() }) {
       why.push(`Opened ${gapPct > 0 ? 'up' : 'down'} ${Math.abs(gapPct).toFixed(1)}%`);
     }
 
+    // A coiled day (narrow range or inside bar) has no direction, so it only strengthens a bias the stock already has.
+    const pat = daily?.get(symbol) ? dailyPatterns(daily.get(symbol), today) : null;
+    const patterns = [];
+    if (pat) {
+      const coil = pat.nr7 ? 'NR7' : pat.nr4 ? 'NR4' : pat.insideBar ? 'Inside bar' : null;
+      if (coil) {
+        patterns.push(coil);
+        if (score !== 0) {
+          score += Math.sign(score) * 0.5;
+          why.push(coil === 'Inside bar' ? 'Yesterday was an inside bar, so price is coiled' : `Yesterday was a ${coil} (narrowest range of ${coil === 'NR7' ? 7 : 4} days), so price is coiled`);
+        }
+      }
+    }
+
     if (Math.abs(score) < 1.5) continue;
     const bias = score > 0 ? 'BUY' : 'SELL';
     items.push({
@@ -61,6 +78,7 @@ export function buildPlan({ store, market, signals = {}, now = new Date() }) {
       bias,
       score: round2(Math.abs(score)),
       why,
+      patterns,
       news: news && { label: news.label, title: news.title, reaction: news.reaction },
       levels: { prevClose: round2(prior.close), high: round2(prior.high), low: round2(prior.low) },
       trigger: bias === 'BUY' ? { text: "Look for buys above yesterday's high", price: round2(prior.high) } : { text: "Look for sells below yesterday's low", price: round2(prior.low) },
