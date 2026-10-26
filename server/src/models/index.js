@@ -6,3 +6,5 @@ export { Trade } from './Trade.js';
 export { Signal } from './Signal.js';
 export { ScanIdea } from './ScanIdea.js';
 export { NewsItem } from './NewsItem.js';
+export { AutoSettings } from './AutoSettings.js';
+export { TradeDefaults } from './TradeDefaults.js';

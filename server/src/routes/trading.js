@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Order, Position, Trade } from '../models/index.js';
+import { Order, Position, Trade, TradeDefaults } from '../models/index.js';
+import { TRADE_DEFAULTS } from '../models/TradeDefaults.js';
 import { validate } from '../middleware/validate.js';
 import { getFunds } from '../services/walletService.js';
 import { getDashboard } from '../services/analytics.js';
@@ -18,6 +19,19 @@ const orderSchema = z
   })
   .refine((o) => o.orderType !== 'LIMIT' || o.price, { message: 'price is required for LIMIT orders', path: ['price'] });
 
+// A number sets it, null removes it, leaving a field out keeps it.
+const exitsSchema = z.object({
+  stopLoss: z.coerce.number().positive().nullable().optional(),
+  target: z.coerce.number().positive().nullable().optional(),
+  trailPct: z.coerce.number().nullable().optional(),
+  lockTrigger: z.coerce.number().positive().nullable().optional(),
+  lockAmount: z.coerce.number().positive().nullable().optional(),
+});
+const defaultsSchema = z.object({
+  lockEnabled: z.boolean().optional(),
+  lockTrigger: z.coerce.number().min(1).max(10_000_000).optional(),
+  lockAmount: z.coerce.number().min(1).max(10_000_000).optional(),
+}).refine((d) => d.lockTrigger == null || d.lockAmount == null || d.lockTrigger > d.lockAmount, { message: 'The profit trigger must be larger than the amount you lock in', path: ['lockAmount'] });
 const listQuery = z.object({
   status: z.enum(['OPEN', 'FILLED', 'CANCELLED', 'REJECTED']).optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
@@ -56,9 +70,37 @@ export function tradingRoutes({ engine, market, config }) {
     if (req.valid.status !== 'ALL') filter.status = req.valid.status;
     if (req.valid.day) filter.tradingDay = req.valid.day;
     const positions = await Position.find(filter).sort({ status: -1, updatedAt: -1 }).limit(500);
+    const open = positions.filter((p) => p.status === 'OPEN').map((p) => p.symbol);
+    const legs = open.length ? await Order.find({ user: req.userId, symbol: { $in: open }, status: 'OPEN', role: { $in: ['STOPLOSS', 'TARGET'] } }).lean() : [];
     res.json({
-      positions: positions.map((p) => ({ ...p.toJSON(), ltp: market.getLtp(p.symbol) })),
+      positions: positions.map((p) => ({
+        ...p.toJSON(),
+        ltp: market.getLtp(p.symbol),
+        stopLoss: legs.find((l) => l.symbol === p.symbol && l.role === 'STOPLOSS')?.triggerPrice ?? null,
+        target: legs.find((l) => l.symbol === p.symbol && l.role === 'TARGET')?.price ?? null,
+      })),
     });
+  });
+
+  router.put('/positions/:symbol/exits', validate(exitsSchema), async (req, res) => {
+    res.json(await engine.setExits(req.userId, req.params.symbol.toUpperCase(), req.body));
+  });
+
+  router.get('/trade-defaults', async (req, res) => {
+    const d = await TradeDefaults.findOne({ user: req.userId }).lean();
+    res.json({ lockEnabled: d?.lockEnabled ?? TRADE_DEFAULTS.lockEnabled, lockTrigger: d?.lockTrigger ?? TRADE_DEFAULTS.lockTrigger, lockAmount: d?.lockAmount ?? TRADE_DEFAULTS.lockAmount });
+  });
+
+  router.put('/trade-defaults', validate(defaultsSchema), async (req, res) => {
+    const current = (await TradeDefaults.findOne({ user: req.userId }).lean()) ?? TRADE_DEFAULTS;
+    const next = { ...TRADE_DEFAULTS, ...current, ...req.body };
+    if (!(next.lockTrigger > next.lockAmount)) return res.status(400).json({ error: { code: 'VALIDATION', message: 'The profit trigger must be larger than the amount you lock in' } });
+    const doc = await TradeDefaults.findOneAndUpdate({ user: req.userId }, { $set: { lockEnabled: next.lockEnabled, lockTrigger: next.lockTrigger, lockAmount: next.lockAmount }, $setOnInsert: { user: req.userId } }, { upsert: true, new: true, runValidators: true });
+    res.json({ lockEnabled: doc.lockEnabled, lockTrigger: doc.lockTrigger, lockAmount: doc.lockAmount });
+  });
+
+  router.get('/positions/:symbol/exits', async (req, res) => {
+    res.json(await engine.exitsFor(req.userId, req.params.symbol.toUpperCase()));
   });
 
   router.post('/positions/exit-all', async (req, res) => {

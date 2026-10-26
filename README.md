@@ -225,7 +225,7 @@ Not included yet: gap fill.
 **Status and score**
 
 - Each idea is **Entry now** (trigger fired and price is still in the entry zone), **Watching** (setup forming) or **Missed** (price ran too far to chase).
-- Each idea scores out of 100: the setup (30), trend agreement on VWAP and 5m/15m EMAs (20), volume against normal for that time of day (20), strength against Nifty 50 (15), order book (8) and RSI (7). Penalties apply when Nifty 50 moves against the trade or RSI is stretched. Only ideas scoring 60 or more are shown.
+- Each idea scores out of 100: the setup (30), trend agreement on VWAP and 5m/15m EMAs (20), volume against normal for that time of day (20), strength against Nifty 50 (15), order book (8) and RSI (7). Penalties apply when Nifty 50 moves against the trade or RSI is stretched. Only ideas scoring 70 or more that also pass the safety checks are shown, and a phone alert is sent only when a new entry idea appears (not for watching ideas, closed ideas or the morning plan).
 - An idea needs at least 1.5 times reward to risk, or it is dropped. The stop is never tighter than 0.3% of the price.
 - With market hours enforced, nothing is suggested before 09:30 or after 14:45 IST.
 
@@ -256,6 +256,26 @@ The news code is in `server/src/news/` and its tests are in `server/test/news.te
 
 The code is in `server/src/scanner/plan.js` and `client/src/lib/alerts.js`; tests are in `server/test/alerts.test.js`.
 
+## Auto paper trading
+
+Off by default. On the Scanner page, the "Auto paper trading" switch lets the server place **virtual** orders for scanner ideas, using the idea's stop loss and first target. It never contacts a broker. Limits you can change: minimum score (default 70), max open auto trades (3), risk per trade (1%) and a daily loss stop (3%). It skips a stock you already hold. Auto orders are tagged AUTO on the Orders page. It follows the scanner's rules, so it can lose, and the track record is the way to judge it.
+
+## Safety checks and rejected ideas
+
+A score adds up good signs, but a high score can hide one fatal flaw. So every idea must also pass hard checks: volume not thin, right side of VWAP, 5m and 15m trend not against it, Nifty 50 not against it, not stretched from VWAP, RSI not extreme, news not against it. A stock that already stopped out today, or already had 2 ideas today, is skipped. Anything rejected shows under "Not worth entering" with the reasons, and an open idea whose price has already run past the entry says "Do not enter". Each card also shows what past ideas with a similar score really did.
+
+## Limits and filters
+
+On the Scanner page you set a **max amount per trade** (default ₹30,000; shares are sized to stay under it as well as under your risk %), and filter by side, minimum score (70%+, 80%+, 90%+) and time of day. Auto paper trading has its own max amount, and defaults to at most 2 open trades, 0.5% risk per trade and a 2% daily loss stop. Ideas with a stop wider than 1.2% of the price are rejected. The scanner re-checks all 50 stocks every 15 seconds and the page refreshes every 10 seconds. An idea that price has already run away from leaves the main list and is kept under "Not worth entering".
+
+## Editing stop loss, target and trailing stop
+
+Tap SL / Target on an open position (on the Positions page or the stock's chart page) to add, change or remove its stop loss and target, move the stop to your cost price, or turn on a trailing stop (0.5%, 1% or 2%). A trailing stop follows the price at that distance and only moves towards profit, never back. The Buy and Sell buttons stay at the bottom of the chart page.
+
+## Profit lock
+
+Every new trade starts with a profit lock, in rupees. Defaults: when the open profit reaches ₹1,000 the stop moves to lock in ₹400, then it follows ₹600 behind your best profit and never moves back. If the trade has no stop yet, one is created. Change the defaults on the Account page, or per trade in the SL / Target sheet. It applies to auto trades too. Profit is before charges. Because it can close a trade on a dip after a spike, it protects gains but can also cut a trade that would have recovered.
+
 ## Track record and replay
 
 - **Track record.** The Scanner tab shows how finished ideas ended: how many hit target 1, were stopped or expired, and the average result in **R** (1R is what the idea risked). It is split by setup, hour of the day, side and score band (`GET /api/scanner/stats`). Under 20 finished ideas the screen warns that the numbers are mostly luck.
@@ -278,6 +298,8 @@ The server can run on your phone so it works while your laptop is off. It serves
    Set `MONGO_URI`, `MARKET_DATA_PROVIDER=upstox` and the `UPSTOX_*` values. Keep `NODE_ENV=development`. The Upstox redirect URL stays `http://localhost:5000/upstox/callback`.
 4. Each morning: `bash ~/Trading-helper/termux/start.sh`, then open `http://localhost:5000/upstox/login` once to refresh the Upstox token.
 5. In Android settings, turn off battery optimisation for Termux and keep the phone charged and online 9:00-15:30.
+
+On Android Chrome, open the app and choose menu > Add to Home screen to install it like an app.
 
 The web app is prebuilt in `phone-app/`. After changing the client, run `npm run build:phone` in `client/` and commit the result.
 

@@ -7,9 +7,10 @@ import { useApi } from '../lib/useApi.js';
 import { api } from '../lib/api.js';
 import { useTick, useLtps } from '../lib/tickStore.js';
 import { formatPrice, formatPnl, formatINR, formatTime, pnlClass } from '../lib/format.js';
+import { ExitsSheet } from '../components/ExitsSheet.jsx';
 import { Card, Flash, Skeleton, Badge, EmptyState } from '../components/ui.jsx';
 
-function OpenRow({ p, onExit, busy }) {
+function OpenRow({ p, onExit, onEdit, busy }) {
   const t = useTick(p.symbol);
   const ltp = t?.ltp ?? p.ltp;
   const pnl = ltp != null ? (ltp - p.avgPrice) * p.netQty - p.charges + p.realizedPnl : null;
@@ -35,7 +36,15 @@ function OpenRow({ p, onExit, busy }) {
           <div className={`num text-[11px] ${pnlClass(pct)}`}>{pct != null ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}</div>
         </div>
       </div>
-      <div className="mt-2 flex justify-end">
+      <div className="num mt-2 text-[11px] text-muted">
+        SL {p.stopLoss != null ? formatPrice(p.stopLoss) : 'none'} · Target {p.target != null ? formatPrice(p.target) : 'none'}
+        {p.trailPct ? ` · trailing ${p.trailPct}%` : ''}
+        {p.lockTrigger ? ` · lock ₹${p.lockAmount} at ₹${p.lockTrigger}` : ''}
+      </div>
+      <div className="mt-2 flex justify-end gap-2">
+        <button type="button" onClick={() => onEdit(p)} className="rounded-lg border border-line px-4 py-1.5 text-xs font-semibold hover:bg-surface-2">
+          SL / Target
+        </button>
         <button type="button" disabled={busy} onClick={() => onExit(p.symbol)} className="rounded-lg border border-line px-4 py-1.5 text-xs font-semibold hover:bg-surface-2 disabled:opacity-50">
           Exit
         </button>
@@ -50,6 +59,7 @@ export default function Positions() {
   const { data: open, loading } = useApi('/positions?status=OPEN', [version]);
   const { data: closed } = useApi(today ? `/positions?status=CLOSED&day=${today}` : null, [version]);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(null);
   const positions = open?.positions || [];
   const ltpOf = useLtps(positions.map((p) => p.symbol));
 
@@ -112,7 +122,7 @@ export default function Positions() {
         ) : (
           <ul>
             {positions.map((p) => (
-              <OpenRow key={p._id} p={p} onExit={exitOne} busy={busy} />
+              <OpenRow key={p._id} p={p} onExit={exitOne} onEdit={setEditing} busy={busy} />
             ))}
           </ul>
         )}
@@ -143,6 +153,7 @@ export default function Positions() {
           </Card>
         </>
       )}
+      {editing && <ExitsSheet position={editing} onClose={() => setEditing(null)} />}
     </div>
   );
 }

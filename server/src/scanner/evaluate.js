@@ -2,12 +2,33 @@ import { buildContext } from './context.js';
 import { SETUPS } from './setups.js';
 import { istParts } from '../market/marketHours.js';
 
-export const MIN_SCORE = 60;
+export const MAX_STOP_PCT = 1.2; // a stop wider than this risks too much on one idea
+export const MIN_SCORE = 70; // only strong ideas are shown or alerted
 const FIRST_ENTRY_MIN = 9 * 60 + 30; // opening range is only complete at 09:30
 const LAST_ENTRY_MIN = 14 * 60 + 45;
 
 const STATUS_POINTS = { ENTRY: 30, WATCHING: 18, MISSED: 10 };
 const check = (id, label, points, max, text) => ({ id, label, points, max, text });
+
+const gate = (id, label, pass, text) => ({ id, label, pass, text });
+
+/**
+ * Hard checks. The score adds up good signs, but a high score can still hide one fatal flaw,
+ * so any failed gate blocks the idea whatever its score. `text` explains a failure.
+ */
+function runGates(ctx, d, vwapOk, newsDelta, c) {
+  const g = [];
+  const stopPct = c.entry ? (Math.abs(c.entry - c.stopLoss) / c.entry) * 100 : 0;
+  g.push(gate('stop', 'Stop size', stopPct <= MAX_STOP_PCT, `The stop loss is wide (${stopPct.toFixed(1)}% from entry), so one loss would be big`));
+  g.push(gate('volume', 'Volume', ctx.relVol == null || ctx.relVol >= 0.8, `Volume is thin (${ctx.relVol?.toFixed(1)}x normal), so a breakout has little behind it`));
+  g.push(gate('vwap', 'VWAP side', ctx.vwap == null || vwapOk, 'Price is on the wrong side of VWAP for this direction'));
+  g.push(gate('trend', 'Trend', !(d * ctx.trend5 < 0 || d * ctx.trend15 < 0), 'The 5-minute or 15-minute trend points the other way'));
+  g.push(gate('nifty', 'Market', ctx.niftyChangePct == null || d * ctx.niftyChangePct > -0.5, `Nifty 50 is moving against this trade (${ctx.niftyChangePct?.toFixed(2)}%)`));
+  g.push(gate('stretch', 'Not stretched', ctx.vwapStretch == null || d * ctx.vwapStretch <= 2.5, `Price is ${Math.abs(ctx.vwapStretch ?? 0).toFixed(1)} ATR from VWAP, so chasing here is risky`));
+  g.push(gate('rsi', 'RSI', ctx.rsi == null || !(d > 0 ? ctx.rsi > 78 : ctx.rsi < 22), `RSI ${ctx.rsi?.toFixed(0)} is stretched, so a pullback is likely`));
+  g.push(gate('news', 'News', newsDelta > -10, 'Recent news points the other way'));
+  return g;
+}
 
 /** Score one idea out of 100 and explain every part of the score. */
 export function scoreCandidate(ctx, c) {
@@ -22,18 +43,22 @@ export function scoreCandidate(ctx, c) {
   checks.push(check('trend15', 'Trend (15m)', d * ctx.trend15 > 0 ? 6 : 0, 6, d * ctx.trend15 > 0 ? 'The 15-minute trend agrees' : 'The 15-minute trend is flat or against'));
 
   const rv = ctx.relVol;
-  const volPts = rv == null ? 0 : rv >= 2 ? 20 : rv >= 1.5 ? 14 : rv >= 1.2 ? 8 : 0;
-  checks.push(check('volume', 'Volume', volPts, 20, rv == null ? 'Not enough history to compare volume yet' : `Volume is ${rv.toFixed(1)}x normal for this time of day`));
+  const volPts = rv == null ? 0 : rv >= 2 ? 18 : rv >= 1.5 ? 13 : rv >= 1.2 ? 7 : 0;
+  checks.push(check('volume', 'Volume', volPts, 18, rv == null ? 'Not enough history to compare volume yet' : `Volume is ${rv.toFixed(1)}x normal for this time of day`));
 
   const rs = ctx.relStrength == null ? null : d * ctx.relStrength;
-  const rsPts = rs == null ? 0 : rs >= 0.5 ? 15 : rs >= 0.2 ? 9 : rs >= 0 ? 4 : 0;
-  checks.push(check('strength', 'Vs Nifty 50', rsPts, 15, rs == null ? 'No Nifty 50 reading' : `${rs >= 0 ? 'Stronger' : 'Weaker'} than Nifty 50 by ${Math.abs(rs).toFixed(2)}%`));
+  const rsPts = rs == null ? 0 : rs >= 0.5 ? 13 : rs >= 0.2 ? 8 : rs >= 0 ? 3 : 0;
+  checks.push(check('strength', 'Vs Nifty 50', rsPts, 13, rs == null ? 'No Nifty 50 reading' : `${rs >= 0 ? 'Stronger' : 'Weaker'} than Nifty 50 by ${Math.abs(rs).toFixed(2)}%`));
 
   const bookOk = ctx.bookShare != null && (d > 0 ? ctx.bookShare > 0.6 : ctx.bookShare < 0.4);
-  checks.push(check('book', 'Order book', bookOk ? 8 : 0, 8, ctx.bookShare == null ? 'No order book' : `${Math.round(ctx.bookShare * 100)}% of pending quantity is on the buy side`));
+  checks.push(check('book', 'Order book', bookOk ? 6 : 0, 6, ctx.bookShare == null ? 'No order book' : `${Math.round(ctx.bookShare * 100)}% of pending quantity is on the buy side`));
 
   const rsiOk = ctx.rsi != null && (d > 0 ? ctx.rsi >= 50 && ctx.rsi <= 72 : ctx.rsi >= 28 && ctx.rsi <= 50);
   checks.push(check('rsi', 'RSI', rsiOk ? 7 : 0, 7, ctx.rsi == null ? 'No RSI yet' : `RSI ${ctx.rsi.toFixed(0)}${rsiOk ? ' supports the move' : ' does not support the move'}`));
+
+  const mh = ctx.macdHist;
+  const macdOk = mh != null && d * mh.now > 0 && d * (mh.now - mh.prev) >= 0;
+  checks.push(check('macd', 'MACD', macdOk ? 6 : 0, 6, mh == null ? 'No MACD yet' : macdOk ? 'MACD momentum is building in this direction' : 'MACD momentum is not backing the move'));
 
   const penalties = [];
   let newsDelta = 0;
@@ -63,7 +88,12 @@ export function scoreCandidate(ctx, c) {
     score -= 10;
     penalties.push(`RSI ${ctx.rsi.toFixed(0)} is stretched, so a pullback is likely`);
   }
-  return { ...c, score: Math.max(0, Math.min(100, score)), checks, penalties, news: ctx.news ?? null };
+  if (ctx.vwapStretch != null && d * ctx.vwapStretch > 2.5) {
+    score -= 8;
+    penalties.push(`Price is ${Math.abs(ctx.vwapStretch).toFixed(1)} ATR from VWAP, so chasing here is risky`);
+  }
+  const gates = runGates(ctx, d, vwapOk, newsDelta, c);
+  return { ...c, score: Math.max(0, Math.min(100, score)), checks, penalties, gates, blocked: gates.filter((g) => !g.pass).map((g) => g.text), news: ctx.news ?? null };
 }
 
 /** Only suggest entries between 09:30 and 14:45 IST. */

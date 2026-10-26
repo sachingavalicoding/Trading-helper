@@ -281,3 +281,61 @@ test('an idea that does nothing expires after two hours', async () => {
   assert.equal(doc.status, 'EXPIRED');
   clock = new Date();
 });
+
+test('hard gates block an idea whatever its score: thin volume, wrong side of the market, no trend', () => {
+  const { c1 } = orbLong();
+  const good = find(run(c1), 'Opening range breakout', 'BUY');
+  assert.deepEqual(good.blocked, [], 'the clean scenario passes every gate');
+  assert.ok(good.gates.length >= 6 && good.gates.every((g) => g.pass));
+
+  const againstNifty = find(run(c1, { nifty: -0.9 }), 'Opening range breakout', 'BUY');
+  assert.ok(againstNifty.blocked.some((t) => /Nifty 50 is moving against/.test(t)));
+
+  const thin = find(run(c1.map((b) => (b.time >= T1 ? { ...b, volume: 1 } : b))), 'Opening range breakout', 'BUY');
+  assert.ok(thin.blocked.some((t) => /Volume is thin/.test(t)));
+});
+
+test('a blocked idea is never raised and shows up in the rejected list with its reasons', async () => {
+  const { auth } = await registerUser(ctx.app);
+  const res = (await request(ctx.app).get('/api/scanner').set(auth).expect(200)).body;
+  assert.ok(Array.isArray(res.rejected));
+  for (const r of res.rejected) {
+    assert.ok(r.reasons.length >= 1 && r.score >= 60);
+    assert.ok(!res.items.some((i) => i.symbol === r.symbol && i.status === 'ENTRY' && i.setup === r.setup && i.side === r.side));
+  }
+  assert.ok(res.calibration && typeof res.calibration === 'object');
+});
+
+test('an open idea that price has already run away from cannot be entered', async () => {
+  const ltp = ctx.provider.getLastTick('HDFCBANK').ltp;
+  await ctx.scanner.raise(idea('HDFCBANK', ltp));
+  ctx.provider.setPrice('HDFCBANK', ltp + 4); // 0.8R of a 5-point risk, short of the target
+  await settle();
+  await ctx.scanner.scanOnce();
+  const { auth } = await registerUser(ctx.app);
+  const body = (await request(ctx.app).get('/api/scanner').set(auth).expect(200)).body;
+  assert.ok(!body.items.some((i) => i.symbol === 'HDFCBANK'), 'it leaves the main list');
+  const r = body.rejected.find((x) => x.symbol === 'HDFCBANK');
+  assert.equal(r.status, 'LATE');
+  assert.match(r.reasons[0], /Too late/);
+});
+
+test('a max amount per trade caps the share count', async () => {
+  const { sizePosition } = await import('../src/scanner/sizing.js');
+  const base = { capital: 1_000_000, riskPct: 1, entry: 1000, stopLoss: 995, available: 1_000_000, leverage: 5, maxQty: 100000 };
+  assert.equal(sizePosition(base).qty, 2000);
+  const capped = sizePosition({ ...base, maxAmount: 30000 });
+  assert.equal(capped.qty, 30);
+  assert.equal(capped.amount, 30000);
+  assert.match(capped.note, /max of/);
+  const { auth } = await registerUser(ctx.app);
+  await request(ctx.app).get('/api/scanner?maxAmount=10').set(auth).expect(400);
+  await request(ctx.app).get('/api/scanner?maxAmount=30000').set(auth).expect(200);
+});
+
+test('a very wide stop loss blocks the idea', () => {
+  const { c1 } = orbLong();
+  const c = find(run(c1), 'Opening range breakout', 'BUY');
+  assert.ok(c.gates.find((g) => g.id === 'stop').pass);
+  assert.ok(Math.abs(c.entry - c.stopLoss) / c.entry * 100 <= 1.2);
+});

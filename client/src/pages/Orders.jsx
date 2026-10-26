@@ -34,6 +34,7 @@ function OrderRow({ o }) {
             <span className={`text-xs font-bold ${o.side === 'BUY' ? 'text-up' : 'text-down'}`}>{o.side}</span>
             <span className="font-semibold">{o.symbol}</span>
             {ROLE_LABEL[o.role] && <Badge>{ROLE_LABEL[o.role]}</Badge>}
+            {o.source === 'AUTO' && <Badge tone="accent">AUTO</Badge>}
           </div>
           <div className="num mt-0.5 text-xs text-muted">
             {o.qty} qty · {TYPE_LABEL[o.orderType]} {priceLabel}

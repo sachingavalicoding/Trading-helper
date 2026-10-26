@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Bell, BellOff, ChevronDown, Radar, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMarket } from '../context/MarketContext.jsx';
@@ -7,13 +7,21 @@ import { useApi } from '../lib/useApi.js';
 import { useTick } from '../lib/tickStore.js';
 import { formatPrice, formatPct, formatINR, formatTime, pnlClass } from '../lib/format.js';
 import { OrderSheet } from '../components/OrderSheet.jsx';
+import { AutoCard } from '../components/AutoCard.jsx';
+import { TIME_WINDOWS, passesFilter } from '../lib/scanFilter.js';
+import { Movers } from '../components/Movers.jsx';
 import { MorningPlan } from '../components/MorningPlan.jsx';
 import { ScannerRecord } from '../components/ScannerRecord.jsx';
 import { alertsOn, alertsSupported, setAlerts } from '../lib/alerts.js';
 import { NewsLine, NewsCard } from '../components/NewsCard.jsx';
 import { Badge, Card, EmptyState, Segmented, Skeleton } from '../components/ui.jsx';
 
-const REFRESH_MS = 30_000;
+const REFRESH_MS = 10_000;
+const SCORE_OPTIONS = [
+  { value: 70, label: '70%+' },
+  { value: 80, label: '80%+' },
+  { value: 90, label: '90%+' },
+];
 const RISK_OPTIONS = [
   { value: 0.5, label: '0.5%' },
   { value: 1, label: '1%' },
@@ -39,6 +47,15 @@ function loadRisk() {
   }
 }
 
+function loadAmount() {
+  try {
+    const v = Number(localStorage.getItem('scanner.maxAmount'));
+    return v >= 1000 ? v : 30000;
+  } catch {
+    return 30000;
+  }
+}
+
 const ago = (iso) => {
   const mins = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
   return mins < 1 ? 'just now' : mins < 60 ? `${mins} min ago` : `${Math.floor(mins / 60)} h ${mins % 60} min ago`;
@@ -55,7 +72,22 @@ function Cell({ label, children, note }) {
 }
 
 /** One idea: what to do, where to enter, where to get out, how many shares, and why. */
-function IdeaCard({ idea, onBuy }) {
+const bandOf = (score) => (score >= 80 ? '80+' : score >= 70 ? '70-79' : '60-69');
+
+/** What ideas with a similar score really did before. A score is not a chance of winning. */
+function Calibration({ score, calibration }) {
+  const band = bandOf(score);
+  const h = calibration?.[band];
+  return (
+    <p className="text-[11px] leading-snug text-muted">
+      {h?.enough
+        ? `Past ideas scored ${band}: ${h.winRate}% reached target 1 (${h.count} ideas, average ${h.avgR > 0 ? '+' : ''}${h.avgR}R). A high score is not a promise.`
+        : `Not enough past ideas scored ${band} to know how reliable that score is yet. A high score is not a promise.`}
+    </p>
+  );
+}
+
+function IdeaCard({ idea, onBuy, calibration }) {
   const tick = useTick(idea.symbol);
   const [why, setWhy] = useState(false);
   const isBuy = idea.side === 'BUY';
@@ -123,12 +155,19 @@ function IdeaCard({ idea, onBuy }) {
 
       <div className="flex items-center justify-between gap-3 text-sm">
         <div>
-          <span className="num font-bold">{idea.size.qty} shares</span> <span className="text-muted">risks {formatINR(idea.size.riskUsed)}</span>
+          <span className="num font-bold">{idea.size.qty} shares</span> <span className="text-muted">· {formatINR(idea.size.amount)} · risks {formatINR(idea.size.riskUsed)}</span>
           {idea.size.note && <div className="text-[11px] text-muted">{idea.size.note}</div>}
         </div>
       </div>
 
-      {entering && (
+      {entering && idea.canEnter === false && (
+        <div className="rounded-lg bg-warn/15 px-3 py-2 text-sm">
+          <span className="font-semibold">Do not enter.</span> {idea.lateReason}
+        </div>
+      )}
+      <Calibration score={idea.score} calibration={calibration} />
+
+      {entering && idea.canEnter !== false && (
         <button
           type="button"
           disabled={idea.size.qty < 1}
@@ -195,6 +234,9 @@ function Section({ title, hint, children }) {
 export default function Scanner() {
   const [risk, setRisk] = useState(loadRisk);
   const [side, setSide] = useState('ALL');
+  const [minScore, setMinScore] = useState(70);
+  const [win, setWin] = useState('ALL');
+  const [maxAmount, setMaxAmount] = useState(loadAmount);
   const [alerts, setAlertsState] = useState(alertsOn);
   async function toggleAlerts() {
     const on = await setAlerts(!alerts);
@@ -203,13 +245,43 @@ export default function Scanner() {
     else toast(on ? 'Alerts on. You get a phone notification when this tab is in the background.' : 'Alerts off');
   }
   const [sheet, setSheet] = useState(null);
+  const [params, setParams] = useSearchParams();
+  const openSymbol = params.get('open');
+  const tries = useRef(0);
   const { instruments } = useMarket();
-  const { data, loading, error, reload } = useApi(`/scanner?risk=${risk}`, [risk]);
+  const { data, loading, error, reload } = useApi(`/scanner?risk=${risk}&maxAmount=${maxAmount}`, [risk, maxAmount]);
 
   useEffect(() => {
     const id = setInterval(reload, REFRESH_MS);
     return () => clearInterval(id);
   }, [reload]);
+
+  // Arriving from an alert: open the order sheet for that idea straight away.
+  useEffect(() => {
+    if (!openSymbol || !data || data.warming) return;
+    const idea = data.items.find((i) => i.symbol === openSymbol && i.status === 'ENTRY');
+    if (idea && idea.canEnter !== false && idea.size.qty >= 1) {
+      setSheet(idea);
+    } else if (!idea && tries.current < 2) {
+      tries.current += 1; // the list may predate the alert: look again once
+      reload();
+      return;
+    } else {
+      toast(idea?.lateReason || `The ${openSymbol} idea is no longer available to enter.`);
+    }
+    tries.current = 0;
+    setParams({}, { replace: true });
+  }, [openSymbol, data, reload, setParams]);
+
+  const pickAmount = (v) => {
+    if (!(v >= 1000)) return;
+    setMaxAmount(v);
+    try {
+      localStorage.setItem('scanner.maxAmount', String(v));
+    } catch {
+      /* private mode: the choice just is not remembered */
+    }
+  };
 
   const pickRisk = (v) => {
     setRisk(v);
@@ -220,10 +292,11 @@ export default function Scanner() {
     }
   };
 
-  const items = useMemo(() => (data?.items || []).filter((i) => side === 'ALL' || i.side === side), [data, side]);
+  const items = useMemo(() => (data?.items || []).filter((i) => (side === 'ALL' || i.side === side) && passesFilter(i, { minScore, window: win })), [data, side, minScore, win]);
   const entries = items.filter((i) => i.status === 'ENTRY');
   const watching = items.filter((i) => i.status !== 'ENTRY');
-  const done = (data?.done || []).filter((d) => side === 'ALL' || d.side === side);
+  const rejected = (data?.rejected || []).filter((r) => side === 'ALL' || r.side === side);
+  const done = (data?.done || []).filter((d) => (side === 'ALL' || d.side === side) && passesFilter(d, { window: win }, (x) => x.closedAt));
 
   return (
     <div className="space-y-4">
@@ -248,6 +321,10 @@ export default function Scanner() {
 
       <MorningPlan />
 
+      <AutoCard />
+
+      <Movers />
+
       <Card className="space-y-3 p-3">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -256,7 +333,28 @@ export default function Scanner() {
           </div>
           <Segmented size="sm" options={RISK_OPTIONS} value={risk} onChange={pickRisk} />
         </div>
+        <label className="flex items-center justify-between gap-3 text-sm">
+          <span>
+            <span className="font-semibold">Max per trade</span>
+            <span className="block text-xs text-muted">Shares are sized to stay under this amount</span>
+          </span>
+          <span className="flex items-center gap-1">
+            ₹
+            <input
+              type="number"
+              inputMode="numeric"
+              min="1000"
+              step="1000"
+              defaultValue={maxAmount}
+              onBlur={(e) => pickAmount(Number(e.target.value))}
+              className="num w-24 rounded-lg border border-line bg-surface px-2 py-1.5 text-right outline-none focus:border-accent"
+              aria-label="Maximum amount per trade"
+            />
+          </span>
+        </label>
         <Segmented size="sm" options={SIDE_OPTIONS} value={side} onChange={setSide} className="w-full" />
+        <Segmented size="sm" options={SCORE_OPTIONS} value={minScore} onChange={setMinScore} className="w-full" />
+        <Segmented size="sm" options={TIME_WINDOWS.map(({ value, label }) => ({ value, label }))} value={win} onChange={setWin} className="w-full" />
       </Card>
 
       {loading && !data && (
@@ -286,19 +384,48 @@ export default function Scanner() {
             {entries.length === 0 ? (
               <Card>
                 <EmptyState icon={Radar} title="No good setups right now">
-                  That is normal. Only ideas that score 60 or more and pay at least 1.5 times the risk are shown. Staying out is a valid trade.
+                  That is normal. Only ideas that score 70 or more and pay at least 1.5 times the risk are shown. Staying out is a valid trade.
                 </EmptyState>
               </Card>
             ) : (
-              entries.map((i) => <IdeaCard key={i.ideaId || `${i.symbol}-${i.setup}`} idea={i} onBuy={setSheet} />)
+              entries.map((i) => <IdeaCard key={i.ideaId || `${i.symbol}-${i.setup}`} idea={i} onBuy={setSheet} calibration={data.calibration} />)
             )}
           </Section>
 
           {watching.length > 0 && (
             <Section title="Watching" hint="setup forming, no entry yet">
               {watching.map((i) => (
-                <IdeaCard key={`${i.symbol}-${i.setup}-${i.side}`} idea={i} onBuy={setSheet} />
+                <IdeaCard key={`${i.symbol}-${i.setup}-${i.side}`} idea={i} onBuy={setSheet} calibration={data.calibration} />
               ))}
+            </Section>
+          )}
+
+          {rejected.length > 0 && (
+            <Section title="Not worth entering" hint="rejected, with the reason">
+              <details className="group">
+                <summary className="cursor-pointer text-sm text-accent">Show {rejected.length} rejected idea{rejected.length > 1 ? 's' : ''}</summary>
+              <Card className="mt-2 divide-y divide-line">
+                {rejected.map((r) => (
+                  <div key={`${r.symbol}-${r.setup}-${r.side}`} className="space-y-1 px-3 py-2.5 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <Link to={`/stock/${encodeURIComponent(r.symbol)}`} className="font-semibold">
+                          {r.symbol}
+                        </Link>{' '}
+                        <span className={r.side === 'BUY' ? 'text-up' : 'text-down'}>{r.side}</span>
+                        <span className="text-[11px] text-muted"> · {r.setup} · score {r.score}</span>
+                      </div>
+                      <span className="num text-xs text-muted">₹{formatPrice(r.ltp)}</span>
+                    </div>
+                    <ul className="list-disc space-y-0.5 pl-5 text-[11px] text-muted">
+                      {r.reasons.map((x) => (
+                        <li key={x}>{x}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </Card>
+              </details>
             </Section>
           )}
 
