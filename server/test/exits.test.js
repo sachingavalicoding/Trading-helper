@@ -114,7 +114,7 @@ test('the profit lock can be edited per position and cleared, and is validated',
   await exits({ lockTrigger: 800, lockAmount: null }).expect(400);
   ctx.provider.setPrice('RELIANCE', 1005); // Rs 500 profit hits the new trigger
   await settle();
-  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1001);
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1001.25, 'Rs 100 locked is raised to cost plus 1.5x the charges');
   const cleared = (await exits({ lockTrigger: null, lockAmount: null }).expect(200)).body;
   assert.equal(cleared.lockTrigger, null);
 });
@@ -130,4 +130,16 @@ test('your own defaults apply to new positions, and can be switched off', async 
   await api().put('/api/trade-defaults').set(user.auth).send({ lockEnabled: false }).expect(200);
   await buy({ qty: 100 }).expect(201);
   assert.equal((await exits({}).expect(200)).body.lockTrigger, null);
+});
+
+test('a profit lock never puts the stop where the trade would net a loss after charges', async () => {
+  await buy({ qty: 100 }).expect(201);
+  await exits({ lockTrigger: 100, lockAmount: 5 }).expect(200); // Rs 5 locked is less than the charges
+  ctx.provider.setPrice('RELIANCE', 1001); // Rs 100 profit: the lock starts, but price is not far enough above cost + charges to place a stop there
+  await settle();
+  assert.equal((await openLegs('STOPLOSS')).length, 0, 'no stop that would net a loss');
+  ctx.provider.setPrice('RELIANCE', 1003);
+  await settle();
+  const stop = (await openLegs('STOPLOSS'))[0].triggerPrice;
+  assert.ok(stop >= 1001.2, `stop ${stop} sits above cost plus charges, not at cost + Rs 0.05`);
 });
