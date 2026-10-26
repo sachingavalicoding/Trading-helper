@@ -258,7 +258,7 @@ The code is in `server/src/scanner/plan.js` and `client/src/lib/alerts.js`; test
 
 ## Auto paper trading
 
-Off by default. On the Scanner page, the "Auto paper trading" switch lets the server place **virtual** orders for scanner ideas, using the idea's stop loss and first target. It never contacts a broker. Each auto trade buys **one share** by default (change "Shares per trade" to raise it). Other limits you can change: minimum score (default 70), max open auto trades (3), risk per trade (1%) and a daily loss stop (3%). It skips a stock you already hold. Auto orders are tagged AUTO on the Orders page. It follows the scanner's rules, so it can lose, and the track record is the way to judge it.
+Off by default. On the Scanner page, the "Auto paper trading" switch lets the server place **virtual** orders for scanner ideas, using the idea's stop loss and first target. It never contacts a broker. Each auto trade is sized from your risk % and max amount per trade. To cap it, set "Max shares per trade" (for example 1); 0 means no cap. Other limits you can change: minimum score (default 70), max open auto trades (3), risk per trade (1%) and a daily loss stop (3%). It skips a stock you already hold. Auto orders are tagged AUTO on the Orders page. It follows the scanner's rules, so it can lose, and the track record is the way to judge it.
 
 ## Safety checks and rejected ideas
 

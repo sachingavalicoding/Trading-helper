@@ -37,7 +37,7 @@ const idea = (symbol, side = 'BUY', score = 80) => {
     target2: side === 'BUY' ? ltp + ltp * 0.02 : ltp - ltp * 0.02,
   };
 };
-const settings = (over = {}) => ({ user: user.user.id || user.user._id, enabled: true, minScore: 70, maxOpen: 3, riskPct: 1, dailyLossPct: 3, maxShares: 100000, ...over });
+const settings = (over = {}) => ({ user: user.user.id || user.user._id, enabled: true, minScore: 70, maxOpen: 3, riskPct: 1, dailyLossPct: 3, ...over });
 
 test('auto trading is off by default and can be switched on', async () => {
   const off = await request(app).get('/api/auto').set(user.auth).expect(200);
@@ -113,15 +113,15 @@ test('never puts more than the max amount into one trade', async () => {
   assert.ok(r.order.qty * r.order.ltpAtPlacement <= 5000);
 });
 
-test('places one share per trade by default, and more only when raised', async () => {
-  const one = await registerUser(app);
-  const r1 = await trader.consider(settings({ user: one.user.id || one.user._id, maxOpen: 10, maxShares: undefined }), idea('LT', 'BUY'));
+test('shares are sized from the risk and max amount unless a cap is set', async () => {
+  const free = await registerUser(app);
+  const r1 = await trader.consider(settings({ user: free.user.id || free.user._id, maxOpen: 10 }), idea('LT', 'BUY'));
   assert.ok(r1.order, r1.skipped);
-  assert.equal(r1.order.qty, 1);
-  const more = await registerUser(app);
-  const r2 = await trader.consider(settings({ user: more.user.id || more.user._id, maxOpen: 10, maxShares: 3, riskPct: 3 }), idea('LT', 'BUY'));
+  assert.ok(r1.order.qty > 1);
+  const capped = await registerUser(app);
+  const r2 = await trader.consider(settings({ user: capped.user.id || capped.user._id, maxOpen: 10, maxShares: 1 }), idea('LT', 'BUY'));
   assert.ok(r2.order, r2.skipped);
-  assert.ok(r2.order.qty >= 1 && r2.order.qty <= 3);
+  assert.equal(r2.order.qty, 1);
 });
 
 test('past target 1 an auto trade is not sold: the stop moves up to target 1 and it runs to target 2', async () => {

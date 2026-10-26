@@ -83,7 +83,7 @@ export class AutoTrader {
       symbol: idea.symbol,
       side: idea.side,
       orderType: 'MARKET',
-      qty: Math.min(size.qty, settings.maxShares ?? 1),
+      qty: settings.maxShares > 0 ? Math.min(size.qty, settings.maxShares) : size.qty,
       stopLoss: idea.stopLoss,
       target: idea.target2, // target 1 is not a sell: it only lifts the stop, see setStep
       source: 'AUTO',
