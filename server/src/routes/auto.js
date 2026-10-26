@@ -12,7 +12,7 @@ const patch = z
     maxOpen: z.coerce.number().int().min(1).max(10),
     riskPct: z.coerce.number().min(0.1).max(3),
     dailyLossPct: z.coerce.number().min(0.5).max(10),
-    maxShares: z.coerce.number().int().min(1).max(100000),
+    maxShares: z.coerce.number().int().min(0).max(100000),
     maxTradeAmount: z.coerce.number().min(1000).max(100_000_000),
   })
   .partial();
