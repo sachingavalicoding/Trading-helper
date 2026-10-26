@@ -80,26 +80,29 @@ test('a short position trails downwards, and a trail with no stop starts one', a
   assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 989.8);
 });
 
-test('profit lock: at the trigger profit the stop locks in the set amount, then follows the price', async () => {
-  await buy({ qty: 100 }).expect(201); // defaults: trigger Rs 1000, lock Rs 400
+test('profit lock: at the trigger profit the stop locks in the set amount, then climbs by half of every extra rupee', async () => {
+  await buy({ qty: 100 }).expect(201); // defaults: trigger Rs 1000, lock Rs 300, then 50% of the extra
   assert.equal((await openLegs('STOPLOSS')).length, 0);
   ctx.provider.setPrice('RELIANCE', 1005); // Rs 500 profit: not yet
   await settle();
   assert.equal((await openLegs('STOPLOSS')).length, 0);
-  ctx.provider.setPrice('RELIANCE', 1010); // Rs 1000 profit: stop goes to cost + Rs 400
+  ctx.provider.setPrice('RELIANCE', 1010); // Rs 1000 profit: stop goes to cost + Rs 300
+  await settle();
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1003);
+  ctx.provider.setPrice('RELIANCE', 1012); // Rs 200 more profit: Rs 100 more locked
   await settle();
   assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1004);
-  ctx.provider.setPrice('RELIANCE', 1020); // Rs 2000 profit: stop stays Rs 600 behind the best profit
+  ctx.provider.setPrice('RELIANCE', 1020); // Rs 2000 profit: Rs 800 locked
   await settle();
-  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1014);
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1008);
   ctx.provider.setPrice('RELIANCE', 1015);
   await settle();
-  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1014, 'never loosens');
-  ctx.provider.setPrice('RELIANCE', 1013);
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1008, 'never loosens');
+  ctx.provider.setPrice('RELIANCE', 1007);
   await settle();
   const pos = (await api().get('/api/positions?status=ALL').set(user.auth).expect(200)).body.positions[0];
   assert.equal(pos.status, 'CLOSED');
-  assert.ok(pos.realizedPnl >= 1300, `locked a profit, got ${pos.realizedPnl}`);
+  assert.ok(pos.realizedPnl >= 700, `locked a profit, got ${pos.realizedPnl}`);
 });
 
 test('the profit lock can be edited per position and cleared, and is validated', async () => {
@@ -118,7 +121,7 @@ test('the profit lock can be edited per position and cleared, and is validated',
 
 test('your own defaults apply to new positions, and can be switched off', async () => {
   const d0 = (await api().get('/api/trade-defaults').set(user.auth).expect(200)).body;
-  assert.deepEqual(d0, { lockEnabled: true, lockTrigger: 1000, lockAmount: 400 });
+  assert.deepEqual(d0, { lockEnabled: true, lockTrigger: 1000, lockAmount: 300, lockRatio: 0.5 });
   await api().put('/api/trade-defaults').set(user.auth).send({ lockTrigger: 300, lockAmount: 500 }).expect(400);
   await api().put('/api/trade-defaults').set(user.auth).send({ lockTrigger: 300, lockAmount: 100 }).expect(200);
   await buy({ qty: 100 }).expect(201);

@@ -55,6 +55,11 @@ export class BaseProvider extends EventEmitter {
     return [];
   }
 
+  /** Daily candles for roughly the last `days` calendar days, oldest first; [] when the feed has none. */
+  async getDailyHistory(_symbol, _days) {
+    return [];
+  }
+
   setStatus(connected, message) {
     this.connected = connected;
     this.emit('status', { connected, message });

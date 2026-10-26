@@ -23,10 +23,12 @@ function ProfitLockDefaults() {
   const { data, reload } = useApi('/trade-defaults', []);
   const [trigger, setTrigger] = useState(null);
   const [amount, setAmount] = useState(null);
+  const [ratio, setRatio] = useState(null);
   if (!data) return <Skeleton className="h-28" />;
   const t = trigger ?? String(data.lockTrigger);
   const a = amount ?? String(data.lockAmount);
-  const bad = !(Number(a) > 0 && Number(t) > Number(a));
+  const r = ratio ?? String(Math.round((data.lockRatio ?? 0.5) * 100));
+  const bad = !(Number(a) > 0 && Number(t) > Number(a)) || !(Number(r) >= 10 && Number(r) <= 100);
 
   async function save(patch) {
     try {
@@ -34,6 +36,7 @@ function ProfitLockDefaults() {
       toast.success('Saved. New trades use this.');
       setTrigger(null);
       setAmount(null);
+      setRatio(null);
       reload();
     } catch (e) {
       toast.error(e.message || 'Could not save');
@@ -54,7 +57,7 @@ function ProfitLockDefaults() {
           <span className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white transition-transform ${data.lockEnabled ? 'translate-x-5' : ''}`} />
         </button>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <label className="text-xs text-muted">
           When profit reaches (₹)
           <input className={input} inputMode="numeric" value={t} onChange={(e) => setTrigger(e.target.value)} />
@@ -63,12 +66,16 @@ function ProfitLockDefaults() {
           Lock in profit of (₹)
           <input className={input} inputMode="numeric" value={a} onChange={(e) => setAmount(e.target.value)} />
         </label>
+        <label className="text-xs text-muted">
+          Then lock % of extra
+          <input className={input} inputMode="numeric" value={r} onChange={(e) => setRatio(e.target.value)} />
+        </label>
       </div>
       {bad && <p className="text-xs text-down">The trigger must be larger than the amount you lock in.</p>}
-      <button type="button" disabled={bad || (trigger == null && amount == null)} onClick={() => save({ lockTrigger: Number(t), lockAmount: Number(a) })} className="w-full rounded-xl bg-accent py-2.5 text-sm font-bold text-white disabled:opacity-40">
+      <button type="button" disabled={bad || (trigger == null && amount == null && ratio == null)} onClick={() => save({ lockTrigger: Number(t), lockAmount: Number(a), lockRatio: Number(r) / 100 })} className="w-full rounded-xl bg-accent py-2.5 text-sm font-bold text-white disabled:opacity-40">
         Save
       </button>
-      <p className="text-[11px] leading-snug text-muted">Example: at ₹1,000 profit the stop moves up to lock in ₹400, then follows the price ₹600 behind your best profit. It never moves back, and it can also close a trade early if price dips after a spike.</p>
+      <p className="text-[11px] leading-snug text-muted">Example: at ₹1,000 profit the stop locks in ₹300. Every extra ₹200 of profit then lifts the lock by ₹100 (50%), so at ₹2,000 profit ₹800 is locked. It never moves back, and it can close a trade early if price dips after a spike.</p>
     </Card>
   );
 }

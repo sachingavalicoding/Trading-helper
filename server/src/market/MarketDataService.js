@@ -9,6 +9,8 @@ const HISTORY_TTL_MS = 30000;
  * Single owner of the provider connection. Keeps the latest tick per symbol and
  * re-emits ticks for the order engine and the Socket.IO relay.
  */
+const DAILY_TTL_MS = 6 * 60 * 60 * 1000;
+
 export class MarketDataService extends EventEmitter {
   constructor(provider, { holidays = [] } = {}) {
     super();
@@ -64,6 +66,16 @@ export class MarketDataService extends EventEmitter {
         capabilities: this.provider.capabilities,
       },
     };
+  }
+
+  /** About `days` days of daily candles, cached for hours: the last month does not change while trading. */
+  async getDaily(symbol, days = 45) {
+    const key = `${symbol}|1d`;
+    const hit = this.historyCache.get(key);
+    if (hit && Date.now() - hit.at < DAILY_TTL_MS) return hit.candles;
+    const candles = await this.provider.getDailyHistory(symbol, days);
+    if (candles.length) this.historyCache.set(key, { at: Date.now(), candles });
+    return candles;
   }
 
   async getCandles(symbol, interval) {

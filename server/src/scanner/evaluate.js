@@ -12,9 +12,9 @@ const LAST_ENTRY_MIN = 14 * 60 + 45;
  * Change them here. LEGACY_WEIGHTS is the scorer from before ADX, EMA 50 and sector
  * strength were added, kept so the replay can compare old against new.
  */
-export const WEIGHTS = { setup: 30, vwap: 5, trend5: 5, trend15: 4, volume: 14, strength: 13, book: 3, rsi: 7, macd: 4, adx: 6, emaStack: 5, sector: 4 };
-export const LEGACY_WEIGHTS = { setup: 30, vwap: 7, trend5: 7, trend15: 6, volume: 18, strength: 13, book: 6, rsi: 7, macd: 6, adx: 0, emaStack: 0, sector: 0 };
-export const MIN_ADX = 15; // below this the stock is moving sideways and breakouts tend to fail
+export const WEIGHTS = { setup: 30, vwap: 4, trend5: 5, trend15: 3, volume: 12, strength: 13, book: 2, rsi: 7, macd: 4, adx: 6, emaStack: 5, sector: 4, monthly: 5 };
+export const LEGACY_WEIGHTS = { setup: 30, vwap: 7, trend5: 7, trend15: 6, volume: 18, strength: 13, book: 6, rsi: 7, macd: 6, adx: 0, emaStack: 0, sector: 0, monthly: 0 };
+export const MIN_ADX = 15; // below this the stock is moving sideways: it earns no trend points, but is not blocked
 
 const STATUS_POINTS = { ENTRY: 30, WATCHING: 18, MISSED: 10 };
 const check = (id, label, points, max, text) => ({ id, label, points, max, text });
@@ -35,7 +35,6 @@ function runGates(ctx, d, vwapOk, newsDelta, c, legacy) {
   g.push(gate('nifty', 'Market', ctx.niftyChangePct == null || d * ctx.niftyChangePct > -0.5, `Nifty 50 is moving against this trade (${ctx.niftyChangePct?.toFixed(2)}%)`));
   g.push(gate('stretch', 'Not stretched', ctx.vwapStretch == null || d * ctx.vwapStretch <= 2.5, `Price is ${Math.abs(ctx.vwapStretch ?? 0).toFixed(1)} ATR from VWAP, so chasing here is risky`));
   g.push(gate('rsi', 'RSI', ctx.rsi == null || !(d > 0 ? ctx.rsi > 78 : ctx.rsi < 22), `RSI ${ctx.rsi?.toFixed(0)} is stretched, so a pullback is likely`));
-  if (!legacy) g.push(gate('adx', 'Trending', ctx.adx == null || ctx.adx >= MIN_ADX, `The stock is moving sideways (ADX ${ctx.adx?.toFixed(0)}), so a breakout is likely to fail`));
   g.push(gate('news', 'News', newsDelta > -10, 'Recent news points the other way'));
   return g;
 }
@@ -79,6 +78,11 @@ export function scoreCandidate(ctx, c, { legacy = false } = {}) {
   if (W.emaStack) {
     const st = ctx.emaStack;
     checks.push(check('emaStack', 'EMA 9/21/50', st != null && d * st > 0 ? W.emaStack : 0, W.emaStack, st == null ? 'Not enough bars for EMA 50 yet' : d * st > 0 ? 'EMA 9, 21 and 50 are lined up in this direction' : 'EMA 9, 21 and 50 are not lined up for this direction'));
+  }
+  if (W.monthly) {
+    const m = ctx.month;
+    const ok = m != null && d * m.trend > 0;
+    checks.push(check('monthly', 'Last month', ok ? W.monthly : 0, W.monthly, m == null ? 'Not enough daily history for a monthly view' : ok ? `The last ${m.sessions} sessions trend ${d > 0 ? 'up' : 'down'}, in line with this trade` : `The last ${m.sessions} sessions do not trend ${d > 0 ? 'up' : 'down'}`));
   }
   if (W.sector) {
     const ss = ctx.sectorStrength == null ? null : d * ctx.sectorStrength;

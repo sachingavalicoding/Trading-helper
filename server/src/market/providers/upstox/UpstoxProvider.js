@@ -110,6 +110,24 @@ export class UpstoxProvider extends BaseProvider {
     return [...seen.values()].sort((a, b) => a.time - b.time);
   }
 
+  async getDailyHistory(symbol, days = 45) {
+    const key = this.keyBySymbol.get(symbol);
+    if (!key) return [];
+    const to = new Date(Date.now() + IST_OFFSET_MS);
+    const from = new Date(to);
+    from.setUTCDate(from.getUTCDate() - days);
+    const day = (d) => d.toISOString().slice(0, 10);
+    try {
+      const hist = await this.#get(`/v3/historical-candle/${encodeURIComponent(key)}/days/1/${day(to)}/${day(from)}`);
+      return (hist?.data?.candles || [])
+        .map(([ts, open, high, low, close, volume]) => ({ time: Math.floor(new Date(ts).getTime() / 1000), open, high, low, close, volume: volume || 0 }))
+        .sort((a, b) => a.time - b.time);
+    } catch (err) {
+      logger.warn(`Upstox daily candles failed for ${symbol}: ${err.message}`);
+      return [];
+    }
+  }
+
   async #get(urlPath) {
     const res = await fetch(`${this.apiBase}${urlPath}`, {
       headers: { Authorization: `Bearer ${this.accessToken}`, Accept: 'application/json' },

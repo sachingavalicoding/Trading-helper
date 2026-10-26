@@ -12,6 +12,7 @@ const IDEA_TTL_MS = 2 * 60 * 60 * 1000;
 const MAX_WATCHING = 6;
 const STATUS_ORDER = { ENTRY: 0, WATCHING: 1 };
 const MAX_REJECTED = 12;
+const MAX_OPEN_IDEAS = 5; // more at once cannot all be watched, so the extra ones wait
 const MAX_IDEAS_PER_STOCK = 2; // per day: a stock that keeps failing is not worth another try
 const LATE_R = 0.5; // price already ran this far (in risk units) towards the target
 const CHOP_WINDOW = 4; // of the last 4 finished ideas...
@@ -38,6 +39,8 @@ export class ScannerService extends EventEmitter {
     this.raisedToday = new Set(); // `${day}|${symbol}|${setup}|${side}`
     this.perStock = new Map(); // symbol -> { count, stopped } for today
     this.perStockDay = null;
+    this.daily = new Map(); // symbol -> about a month of daily candles
+    this.dailyDay = null;
     this.finished = []; // today's finished ideas, oldest first: { status, at }
     this.result = { items: [], rejected: [], scanned: 0, total: this.symbols.length, updatedAt: null };
     this.scanning = false;
@@ -65,6 +68,29 @@ export class ScannerService extends EventEmitter {
     this.market.on('tick', this.onTick);
   }
 
+  /** The last month of daily candles for every stock, read once a day (they do not change while trading). */
+  async loadDaily() {
+    if (this.dailyDay === this.day || this.dailyLoading) return;
+    this.dailyLoading = true;
+    try {
+      for (let i = 0; i < this.symbols.length; i += 5) {
+        await Promise.all(
+          this.symbols.slice(i, i + 5).map(async (symbol) => {
+            try {
+              const candles = await this.market.getDaily(symbol);
+              if (candles.length) this.daily.set(symbol, candles);
+            } catch (err) {
+              logger.warn(`Scanner could not load ${symbol} daily candles: ${err.message}`);
+            }
+          }),
+        );
+      }
+      this.dailyDay = this.day;
+    } finally {
+      this.dailyLoading = false;
+    }
+  }
+
   /** Why new ideas are paused, or null. Stops come in streaks on a choppy day, so rest after one. */
   chopReason() {
     const now = this.now();
@@ -77,7 +103,10 @@ export class ScannerService extends EventEmitter {
 
   /** Load history for every stock in the background; the screen shows progress meanwhile. */
   warmUp() {
-    this.warm ||= this.store.loadAll().then(() => logger.info(`Scanner ready: ${this.store.loadedCount} stocks loaded`));
+    this.warm ||= this.store.loadAll().then(() => {
+      logger.info(`Scanner ready: ${this.store.loadedCount} stocks loaded`);
+      return this.loadDaily();
+    });
     return this.warm;
   }
 
@@ -242,6 +271,7 @@ export class ScannerService extends EventEmitter {
       const niftyChangePct = this.market.getTick('NIFTY 50')?.changePct ?? null;
       const newsBySymbol = await this.#newsSignals();
       const sectors = this.#sectorMoves();
+      if (this.dailyDay !== this.day && this.warm) this.loadDaily().catch((e) => logger.warn(`daily load failed: ${e.message}`));
       const entries = [];
       const watching = [];
       const rejected = [];
@@ -260,10 +290,11 @@ export class ScannerService extends EventEmitter {
           for (const idea of open) entries.push(this.#ideaItem(idea, tick));
           continue;
         }
-        const { candidates } = evaluateStock({ symbol, tick, c1, niftyChangePct, sectorChangePct: sectors(symbol), news: newsBySymbol[symbol] ?? null }, { now: this.now(), enforceWindows });
+        const { candidates } = evaluateStock({ symbol, tick, c1, niftyChangePct, sectorChangePct: sectors(symbol), daily: this.daily.get(symbol) ?? null, news: newsBySymbol[symbol] ?? null }, { now: this.now(), enforceWindows });
         const st = this.#stockToday(symbol);
         const strong = candidates.filter((c) => c.score >= MIN_SCORE);
-        const stockBlock = paused ? paused : st.stopped ? 'Already stopped out on this stock today' : st.count >= MAX_IDEAS_PER_STOCK ? `Already had ${st.count} ideas on this stock today` : null;
+        const openCount = [...this.open.values()].reduce((n, l) => n + l.length, 0);
+        const stockBlock = paused ? paused : openCount >= MAX_OPEN_IDEAS ? `Already ${openCount} ideas open, so new ones wait` : st.stopped ? 'Already stopped out on this stock today' : st.count >= MAX_IDEAS_PER_STOCK ? `Already had ${st.count} ideas on this stock today` : null;
         const ok = stockBlock ? null : strong.find((c) => c.status !== 'MISSED' && !c.blocked.length);
         if (ok) {
           const item = { ...ok, symbol, ltp: tick.ltp, changePct: tick.changePct };

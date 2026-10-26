@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { summarizeDaily } from '../src/scanner/daily.js';
 import { adx } from '../src/signals/indicators.js';
 import { scoreCandidate, WEIGHTS, LEGACY_WEIGHTS, MIN_ADX } from '../src/scanner/evaluate.js';
 
@@ -21,18 +22,18 @@ test('score weights add up to 100, old and new', () => {
   assert.equal(total(LEGACY_WEIGHTS), 100);
 });
 
-const ctx = (over = {}) => ({ ltp: 101, vwap: 100, trend5: 1, trend15: 1, relVol: 2, relStrength: 0.6, bookShare: 0.7, rsi: 60, macdHist: { now: 1, prev: 0.5 }, niftyChangePct: 0.3, vwapStretch: 0.5, news: null, adx: 30, emaStack: 1, sectorStrength: 0.4, ...over });
+const ctx = (over = {}) => ({ ltp: 101, vwap: 100, trend5: 1, trend15: 1, relVol: 2, relStrength: 0.6, bookShare: 0.7, rsi: 60, macdHist: { now: 1, prev: 0.5 }, niftyChangePct: 0.3, vwapStretch: 0.5, news: null, adx: 30, emaStack: 1, sectorStrength: 0.4, month: { trend: 1, sessions: 22 }, ...over });
 const cand = (over = {}) => ({ side: 'BUY', status: 'ENTRY', entry: 101, stopLoss: 100.4, setup: 'X', ...over });
 
 test('a clean trend, aligned EMAs and a backing sector earn full marks', () => {
   const r = scoreCandidate(ctx(), cand());
   assert.equal(r.score, 100);
-  for (const id of ['adx', 'emaStack', 'sector']) assert.equal(r.checks.find((c) => c.id === id).points, WEIGHTS[id === 'emaStack' ? 'emaStack' : id]);
+  for (const id of ['adx', 'emaStack', 'sector']) assert.equal(r.checks.find((c) => c.id === id).points, WEIGHTS[id]);
 });
 
-test('a sideways stock is blocked by the ADX gate and loses the trend points', () => {
+test('a sideways stock earns no trend points but is not blocked', () => {
   const r = scoreCandidate(ctx({ adx: 10 }), cand());
-  assert.ok(r.blocked.some((t) => /sideways/.test(t)));
+  assert.ok(!r.blocked.length);
   assert.equal(r.checks.find((c) => c.id === 'adx').points, 0);
 });
 
@@ -50,8 +51,36 @@ test('missing ADX, EMA 50 or sector data never blocks and never invents points',
   for (const id of ['adx', 'emaStack', 'sector']) assert.equal(r.checks.find((c) => c.id === id).points, 0);
 });
 
-test('legacy scoring has no ADX gate and none of the new checks', () => {
+test('legacy scoring has none of the new checks', () => {
   const r = scoreCandidate(ctx({ adx: 5 }), cand(), { legacy: true });
-  assert.ok(!r.blocked.length);
-  assert.ok(!r.checks.some((c) => ['adx', 'emaStack', 'sector'].includes(c.id)));
+  assert.ok(!r.checks.some((c) => ['adx', 'emaStack', 'sector', 'monthly'].includes(c.id)));
+});
+
+test('an idea with a stock already up 7% today is not blocked, entry quality decides', () => {
+  assert.ok(!scoreCandidate(ctx({ changePct: 7 }), cand()).blocked.length);
+});
+
+test('the last month earns points only when its trend agrees, and missing history earns none', () => {
+  assert.equal(scoreCandidate(ctx(), cand()).checks.find((c) => c.id === 'monthly').points, WEIGHTS.monthly);
+  assert.equal(scoreCandidate(ctx({ month: { trend: -1, sessions: 22 } }), cand()).checks.find((c) => c.id === 'monthly').points, 0);
+  assert.equal(scoreCandidate(ctx({ month: null }), cand()).checks.find((c) => c.id === 'monthly').points, 0);
+});
+
+const dayBar = (i, close, spread = 1) => ({ time: 1_700_000_000 + i * 86400, open: close - 0.2, high: close + spread, low: close - spread, close, volume: 1000 });
+
+test('summarizeDaily reads the monthly trend, range position and typical range', () => {
+  const up = Array.from({ length: 25 }, (_, i) => dayBar(i, 100 + i));
+  const today = Math.floor((up.at(-1).time + 19800) / 86400) + 1;
+  const m = summarizeDaily(up, 123, today);
+  assert.equal(m.trend, 1);
+  assert.ok(m.rangePos > 0.8 && m.avgRangePct > 1);
+  assert.equal(summarizeDaily(up.map((c) => ({ ...c, close: 200 - (c.close - 100) })), 90, today).trend, -1);
+  assert.equal(summarizeDaily(up.slice(0, 10), 110, today), null);
+  assert.equal(summarizeDaily(null, 110, today), null);
+});
+
+test("today's unfinished daily candle is not counted as a finished session", () => {
+  const up = Array.from({ length: 20 }, (_, i) => dayBar(i, 100 + i));
+  const today = Math.floor((up.at(-1).time + 19800) / 86400); // the 20th candle is today's, so only 19 are finished
+  assert.equal(summarizeDaily(up, 120, today), null);
 });
