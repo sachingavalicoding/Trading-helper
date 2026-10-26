@@ -12,6 +12,7 @@ const patch = z
     maxOpen: z.coerce.number().int().min(1).max(10),
     riskPct: z.coerce.number().min(0.1).max(3),
     dailyLossPct: z.coerce.number().min(0.5).max(10),
+    maxShares: z.coerce.number().int().min(1).max(100000),
     maxTradeAmount: z.coerce.number().min(1000).max(100_000_000),
   })
   .partial();
@@ -21,7 +22,7 @@ export function autoRoutes({ autoTrader }) {
   const view = async (userId, doc) => {
     const s = doc || new AutoSettings({ user: userId });
     return {
-      settings: { enabled: s.enabled, minScore: s.minScore, maxOpen: s.maxOpen, riskPct: s.riskPct, dailyLossPct: s.dailyLossPct, maxTradeAmount: s.maxTradeAmount },
+      settings: { enabled: s.enabled, minScore: s.minScore, maxOpen: s.maxOpen, riskPct: s.riskPct, dailyLossPct: s.dailyLossPct, maxShares: s.maxShares, maxTradeAmount: s.maxTradeAmount },
       today: await autoTrader.todaySummary(userId),
       disclaimer: AUTO_DISCLAIMER,
     };

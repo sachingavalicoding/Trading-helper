@@ -83,7 +83,7 @@ export class AutoTrader {
       symbol: idea.symbol,
       side: idea.side,
       orderType: 'MARKET',
-      qty: size.qty,
+      qty: Math.min(size.qty, settings.maxShares ?? 1),
       stopLoss: idea.stopLoss,
       target: idea.target1,
       source: 'AUTO',
