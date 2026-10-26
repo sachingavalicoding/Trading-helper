@@ -96,3 +96,18 @@ test('stats route reports finished ideas only', async () => {
   await request(ctx.app).get('/api/scanner/stats').expect(401);
   await teardown(ctx);
 });
+
+test('stopped ideas report how often they were in profit first, and how long they lasted', async () => {
+  const { summarizeIdeas } = await import('../src/scanner/stats.js');
+  const base = { setup: 'X', side: 'BUY', entry: 100, stopLoss: 99, exitPrice: 99, status: 'STOPPED', score: 80, openedAt: '2026-10-26T04:00:00Z' };
+  const s = summarizeIdeas([
+    { ...base, bestR: 0.8, closedAt: '2026-10-26T04:10:00Z' },
+    { ...base, bestR: 0.1, closedAt: '2026-10-26T04:20:00Z' },
+    { ...base, bestR: 1.2, closedAt: '2026-10-26T04:30:00Z' },
+    { ...base, bestR: undefined, closedAt: '2026-10-26T04:05:00Z' }, // recorded before tracking began
+  ]).stopped;
+  assert.equal(s.count, 3);
+  assert.equal(s.reachedHalfR, 67);
+  assert.equal(s.reachedOneR, 33);
+  assert.equal(s.medianMinutes, 20);
+});

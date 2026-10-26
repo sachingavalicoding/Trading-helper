@@ -17,6 +17,8 @@ const scanIdeaSchema = new mongoose.Schema(
     score: { type: Number, required: true },
     status: { type: String, enum: ['OPEN', 'TARGET_HIT', 'STOPPED', 'EXPIRED'], default: 'OPEN' },
     exitPrice: Number,
+    bestR: Number, // furthest the price went in the idea's favour, in risk units
+    worstR: Number, // furthest it went against the idea
     closedAt: Date,
     card: { type: mongoose.Schema.Types.Mixed }, // everything the screen shows (reasons, checks, notes)
   },
