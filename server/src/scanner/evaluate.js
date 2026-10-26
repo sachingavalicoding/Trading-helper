@@ -2,6 +2,7 @@ import { buildContext } from './context.js';
 import { SETUPS } from './setups.js';
 import { istParts } from '../market/marketHours.js';
 
+export const MAX_STOP_PCT = 1.2; // a stop wider than this risks too much on one idea
 export const MIN_SCORE = 70; // only strong ideas are shown or alerted
 const FIRST_ENTRY_MIN = 9 * 60 + 30; // opening range is only complete at 09:30
 const LAST_ENTRY_MIN = 14 * 60 + 45;
@@ -15,8 +16,10 @@ const gate = (id, label, pass, text) => ({ id, label, pass, text });
  * Hard checks. The score adds up good signs, but a high score can still hide one fatal flaw,
  * so any failed gate blocks the idea whatever its score. `text` explains a failure.
  */
-function runGates(ctx, d, vwapOk, newsDelta) {
+function runGates(ctx, d, vwapOk, newsDelta, c) {
   const g = [];
+  const stopPct = c.entry ? (Math.abs(c.entry - c.stopLoss) / c.entry) * 100 : 0;
+  g.push(gate('stop', 'Stop size', stopPct <= MAX_STOP_PCT, `The stop loss is wide (${stopPct.toFixed(1)}% from entry), so one loss would be big`));
   g.push(gate('volume', 'Volume', ctx.relVol == null || ctx.relVol >= 0.8, `Volume is thin (${ctx.relVol?.toFixed(1)}x normal), so a breakout has little behind it`));
   g.push(gate('vwap', 'VWAP side', ctx.vwap == null || vwapOk, 'Price is on the wrong side of VWAP for this direction'));
   g.push(gate('trend', 'Trend', !(d * ctx.trend5 < 0 || d * ctx.trend15 < 0), 'The 5-minute or 15-minute trend points the other way'));
@@ -89,7 +92,7 @@ export function scoreCandidate(ctx, c) {
     score -= 8;
     penalties.push(`Price is ${Math.abs(ctx.vwapStretch).toFixed(1)} ATR from VWAP, so chasing here is risky`);
   }
-  const gates = runGates(ctx, d, vwapOk, newsDelta);
+  const gates = runGates(ctx, d, vwapOk, newsDelta, c);
   return { ...c, score: Math.max(0, Math.min(100, score)), checks, penalties, gates, blocked: gates.filter((g) => !g.pass).map((g) => g.text), news: ctx.news ?? null };
 }
 

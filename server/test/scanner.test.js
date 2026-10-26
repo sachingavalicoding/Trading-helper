@@ -313,7 +313,29 @@ test('an open idea that price has already run away from cannot be entered', asyn
   await settle();
   await ctx.scanner.scanOnce();
   const { auth } = await registerUser(ctx.app);
-  const item = (await request(ctx.app).get('/api/scanner').set(auth).expect(200)).body.items.find((i) => i.symbol === 'HDFCBANK');
-  assert.equal(item.canEnter, false);
-  assert.match(item.lateReason, /Too late/);
+  const body = (await request(ctx.app).get('/api/scanner').set(auth).expect(200)).body;
+  assert.ok(!body.items.some((i) => i.symbol === 'HDFCBANK'), 'it leaves the main list');
+  const r = body.rejected.find((x) => x.symbol === 'HDFCBANK');
+  assert.equal(r.status, 'LATE');
+  assert.match(r.reasons[0], /Too late/);
+});
+
+test('a max amount per trade caps the share count', async () => {
+  const { sizePosition } = await import('../src/scanner/sizing.js');
+  const base = { capital: 1_000_000, riskPct: 1, entry: 1000, stopLoss: 995, available: 1_000_000, leverage: 5, maxQty: 100000 };
+  assert.equal(sizePosition(base).qty, 2000);
+  const capped = sizePosition({ ...base, maxAmount: 30000 });
+  assert.equal(capped.qty, 30);
+  assert.equal(capped.amount, 30000);
+  assert.match(capped.note, /max of/);
+  const { auth } = await registerUser(ctx.app);
+  await request(ctx.app).get('/api/scanner?maxAmount=10').set(auth).expect(400);
+  await request(ctx.app).get('/api/scanner?maxAmount=30000').set(auth).expect(200);
+});
+
+test('a very wide stop loss blocks the idea', () => {
+  const { c1 } = orbLong();
+  const c = find(run(c1), 'Opening range breakout', 'BUY');
+  assert.ok(c.gates.find((g) => g.id === 'stop').pass);
+  assert.ok(Math.abs(c.entry - c.stopLoss) / c.entry * 100 <= 1.2);
 });

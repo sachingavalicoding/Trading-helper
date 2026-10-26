@@ -27,13 +27,13 @@ export class CandleStore {
     this.lastVolume.delete(symbol);
   }
 
-  async loadAll() {
-    for (const symbol of this.symbols) {
-      try {
-        await this.load(symbol);
-      } catch (err) {
-        logger.warn(`Scanner could not load ${symbol} history: ${err.message}`);
-      }
+  async loadAll(batch = 5) {
+    for (let i = 0; i < this.symbols.length; i += batch) {
+      await Promise.all(
+        this.symbols.slice(i, i + batch).map((symbol) =>
+          this.load(symbol).catch((err) => logger.warn(`Scanner could not load ${symbol} history: ${err.message}`)),
+        ),
+      );
     }
   }
 

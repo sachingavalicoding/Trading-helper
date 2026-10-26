@@ -22,7 +22,7 @@ const ADVERSE_R = 0.3; // price already slid this far towards the stop
  * target, stop loss or expiry, 'plan' (plan) once on each trading day from 09:00 IST.
  */
 export class ScannerService extends EventEmitter {
-  constructor({ market, config, news = null, now = () => new Date(), intervalMs = 60_000 }) {
+  constructor({ market, config, news = null, now = () => new Date(), intervalMs = 15_000 }) {
     super();
     this.news = news; // optional NewsService; the scanner works without it
     this.market = market;
@@ -72,7 +72,7 @@ export class ScannerService extends EventEmitter {
       .catch((e) => logger.error('scanner warm-up failed', e));
     this.timer = setInterval(() => {
       this.store
-        .refreshSome(3)
+        .refreshSome(1)
         .then(() => this.scanOnce())
         .then(() => this.announcePlan())
         .catch((e) => logger.error('scan failed', e));
@@ -188,13 +188,22 @@ export class ScannerService extends EventEmitter {
     };
   }
 
+  /** News verdicts, re-read at most every 30 seconds so a fast scan does not hit the database every time. */
+  async #newsSignals() {
+    const t = this.now().getTime();
+    if (this.newsCache && t - this.newsCache.at < 30_000) return this.newsCache.value;
+    const value = (await this.news?.signals().catch((e) => (logger.warn(`news unavailable: ${e.message}`), {}))) ?? {};
+    this.newsCache = { at: t, value };
+    return value;
+  }
+
   async scanOnce() {
     if (this.scanning) return this.result;
     this.scanning = true;
     try {
       const enforceWindows = Boolean(this.config.enforceMarketHours);
       const niftyChangePct = this.market.getTick('NIFTY 50')?.changePct ?? null;
-      const newsBySymbol = await this.news?.signals().catch((e) => (logger.warn(`news unavailable: ${e.message}`), {})) ?? {};
+      const newsBySymbol = await this.#newsSignals();
       const entries = [];
       const watching = [];
       const rejected = [];
@@ -232,10 +241,16 @@ export class ScannerService extends EventEmitter {
           rejected.push({ symbol, side: top.side, setup: top.setup, score: top.score, status: top.status, entry: top.entry, stopLoss: top.stopLoss, target1: top.target1, trigger: top.trigger, ltp: tick.ltp, changePct: tick.changePct, reasons });
         }
       }
+      // An open idea that price has run away from can no longer be entered: take it off the main list.
+      const stale = entries.filter((i) => i.canEnter === false);
+      for (const i of stale) {
+        rejected.push({ symbol: i.symbol, side: i.side, setup: i.setup, score: i.score, status: 'LATE', entry: i.entry, stopLoss: i.stopLoss, target1: i.target1, ltp: i.ltp, changePct: i.changePct, reasons: [i.lateReason] });
+      }
+      const live = entries.filter((i) => i.canEnter !== false);
       const byScore = (a, b) => b.score - a.score;
       watching.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || byScore(a, b));
       this.result = {
-        items: [...entries.sort(byScore), ...watching.slice(0, MAX_WATCHING)],
+        items: [...live.sort(byScore), ...watching.slice(0, MAX_WATCHING)],
         rejected: rejected.sort(byScore).slice(0, MAX_REJECTED),
         scanned,
         total: this.symbols.length,

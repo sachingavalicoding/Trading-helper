@@ -8,7 +8,7 @@ import { ScanIdea } from '../models/index.js';
 
 export const SCANNER_DISCLAIMER = 'Rule-based ideas for learning. Not investment advice, and no idea is guaranteed to work.';
 
-const query = z.object({ risk: z.coerce.number().min(0.1).max(5).default(1) });
+const query = z.object({ risk: z.coerce.number().min(0.1).max(5).default(1), maxAmount: z.coerce.number().min(1000).max(100_000_000).optional() });
 
 export function scannerRoutes({ scanner, config }) {
   const router = Router();
@@ -33,7 +33,7 @@ export function scannerRoutes({ scanner, config }) {
       capital: funds.balance,
       items: items.map((i) => ({
         ...i,
-        size: sizePosition({ capital: funds.balance, riskPct, entry: i.entry, stopLoss: i.stopLoss, available: funds.available, leverage: config.misLeverage, maxQty: config.maxOrderQty }),
+        size: sizePosition({ capital: funds.balance, riskPct, entry: i.entry, stopLoss: i.stopLoss, available: funds.available, leverage: config.misLeverage, maxQty: config.maxOrderQty, maxAmount: req.valid.maxAmount }),
       })),
       done: done.map((d) => ({ id: String(d._id), symbol: d.symbol, setup: d.setup, side: d.side, entry: d.entry, stopLoss: d.stopLoss, target1: d.target1, status: d.status, exitPrice: d.exitPrice, closedAt: d.closedAt })),
       disclaimer: SCANNER_DISCLAIMER,

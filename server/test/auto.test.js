@@ -103,3 +103,11 @@ test('skips an idea whose price has already run away from the entry', async () =
   const r = await trader.consider(s, late);
   assert.match(r.skipped, /already moved/);
 });
+
+test('never puts more than the max amount into one trade', async () => {
+  const fresh = await registerUser(app);
+  const s = settings({ user: fresh.user.id || fresh.user._id, maxOpen: 10, maxTradeAmount: 5000, riskPct: 3 });
+  const r = await trader.consider(s, idea('LT', 'BUY'));
+  assert.ok(r.order, r.skipped);
+  assert.ok(r.order.qty * r.order.ltpAtPlacement <= 5000);
+});

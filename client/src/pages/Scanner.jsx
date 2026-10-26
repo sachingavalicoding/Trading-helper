@@ -8,6 +8,7 @@ import { useTick } from '../lib/tickStore.js';
 import { formatPrice, formatPct, formatINR, formatTime, pnlClass } from '../lib/format.js';
 import { OrderSheet } from '../components/OrderSheet.jsx';
 import { AutoCard } from '../components/AutoCard.jsx';
+import { TIME_WINDOWS, passesFilter } from '../lib/scanFilter.js';
 import { Movers } from '../components/Movers.jsx';
 import { MorningPlan } from '../components/MorningPlan.jsx';
 import { ScannerRecord } from '../components/ScannerRecord.jsx';
@@ -15,7 +16,12 @@ import { alertsOn, alertsSupported, setAlerts } from '../lib/alerts.js';
 import { NewsLine, NewsCard } from '../components/NewsCard.jsx';
 import { Badge, Card, EmptyState, Segmented, Skeleton } from '../components/ui.jsx';
 
-const REFRESH_MS = 30_000;
+const REFRESH_MS = 10_000;
+const SCORE_OPTIONS = [
+  { value: 70, label: '70%+' },
+  { value: 80, label: '80%+' },
+  { value: 90, label: '90%+' },
+];
 const RISK_OPTIONS = [
   { value: 0.5, label: '0.5%' },
   { value: 1, label: '1%' },
@@ -38,6 +44,15 @@ function loadRisk() {
     return RISK_OPTIONS.some((o) => o.value === v) ? v : 1;
   } catch {
     return 1;
+  }
+}
+
+function loadAmount() {
+  try {
+    const v = Number(localStorage.getItem('scanner.maxAmount'));
+    return v >= 1000 ? v : 30000;
+  } catch {
+    return 30000;
   }
 }
 
@@ -140,7 +155,7 @@ function IdeaCard({ idea, onBuy, calibration }) {
 
       <div className="flex items-center justify-between gap-3 text-sm">
         <div>
-          <span className="num font-bold">{idea.size.qty} shares</span> <span className="text-muted">risks {formatINR(idea.size.riskUsed)}</span>
+          <span className="num font-bold">{idea.size.qty} shares</span> <span className="text-muted">· {formatINR(idea.size.amount)} · risks {formatINR(idea.size.riskUsed)}</span>
           {idea.size.note && <div className="text-[11px] text-muted">{idea.size.note}</div>}
         </div>
       </div>
@@ -219,6 +234,9 @@ function Section({ title, hint, children }) {
 export default function Scanner() {
   const [risk, setRisk] = useState(loadRisk);
   const [side, setSide] = useState('ALL');
+  const [minScore, setMinScore] = useState(70);
+  const [win, setWin] = useState('ALL');
+  const [maxAmount, setMaxAmount] = useState(loadAmount);
   const [alerts, setAlertsState] = useState(alertsOn);
   async function toggleAlerts() {
     const on = await setAlerts(!alerts);
@@ -228,12 +246,22 @@ export default function Scanner() {
   }
   const [sheet, setSheet] = useState(null);
   const { instruments } = useMarket();
-  const { data, loading, error, reload } = useApi(`/scanner?risk=${risk}`, [risk]);
+  const { data, loading, error, reload } = useApi(`/scanner?risk=${risk}&maxAmount=${maxAmount}`, [risk, maxAmount]);
 
   useEffect(() => {
     const id = setInterval(reload, REFRESH_MS);
     return () => clearInterval(id);
   }, [reload]);
+
+  const pickAmount = (v) => {
+    if (!(v >= 1000)) return;
+    setMaxAmount(v);
+    try {
+      localStorage.setItem('scanner.maxAmount', String(v));
+    } catch {
+      /* private mode: the choice just is not remembered */
+    }
+  };
 
   const pickRisk = (v) => {
     setRisk(v);
@@ -244,11 +272,11 @@ export default function Scanner() {
     }
   };
 
-  const items = useMemo(() => (data?.items || []).filter((i) => side === 'ALL' || i.side === side), [data, side]);
+  const items = useMemo(() => (data?.items || []).filter((i) => (side === 'ALL' || i.side === side) && passesFilter(i, { minScore, window: win })), [data, side, minScore, win]);
   const entries = items.filter((i) => i.status === 'ENTRY');
   const watching = items.filter((i) => i.status !== 'ENTRY');
   const rejected = (data?.rejected || []).filter((r) => side === 'ALL' || r.side === side);
-  const done = (data?.done || []).filter((d) => side === 'ALL' || d.side === side);
+  const done = (data?.done || []).filter((d) => (side === 'ALL' || d.side === side) && passesFilter(d, { window: win }, (x) => x.closedAt));
 
   return (
     <div className="space-y-4">
@@ -285,7 +313,28 @@ export default function Scanner() {
           </div>
           <Segmented size="sm" options={RISK_OPTIONS} value={risk} onChange={pickRisk} />
         </div>
+        <label className="flex items-center justify-between gap-3 text-sm">
+          <span>
+            <span className="font-semibold">Max per trade</span>
+            <span className="block text-xs text-muted">Shares are sized to stay under this amount</span>
+          </span>
+          <span className="flex items-center gap-1">
+            ₹
+            <input
+              type="number"
+              inputMode="numeric"
+              min="1000"
+              step="1000"
+              defaultValue={maxAmount}
+              onBlur={(e) => pickAmount(Number(e.target.value))}
+              className="num w-24 rounded-lg border border-line bg-surface px-2 py-1.5 text-right outline-none focus:border-accent"
+              aria-label="Maximum amount per trade"
+            />
+          </span>
+        </label>
         <Segmented size="sm" options={SIDE_OPTIONS} value={side} onChange={setSide} className="w-full" />
+        <Segmented size="sm" options={SCORE_OPTIONS} value={minScore} onChange={setMinScore} className="w-full" />
+        <Segmented size="sm" options={TIME_WINDOWS.map(({ value, label }) => ({ value, label }))} value={win} onChange={setWin} className="w-full" />
       </Card>
 
       {loading && !data && (
@@ -333,7 +382,9 @@ export default function Scanner() {
 
           {rejected.length > 0 && (
             <Section title="Not worth entering" hint="rejected, with the reason">
-              <Card className="divide-y divide-line">
+              <details className="group">
+                <summary className="cursor-pointer text-sm text-accent">Show {rejected.length} rejected idea{rejected.length > 1 ? 's' : ''}</summary>
+              <Card className="mt-2 divide-y divide-line">
                 {rejected.map((r) => (
                   <div key={`${r.symbol}-${r.setup}-${r.side}`} className="space-y-1 px-3 py-2.5 text-sm">
                     <div className="flex items-center justify-between gap-2">
@@ -354,6 +405,7 @@ export default function Scanner() {
                   </div>
                 ))}
               </Card>
+              </details>
             </Section>
           )}
 

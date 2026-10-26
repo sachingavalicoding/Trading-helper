@@ -75,6 +75,7 @@ export class AutoTrader {
       available: funds.available,
       leverage: this.config.misLeverage,
       maxQty: this.config.maxOrderQty,
+      maxAmount: settings.maxTradeAmount,
     });
     if (size.qty < 1) return { skipped: size.note || 'no size fits the risk limit' };
 

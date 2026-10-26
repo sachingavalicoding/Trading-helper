@@ -264,6 +264,10 @@ Off by default. On the Scanner page, the "Auto paper trading" switch lets the se
 
 A score adds up good signs, but a high score can hide one fatal flaw. So every idea must also pass hard checks: volume not thin, right side of VWAP, 5m and 15m trend not against it, Nifty 50 not against it, not stretched from VWAP, RSI not extreme, news not against it. A stock that already stopped out today, or already had 2 ideas today, is skipped. Anything rejected shows under "Not worth entering" with the reasons, and an open idea whose price has already run past the entry says "Do not enter". Each card also shows what past ideas with a similar score really did.
 
+## Limits and filters
+
+On the Scanner page you set a **max amount per trade** (default ₹30,000; shares are sized to stay under it as well as under your risk %), and filter by side, minimum score (70%+, 80%+, 90%+) and time of day. Auto paper trading has its own max amount, and defaults to at most 2 open trades, 0.5% risk per trade and a 2% daily loss stop. Ideas with a stop wider than 1.2% of the price are rejected. The scanner re-checks all 50 stocks every 15 seconds and the page refreshes every 10 seconds. An idea that price has already run away from leaves the main list and is kept under "Not worth entering".
+
 ## Track record and replay
 
 - **Track record.** The Scanner tab shows how finished ideas ended: how many hit target 1, were stopped or expired, and the average result in **R** (1R is what the idea risked). It is split by setup, hour of the day, side and score band (`GET /api/scanner/stats`). Under 20 finished ideas the screen warns that the numbers are mostly luck.
