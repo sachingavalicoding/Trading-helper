@@ -81,22 +81,27 @@ export class ScannerService extends EventEmitter {
 
   /** The last month of daily candles for every stock, read once a day (they do not change while trading). */
   async loadDaily() {
-    if (this.dailyDay === this.day || this.dailyLoading) return;
+    // After a failed pass (expired token, network), try again in 10 minutes instead of giving up until tomorrow.
+    if (this.dailyDay === this.day || this.dailyLoading || Date.now() < (this.dailyRetryAt ?? 0)) return;
     this.dailyLoading = true;
     try {
+      let failed = 0;
       for (let i = 0; i < this.symbols.length; i += 5) {
         await Promise.all(
           this.symbols.slice(i, i + 5).map(async (symbol) => {
             try {
               const candles = await this.market.getDaily(symbol);
               if (candles.length) this.daily.set(symbol, candles);
+              else failed++;
             } catch (err) {
+              failed++;
               logger.warn(`Scanner could not load ${symbol} daily candles: ${err.message}`);
             }
           }),
         );
       }
-      this.dailyDay = this.day;
+      if (failed) this.dailyRetryAt = Date.now() + 10 * 60_000;
+      else this.dailyDay = this.day;
     } finally {
       this.dailyLoading = false;
     }
@@ -393,7 +398,7 @@ export class ScannerService extends EventEmitter {
   /** Today's pre-market plan (see plan.js). */
   async plan() {
     const signals = (await this.news?.signals().catch(() => ({}))) ?? {};
-    return buildPlan({ store: this.store, market: this.market, signals, now: this.now() });
+    return buildPlan({ store: this.store, market: this.market, signals, daily: this.daily, now: this.now() });
   }
 
   /** Emit 'plan' once per trading day, at or after 09:00 IST. */

@@ -37,19 +37,24 @@ export function attachSocket(httpServer, { market, engine, config, scanner }) {
         .filter((s) => valid.has(s))
         .map((s) => `${withDepth ? 'depth' : 'sym'}:${s}`);
 
-    socket.on('subscribe', ({ symbols = [], depth = false } = {}, ack) => {
+    // Payloads come from the browser, so a null or odd one must never throw inside a handler (that would crash the server).
+    const reply = (ack, body) => typeof ack === 'function' && ack(body);
+
+    socket.on('subscribe', (payload, ack) => {
+      const { symbols = [], depth = false } = payload && typeof payload === 'object' ? payload : {};
       const rooms = roomsFor(symbols, depth);
-      if (socket.rooms.size + rooms.length > MAX_SUBSCRIPTIONS + 3) return ack?.({ ok: false, error: 'Too many subscriptions' });
+      if (socket.rooms.size + rooms.length > MAX_SUBSCRIPTIONS + 3) return reply(ack, { ok: false, error: 'Too many subscriptions' });
       socket.join(rooms);
       // Send the latest known values right away so the UI does not wait for the next tick.
       for (const room of rooms) {
         const tick = market.getTick(room.split(':')[1]);
         if (tick) socket.emit('tick', room.startsWith('depth:') ? tick : stripDepth(tick));
       }
-      ack?.({ ok: true });
+      reply(ack, { ok: true });
     });
 
-    socket.on('unsubscribe', ({ symbols = [], depth = false } = {}) => {
+    socket.on('unsubscribe', (payload) => {
+      const { symbols = [], depth = false } = payload && typeof payload === 'object' ? payload : {};
       for (const room of roomsFor(symbols, depth)) socket.leave(room);
     });
   });

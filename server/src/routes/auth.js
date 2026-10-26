@@ -18,6 +18,8 @@ const loginSchema = z.object({
   password: z.string().min(1).max(128),
 });
 
+const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 10);
+
 export function authRoutes(config) {
   const router = Router();
   const limiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: config.nodeEnv === 'test' ? 1000 : 20, standardHeaders: 'draft-7', legacyHeaders: false });
@@ -34,7 +36,9 @@ export function authRoutes(config) {
   router.post('/login', limiter, validate(loginSchema), async (req, res) => {
     const { email, password } = req.body;
     const user = await User.findOne({ email }).select('+passwordHash');
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) throw unauthorized('Wrong email or password');
+    // Compare against a dummy hash when the email is unknown, so response time does not reveal which emails exist.
+    const ok = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
+    if (!user || !ok) throw unauthorized('Wrong email or password');
     res.json({ token: tokenFor(user), user });
   });
 

@@ -13,6 +13,10 @@ export function errorHandler(err, _req, res, _next) {
   if (err?.name === 'CastError') {
     return res.status(400).json({ error: { code: 'BAD_ID', message: 'Invalid id' } });
   }
+  if (err?.code === 11000) {
+    // Two requests raced past a "does it exist" check; the unique index caught it.
+    return res.status(409).json({ error: { code: 'DUPLICATE', message: 'That already exists' } });
+  }
   if (err?.type === 'entity.parse.failed') {
     return res.status(400).json({ error: { code: 'BAD_JSON', message: 'Malformed JSON body' } });
   }
