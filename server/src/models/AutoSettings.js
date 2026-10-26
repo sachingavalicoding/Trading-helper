@@ -10,6 +10,7 @@ const autoSettingsSchema = new mongoose.Schema(
     riskPct: { type: Number, default: 0.5, min: 0.1, max: 3 }, // % of capital lost if a stop is hit
     dailyLossPct: { type: Number, default: 2, min: 0.5, max: 10 }, // stop opening trades after losing this much today
     maxShares: { type: Number, default: 0, min: 0 }, // most shares per auto trade; 0 = no cap, size from risk % and max amount
+    lockByRisk: { type: Boolean, default: true }, // size each auto trade's profit lock from the money risked instead of the fixed rupee defaults
     maxTradeAmount: { type: Number, default: 30000, min: 1000 }, // most money put into one trade
   },
   { timestamps: true },

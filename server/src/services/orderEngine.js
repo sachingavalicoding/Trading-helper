@@ -3,7 +3,7 @@ import { Order, Position, Trade, TradeDefaults } from '../models/index.js';
 import { TRADE_DEFAULTS } from '../models/TradeDefaults.js';
 import { isTradable } from '../market/instruments.js';
 import { getMarketStatus } from '../market/marketHours.js';
-import { calculateCharges, splitCharges } from './charges.js';
+import { calculateCharges, roundTripCharges, splitCharges } from './charges.js';
 import { getFunds, adjustBalance, resetAccount } from './walletService.js';
 import { KeyedMutex } from '../utils/keyedMutex.js';
 import { round2, roundToTick } from '../utils/money.js';
@@ -28,6 +28,7 @@ export function isTriggered(order, ltp) {
  *
  * Emits 'update' ({ userId, kind: 'order'|'fill'|'squareoff', order, trades, message }).
  */
+const LOCK_CHARGES_MULT = 1.5; // a profit lock or target step never puts the stop below cost + this many times the round-trip charges
 const STEP_KEEP = 0.95; // past a target, keep the stop this share of the way from entry to it
 
 export class OrderEngine extends EventEmitter {
@@ -294,15 +295,19 @@ export class OrderEngine extends EventEmitter {
     const qty = Math.abs(pos.netQty);
     const wants = [];
     if (pos.trailPct != null) wants.push(roundToTick(long ? ltp * (1 - pos.trailPct / 100) : ltp * (1 + pos.trailPct / 100)));
+    // Stops that lock in profit (the rupee lock and the target ladder) must still be a gain after charges.
+    const floorPer = (LOCK_CHARGES_MULT * roundTripCharges({ qty, price: pos.avgPrice })) / qty;
+    const chargesFloor = roundToTick(long ? pos.avgPrice + floorPer : pos.avgPrice - floorPer);
+    const lockStop = (w) => (long ? Math.max(w, chargesFloor) : Math.min(w, chargesFloor));
     const profit = (long ? ltp - pos.avgPrice : pos.avgPrice - ltp) * qty;
     if (pos.lockTrigger != null && profit >= pos.lockTrigger) {
       // With a ratio the lock climbs by that share of every extra rupee; without one it trails the best profit.
       const locked = pos.lockRatio != null ? pos.lockAmount + pos.lockRatio * (profit - pos.lockTrigger) : Math.max(pos.lockAmount, profit - (pos.lockTrigger - pos.lockAmount));
       const per = locked / qty;
-      wants.push(roundToTick(long ? pos.avgPrice + per : pos.avgPrice - per));
+      wants.push(lockStop(roundToTick(long ? pos.avgPrice + per : pos.avgPrice - per)));
     }
     for (const step of pos.stepPrices || []) {
-      if (long ? ltp > step : ltp < step) wants.push(roundToTick(pos.avgPrice + STEP_KEEP * (step - pos.avgPrice)));
+      if (long ? ltp > step : ltp < step) wants.push(lockStop(roundToTick(pos.avgPrice + STEP_KEEP * (step - pos.avgPrice))));
     }
     if (!wants.length) return;
     const want = long ? Math.max(...wants) : Math.min(...wants);

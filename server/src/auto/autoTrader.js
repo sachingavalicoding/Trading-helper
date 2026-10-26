@@ -1,10 +1,15 @@
 import { AutoLog, AutoSettings, Order, Position, Trade } from '../models/index.js';
 import { getFunds } from '../services/walletService.js';
 import { roundToTick } from '../utils/money.js';
+import { roundTripCharges } from '../services/charges.js';
 import { sizePosition } from '../scanner/sizing.js';
 import { logger } from '../utils/logger.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
+
+const MIN_PROFIT_TO_CHARGES = 3; // skip a trade whose profit at target 1 is under this many times its round-trip charges
+const LOCK_AT_RISK = 1; // the profit lock starts once profit equals this multiple of the money risked...
+const LOCK_KEEP_OF_RISK = 0.3; // ...and then keeps this share of that risk
 
 /**
  * Paper auto-trader. When the scanner raises an idea, it places a VIRTUAL order for every user
@@ -172,11 +177,18 @@ export class AutoTrader {
     });
     if (size.qty < 1) return { skipped: size.note || 'no size fits the risk limit' };
 
+    const qty = settings.maxShares > 0 ? Math.min(size.qty, settings.maxShares) : size.qty;
+    const profitAtT1 = qty * Math.abs(idea.target1 - idea.entry);
+    const charges = roundTripCharges({ qty, price: idea.entry });
+    if (profitAtT1 < MIN_PROFIT_TO_CHARGES * charges) {
+      return { skipped: `profit at target 1 (₹${round2(profitAtT1)}) is under ${MIN_PROFIT_TO_CHARGES}x the charges (₹${charges})` };
+    }
+
     const { order } = await this.engine.placeOrder(userId, {
       symbol: idea.symbol,
       side: idea.side,
       orderType: 'MARKET',
-      qty: settings.maxShares > 0 ? Math.min(size.qty, settings.maxShares) : size.qty,
+      qty,
       stopLoss: idea.stopLoss,
       target: roundToTick(idea.target2 * 2 - idea.target1), // sells at a third target, as far past target 2 as 2 is past 1; targets 1 and 2 only lift the stop, see setSteps
       source: 'AUTO',
@@ -184,7 +196,21 @@ export class AutoTrader {
     // A rejected order (market closed, not enough funds) opened nothing, so it must not be logged as a placed trade.
     if (order.status !== 'FILLED') return { skipped: order.rejectReason || `order was ${String(order.status).toLowerCase()}` };
     await this.engine.setSteps(userId, idea.symbol, [idea.target1, idea.target2]);
+    if (settings.lockByRisk !== false) await this.#lockByRisk(userId, order, idea);
     return { order };
+  }
+
+  /** Size the profit lock from the money risked on this trade, so it works at any balance (the rupee defaults would not at a small one). */
+  async #lockByRisk(userId, order, idea) {
+    const risk = order.qty * Math.abs(idea.entry - idea.stopLoss);
+    const lockTrigger = round2(risk * LOCK_AT_RISK);
+    const lockAmount = round2(risk * LOCK_KEEP_OF_RISK);
+    if (!(lockAmount > 0 && lockTrigger > lockAmount)) return;
+    try {
+      await this.engine.setExits(userId, idea.symbol, { lockTrigger, lockAmount });
+    } catch (e) {
+      logger.warn(`auto lock for ${idea.symbol} not set: ${e.message}`);
+    }
   }
 
   async handle(idea) {

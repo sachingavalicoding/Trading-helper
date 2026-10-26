@@ -247,3 +247,40 @@ test('the day summary adds up exits and setups, groups skip reasons, and checks 
   assert.equal(sum.skipReasons[0].count, 2);
   assert.deepEqual(sum.skippedHindsight, { followed: 2, wouldHitTarget: 1, wouldStop: 1, unresolved: 0 });
 });
+
+test('the profit lock of an auto trade is sized from the money risked, and can be turned off', async () => {
+  const a = await registerUser(app);
+  const sa = settings({ user: a.user.id || a.user._id, maxOpen: 10 });
+  ctx.provider.setPrice('SBIN', 800);
+  await settle();
+  const i = idea('SBIN', 'BUY');
+  const r = await trader.consider(sa, i);
+  assert.ok(r.order, r.skipped);
+  const pos = await Position.findOne({ user: sa.user, symbol: 'SBIN', status: 'OPEN' }).lean();
+  const risk = r.order.qty * Math.abs(i.entry - i.stopLoss);
+  assert.ok(Math.abs(pos.lockTrigger - risk) < 0.02, `trigger ${pos.lockTrigger} vs risk ${risk}`);
+  assert.ok(Math.abs(pos.lockAmount - risk * 0.3) < 0.02);
+
+  const b = await registerUser(app);
+  const sb = settings({ user: b.user.id || b.user._id, maxOpen: 10, lockByRisk: false });
+  ctx.provider.setPrice('ITC', 400);
+  await settle();
+  const r2 = await trader.consider(sb, idea('ITC', 'BUY'));
+  assert.ok(r2.order, r2.skipped);
+  const pos2 = await Position.findOne({ user: sb.user, symbol: 'ITC', status: 'OPEN' }).lean();
+  assert.equal(pos2.lockTrigger, 1000, 'the fixed rupee default stays');
+});
+
+test('skips a trade whose profit at target 1 would not cover its charges three times over', async () => {
+  const c = await registerUser(app);
+  const s = settings({ user: c.user.id || c.user._id, maxOpen: 10, maxShares: 1 });
+  ctx.provider.setPrice('ONGC', 250);
+  await settle();
+  const tiny = idea('ONGC', 'BUY');
+  tiny.target1 = tiny.entry + 0.2; // 20 paise of profit on one share: charges are more than a third of that
+  tiny.target2 = tiny.entry + 0.4;
+  const r = await trader.consider(s, tiny);
+  assert.match(r.skipped, /under 3x the charges/);
+  const logged = await AutoLog.findOne({ user: s.user, symbol: 'ONGC' }).lean();
+  assert.equal(logged.decision, 'SKIPPED');
+});

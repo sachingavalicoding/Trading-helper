@@ -340,3 +340,9 @@ The app trades paper money only. The real risks are your secrets: keep `.env` (U
 ## Auto log
 
 Every decision the auto-trader makes goes into the `autologs` collection: placed or skipped (with the reason), the idea's plan and score breakdown, the price and how far it had run (`movedR`), quantity and order. When a placed trade closes, the row gets the outcome: exit reason (`STOP`, `LOCK` = raised stop hit in profit, `TARGET`, `MANUAL`, `SQUARE_OFF`), P&L after charges, minutes held, result in R, and the best and worst R reached while held. `GET /api/auto/log?day=YYYY-MM-DD` returns the day's rows plus a summary (by exit, setup and score band, skip reasons, and how skipped ideas later ended). The Scanner screen shows it under "Today's auto log". Best and worst R are tracked in memory, so a server restart mid-trade leaves them empty for that trade.
+
+## Locks that survive charges
+
+- A profit lock or target-ladder stop never sits below cost plus 1.5x the round-trip charges, so a "locked profit" is still a gain after charges. If price is not yet far enough above that level, no lock stop is placed.
+- Auto trades size the profit lock from the money risked on that trade: it starts at 1x the risk and keeps 30% of it (then climbs by the lock ratio), so it works at any balance. Switch it off per user with `lockByRisk: false` on `PUT /api/auto` to keep the fixed rupee defaults.
+- Auto skips an idea whose profit at target 1 is under 3x its round-trip charges (the skip reason shows in the auto log).

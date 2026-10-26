@@ -31,3 +31,8 @@ export function splitCharges(charges, fraction) {
   for (const [k, v] of Object.entries(charges)) out[k] = round2(v * fraction);
   return out;
 }
+
+/** Estimated cost of buying and selling `qty` shares around `price`: what a trade must earn before it is a gain. */
+export function roundTripCharges({ qty, price }) {
+  return round2(calculateCharges({ side: 'BUY', qty, price }).total + calculateCharges({ side: 'SELL', qty, price }).total);
+}
