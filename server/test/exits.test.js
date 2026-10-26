@@ -79,3 +79,52 @@ test('a short position trails downwards, and a trail with no stop starts one', a
   await settle();
   assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 989.8);
 });
+
+test('profit lock: at the trigger profit the stop locks in the set amount, then follows the price', async () => {
+  await buy({ qty: 100 }).expect(201); // defaults: trigger Rs 1000, lock Rs 400
+  assert.equal((await openLegs('STOPLOSS')).length, 0);
+  ctx.provider.setPrice('RELIANCE', 1005); // Rs 500 profit: not yet
+  await settle();
+  assert.equal((await openLegs('STOPLOSS')).length, 0);
+  ctx.provider.setPrice('RELIANCE', 1010); // Rs 1000 profit: stop goes to cost + Rs 400
+  await settle();
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1004);
+  ctx.provider.setPrice('RELIANCE', 1020); // Rs 2000 profit: stop stays Rs 600 behind the best profit
+  await settle();
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1014);
+  ctx.provider.setPrice('RELIANCE', 1015);
+  await settle();
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1014, 'never loosens');
+  ctx.provider.setPrice('RELIANCE', 1013);
+  await settle();
+  const pos = (await api().get('/api/positions?status=ALL').set(user.auth).expect(200)).body.positions[0];
+  assert.equal(pos.status, 'CLOSED');
+  assert.ok(pos.realizedPnl >= 1300, `locked a profit, got ${pos.realizedPnl}`);
+});
+
+test('the profit lock can be edited per position and cleared, and is validated', async () => {
+  await buy({ qty: 100 }).expect(201);
+  const set = (await exits({ lockTrigger: 500, lockAmount: 100 }).expect(200)).body;
+  assert.equal(set.lockTrigger, 500);
+  assert.equal(set.lockAmount, 100);
+  await exits({ lockTrigger: 100, lockAmount: 200 }).expect(400);
+  await exits({ lockTrigger: 800, lockAmount: null }).expect(400);
+  ctx.provider.setPrice('RELIANCE', 1005); // Rs 500 profit hits the new trigger
+  await settle();
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1001);
+  const cleared = (await exits({ lockTrigger: null, lockAmount: null }).expect(200)).body;
+  assert.equal(cleared.lockTrigger, null);
+});
+
+test('your own defaults apply to new positions, and can be switched off', async () => {
+  const d0 = (await api().get('/api/trade-defaults').set(user.auth).expect(200)).body;
+  assert.deepEqual(d0, { lockEnabled: true, lockTrigger: 1000, lockAmount: 400 });
+  await api().put('/api/trade-defaults').set(user.auth).send({ lockTrigger: 300, lockAmount: 500 }).expect(400);
+  await api().put('/api/trade-defaults').set(user.auth).send({ lockTrigger: 300, lockAmount: 100 }).expect(200);
+  await buy({ qty: 100 }).expect(201);
+  assert.equal((await exits({}).expect(200)).body.lockTrigger, 300);
+  await api().post('/api/positions/RELIANCE/exit').set(user.auth).expect(200);
+  await api().put('/api/trade-defaults').set(user.auth).send({ lockEnabled: false }).expect(200);
+  await buy({ qty: 100 }).expect(201);
+  assert.equal((await exits({}).expect(200)).body.lockTrigger, null);
+});

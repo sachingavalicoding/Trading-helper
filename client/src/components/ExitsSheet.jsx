@@ -24,6 +24,9 @@ export function ExitsSheet({ position, onClose }) {
   const [stopLoss, setStopLoss] = useState('');
   const [target, setTarget] = useState('');
   const [trail, setTrail] = useState(0);
+  const [lockOn, setLockOn] = useState(false);
+  const [lockTrigger, setLockTrigger] = useState('1000');
+  const [lockAmount, setLockAmount] = useState('400');
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const ltp = tick?.ltp ?? position.ltp;
@@ -34,6 +37,11 @@ export function ExitsSheet({ position, onClose }) {
         setStopLoss(e.stopLoss != null ? String(e.stopLoss) : '');
         setTarget(e.target != null ? String(e.target) : '');
         setTrail(e.trailPct ?? 0);
+        if (e.lockTrigger != null) {
+          setLockOn(true);
+          setLockTrigger(String(e.lockTrigger));
+          setLockAmount(String(e.lockAmount));
+        }
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
@@ -55,12 +63,13 @@ export function ExitsSheet({ position, onClose }) {
         : tgNum != null && (long ? tgNum <= ltp : tgNum >= ltp)
           ? `Target must be ${long ? 'above' : 'below'} the current price`
           : null;
+  const lockBad = lockOn && !(Number(lockAmount) > 0 && Number(lockTrigger) > Number(lockAmount));
   const breakevenOk = ltp != null && (long ? position.avgPrice < ltp : position.avgPrice > ltp);
 
   async function save() {
     setSaving(true);
     try {
-      await api(`/positions/${encodeURIComponent(symbol)}/exits`, { method: 'PUT', body: { stopLoss: slNum, target: tgNum, trailPct: trail || null } });
+      await api(`/positions/${encodeURIComponent(symbol)}/exits`, { method: 'PUT', body: { stopLoss: slNum, target: tgNum, trailPct: trail || null, lockTrigger: lockOn ? Number(lockTrigger) : null, lockAmount: lockOn ? Number(lockAmount) : null } });
       toast.success(`${symbol} stop loss and target updated`);
       refresh?.();
       onClose();
@@ -118,8 +127,33 @@ export function ExitsSheet({ position, onClose }) {
           </p>
         </div>
 
+        <div>
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold">Profit lock (₹)</div>
+            <button type="button" role="switch" aria-checked={lockOn} aria-label="Profit lock" onClick={() => setLockOn((v) => !v)} className={`relative h-6 w-11 rounded-full transition-colors ${lockOn ? 'bg-up' : 'bg-surface-2'}`}>
+              <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${lockOn ? 'translate-x-5' : ''}`} />
+            </button>
+          </div>
+          {lockOn && (
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <label className="text-[11px] text-muted">
+                When profit reaches
+                <input className={`${input} mt-1`} inputMode="numeric" value={lockTrigger} onChange={(e) => setLockTrigger(e.target.value)} />
+              </label>
+              <label className="text-[11px] text-muted">
+                Lock in profit of
+                <input className={`${input} mt-1`} inputMode="numeric" value={lockAmount} onChange={(e) => setLockAmount(e.target.value)} />
+              </label>
+            </div>
+          )}
+          <p className="mt-1 text-[11px] leading-snug text-muted">
+            {lockOn ? `At ₹${Number(lockTrigger) || 0} profit the stop moves to lock in ₹${Number(lockAmount) || 0}, then keeps following the price up. The stop never moves back.` : 'Off: no automatic profit protection on this trade.'}
+          </p>
+        </div>
+
         {error && <p className="text-sm text-down">{error}</p>}
-        <button type="button" disabled={saving || !loaded || Boolean(error)} onClick={save} className="w-full rounded-xl bg-accent py-3 text-base font-bold text-white disabled:opacity-50">
+        {lockBad && <p className="text-sm text-down">The profit trigger must be larger than the amount you lock in.</p>}
+        <button type="button" disabled={saving || !loaded || Boolean(error) || lockBad} onClick={save} className="w-full rounded-xl bg-accent py-3 text-base font-bold text-white disabled:opacity-50">
           Save
         </button>
         <p className="text-center text-[11px] text-muted">Paper trading for learning. Not investment advice.</p>

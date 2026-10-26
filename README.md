@@ -272,6 +272,10 @@ On the Scanner page you set a **max amount per trade** (default ₹30,000; share
 
 Tap SL / Target on an open position (on the Positions page or the stock's chart page) to add, change or remove its stop loss and target, move the stop to your cost price, or turn on a trailing stop (0.5%, 1% or 2%). A trailing stop follows the price at that distance and only moves towards profit, never back. The Buy and Sell buttons stay at the bottom of the chart page.
 
+## Profit lock
+
+Every new trade starts with a profit lock, in rupees. Defaults: when the open profit reaches ₹1,000 the stop moves to lock in ₹400, then it follows ₹600 behind your best profit and never moves back. If the trade has no stop yet, one is created. Change the defaults on the Account page, or per trade in the SL / Target sheet. It applies to auto trades too. Profit is before charges. Because it can close a trade on a dip after a spike, it protects gains but can also cut a trade that would have recovered.
+
 ## Track record and replay
 
 - **Track record.** The Scanner tab shows how finished ideas ended: how many hit target 1, were stopped or expired, and the average result in **R** (1R is what the idea risked). It is split by setup, hour of the day, side and score band (`GET /api/scanner/stats`). Under 20 finished ideas the screen warns that the numbers are mostly luck.

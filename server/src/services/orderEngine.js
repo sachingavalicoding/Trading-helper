@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
-import { Order, Position, Trade } from '../models/index.js';
+import { Order, Position, Trade, TradeDefaults } from '../models/index.js';
+import { TRADE_DEFAULTS } from '../models/TradeDefaults.js';
 import { isTradable } from '../market/instruments.js';
 import { getMarketStatus } from '../market/marketHours.js';
 import { calculateCharges, splitCharges } from './charges.js';
@@ -44,7 +45,7 @@ export class OrderEngine extends EventEmitter {
   async init() {
     const open = await Order.find({ status: 'OPEN' }).lean();
     for (const o of open) this.#addToBook(o);
-    for (const p of await Position.find({ status: 'OPEN', trailPct: { $ne: null } }).lean()) this.#watchTrail(p);
+    for (const p of await Position.find({ status: 'OPEN', $or: [{ trailPct: { $ne: null } }, { lockTrigger: { $ne: null } }] }).lean()) this.#watchTrail(p);
     this.market.on('tick', this.onTick);
     logger.info(`Order engine ready, ${open.length} resting orders loaded`);
   }
@@ -84,8 +85,8 @@ export class OrderEngine extends EventEmitter {
    * Each field: a number sets it, null removes it, undefined leaves it alone.
    * `trailPct` makes the stop follow the price at that % distance and only ever move towards profit.
    */
-  setExits(userId, symbol, { stopLoss, target, trailPct } = {}) {
-    return this.locks.run(String(userId), () => this.#setExits(userId, symbol, { stopLoss, target, trailPct }));
+  setExits(userId, symbol, input = {}) {
+    return this.locks.run(String(userId), () => this.#setExits(userId, symbol, input));
   }
 
   /** One-tap exit of an open position at market. */
@@ -160,7 +161,7 @@ export class OrderEngine extends EventEmitter {
 
   // ---------- internals (always called while holding the user's lock) ----------
 
-  async #setExits(userId, symbol, { stopLoss, target, trailPct }) {
+  async #setExits(userId, symbol, { stopLoss, target, trailPct, lockTrigger, lockAmount }) {
     const pos = await Position.findOne({ user: userId, symbol, status: 'OPEN' });
     if (!pos) throw notFound('No open position in this stock');
     const ltp = this.market.getLtp(symbol);
@@ -168,6 +169,12 @@ export class OrderEngine extends EventEmitter {
     const long = pos.netQty > 0;
     const tick = (v) => roundToTick(Number(v));
     if (trailPct != null && !(trailPct >= 0.1 && trailPct <= 10)) throw badRequest('Trailing distance must be between 0.1% and 10%', 'INVALID_TRAIL');
+    if (lockTrigger !== undefined || lockAmount !== undefined) {
+      const t = lockTrigger === undefined ? pos.lockTrigger : lockTrigger;
+      const a = lockAmount === undefined ? pos.lockAmount : lockAmount;
+      if ((t == null) !== (a == null)) throw badRequest('Set both the profit trigger and the amount to lock, or clear both', 'INVALID_LOCK');
+      if (t != null && !(a > 0 && t > a)) throw badRequest('The profit trigger must be larger than the amount you lock in', 'INVALID_LOCK');
+    }
     if (stopLoss != null && (long ? tick(stopLoss) >= ltp : tick(stopLoss) <= ltp)) {
       throw badRequest(long ? 'For a long position the stop-loss must be below the current price' : 'For a short position the stop-loss must be above the current price', 'INVALID_SL');
     }
@@ -218,6 +225,12 @@ export class OrderEngine extends EventEmitter {
         }
       }
     }
+    if (lockTrigger !== undefined || lockAmount !== undefined) {
+      if (lockTrigger !== undefined) pos.lockTrigger = lockTrigger;
+      if (lockAmount !== undefined) pos.lockAmount = lockAmount;
+      await pos.save();
+      if (pos.lockTrigger != null) this.#watchTrail(pos);
+    }
     this.emit('update', { userId: String(userId), kind: 'order', message: `Stop loss and target updated for ${symbol}` });
     return this.exitsFor(userId, symbol);
   }
@@ -231,15 +244,21 @@ export class OrderEngine extends EventEmitter {
       stopLoss: legs.find((l) => l.role === 'STOPLOSS')?.triggerPrice ?? null,
       target: legs.find((l) => l.role === 'TARGET')?.price ?? null,
       trailPct: pos?.trailPct ?? null,
+      lockTrigger: pos?.lockTrigger ?? null,
+      lockAmount: pos?.lockAmount ?? null,
     };
   }
 
   #watchTrail(pos) {
     if (!this.trailing.has(pos.symbol)) this.trailing.set(pos.symbol, new Map());
-    this.trailing.get(pos.symbol).set(String(pos._id), { user: pos.user, trailPct: pos.trailPct, busy: false });
+    this.trailing.get(pos.symbol).set(String(pos._id), { user: pos.user, busy: false });
   }
 
-  /** On each tick, pull trailing stops closer behind the price. They never move away from it. */
+  /**
+   * On each tick, pull protective stops closer behind the price. They never move away from it.
+   * Two kinds, and the better one wins: a % trail, and the profit lock (once the open profit reaches
+   * `lockTrigger` rupees the stop locks in `lockAmount`, then follows `lockTrigger - lockAmount` behind the best profit).
+   */
   #trail(tick) {
     const watchers = this.trailing.get(tick.symbol);
     if (!watchers?.size) return;
@@ -247,29 +266,57 @@ export class OrderEngine extends EventEmitter {
       if (w.busy) continue;
       w.busy = true;
       this.locks
-        .run(String(w.user), async () => {
-          const pos = await Position.findById(posId);
-          if (!pos || pos.status !== 'OPEN' || pos.trailPct == null) {
-            watchers.delete(posId);
-            return;
-          }
-          const long = pos.netQty > 0;
-          const want = roundToTick(long ? tick.ltp * (1 - pos.trailPct / 100) : tick.ltp * (1 + pos.trailPct / 100));
-          const sl = await Order.findOne({ user: pos.user, symbol: pos.symbol, status: 'OPEN', role: 'STOPLOSS' });
-          if (!sl) return;
-          const better = long ? want > sl.triggerPrice : want < sl.triggerPrice;
-          const valid = long ? want < tick.ltp : want > tick.ltp;
-          if (!better || !valid) return;
-          sl.triggerPrice = want;
-          await sl.save();
-          this.#addToBook(sl.toObject());
-          this.emit('update', { userId: String(pos.user), kind: 'order', order: sl.toJSON() });
-        })
+        .run(String(w.user), () => this.#trailOne(posId, tick.ltp, watchers))
         .catch((err) => logger.error(`trail ${posId} failed`, err))
         .finally(() => {
           w.busy = false;
         });
     }
+  }
+
+  async #trailOne(posId, ltp, watchers) {
+    const pos = await Position.findById(posId);
+    if (!pos || pos.status !== 'OPEN' || (pos.trailPct == null && pos.lockTrigger == null)) {
+      watchers.delete(posId);
+      return;
+    }
+    const long = pos.netQty > 0;
+    const qty = Math.abs(pos.netQty);
+    const wants = [];
+    if (pos.trailPct != null) wants.push(roundToTick(long ? ltp * (1 - pos.trailPct / 100) : ltp * (1 + pos.trailPct / 100)));
+    const profit = (long ? ltp - pos.avgPrice : pos.avgPrice - ltp) * qty;
+    if (pos.lockTrigger != null && profit >= pos.lockTrigger) {
+      const locked = Math.max(pos.lockAmount, profit - (pos.lockTrigger - pos.lockAmount));
+      const per = locked / qty;
+      wants.push(roundToTick(long ? pos.avgPrice + per : pos.avgPrice - per));
+    }
+    if (!wants.length) return;
+    const want = long ? Math.max(...wants) : Math.min(...wants);
+    if (!(long ? want < ltp : want > ltp)) return;
+    const sl = await Order.findOne({ user: pos.user, symbol: pos.symbol, status: 'OPEN', role: 'STOPLOSS' });
+    if (!sl) {
+      const tg = await Order.findOne({ user: pos.user, symbol: pos.symbol, status: 'OPEN', role: 'TARGET' });
+      const created = new Order({
+        user: pos.user,
+        symbol: pos.symbol,
+        side: long ? 'SELL' : 'BUY',
+        orderType: 'SL_M',
+        triggerPrice: want,
+        role: 'STOPLOSS',
+        qty,
+        ocoGroup: tg?.ocoGroup || `pos-${pos._id}`,
+        tradingDay: this.marketStatus().istDate,
+      });
+      await created.save();
+      this.#addToBook(created.toObject());
+      this.emit('update', { userId: String(pos.user), kind: 'order', order: created.toJSON() });
+      return;
+    }
+    if (long ? want <= sl.triggerPrice : want >= sl.triggerPrice) return;
+    sl.triggerPrice = want;
+    await sl.save();
+    this.#addToBook(sl.toObject());
+    this.emit('update', { userId: String(pos.user), kind: 'order', order: sl.toJSON() });
   }
 
   async #place(userId, input) {
@@ -465,11 +512,17 @@ export class OrderEngine extends EventEmitter {
           openedAt: now,
           tradingDay,
         });
+        const d = (await TradeDefaults.findOne({ user: userId }).lean()) ?? TRADE_DEFAULTS;
+        if (d.lockEnabled && d.lockTrigger > d.lockAmount) {
+          position.lockTrigger = d.lockTrigger;
+          position.lockAmount = d.lockAmount;
+        }
       }
       this.#bookSide(position, side, remaining, price);
       position.charges = round2(position.charges + ch.total);
       position.margin = round2(position.margin + this.#marginFor(remaining, price));
       await position.save();
+      if (position.lockTrigger != null) this.#watchTrail(position);
       trades.push(this.#trade(order, position, remaining, price, ch, 0, now, tradingDay));
     }
 

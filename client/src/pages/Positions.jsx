@@ -39,6 +39,7 @@ function OpenRow({ p, onExit, onEdit, busy }) {
       <div className="num mt-2 text-[11px] text-muted">
         SL {p.stopLoss != null ? formatPrice(p.stopLoss) : 'none'} · Target {p.target != null ? formatPrice(p.target) : 'none'}
         {p.trailPct ? ` · trailing ${p.trailPct}%` : ''}
+        {p.lockTrigger ? ` · lock ₹${p.lockAmount} at ₹${p.lockTrigger}` : ''}
       </div>
       <div className="mt-2 flex justify-end gap-2">
         <button type="button" onClick={() => onEdit(p)} className="rounded-lg border border-line px-4 py-1.5 text-xs font-semibold hover:bg-surface-2">

@@ -18,6 +18,8 @@ const positionSchema = new mongoose.Schema(
     realizedPnl: { type: Number, default: 0 }, // gross, before charges
     charges: { type: Number, default: 0 },
     margin: { type: Number, default: 0 },
+    lockTrigger: { type: Number, default: null }, // once profit reaches this many rupees, the stop locks in lockAmount
+    lockAmount: { type: Number, default: null },
     trailPct: { type: Number, default: null }, // stop loss follows the price at this % distance, only towards profit
     openedAt: { type: Date, default: Date.now },
     closedAt: { type: Date },

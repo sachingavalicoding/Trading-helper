@@ -7,7 +7,7 @@ import { useMarket } from '../context/MarketContext.jsx';
 import { useApi } from '../lib/useApi.js';
 import { api } from '../lib/api.js';
 import { formatINR, formatPnl, pnlClass } from '../lib/format.js';
-import { Card, Skeleton, Disclaimer } from '../components/ui.jsx';
+import { Badge, Card, Skeleton, Disclaimer } from '../components/ui.jsx';
 
 function Row({ label, value, className = '' }) {
   return (
@@ -15,6 +15,61 @@ function Row({ label, value, className = '' }) {
       <span className="text-sm text-muted">{label}</span>
       <span className={`num text-sm font-semibold ${className}`}>{value}</span>
     </div>
+  );
+}
+
+/** The profit lock every new trade starts with (you can still change it per trade). */
+function ProfitLockDefaults() {
+  const { data, reload } = useApi('/trade-defaults', []);
+  const [trigger, setTrigger] = useState(null);
+  const [amount, setAmount] = useState(null);
+  if (!data) return <Skeleton className="h-28" />;
+  const t = trigger ?? String(data.lockTrigger);
+  const a = amount ?? String(data.lockAmount);
+  const bad = !(Number(a) > 0 && Number(t) > Number(a));
+
+  async function save(patch) {
+    try {
+      await api('/trade-defaults', { method: 'PUT', body: patch });
+      toast.success('Saved. New trades use this.');
+      setTrigger(null);
+      setAmount(null);
+      reload();
+    } catch (e) {
+      toast.error(e.message || 'Could not save');
+    }
+  }
+
+  const input = 'num mt-1 w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-base outline-none focus:border-accent';
+  return (
+    <Card className="space-y-3 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            Profit lock <Badge tone={data.lockEnabled ? 'up' : 'muted'}>{data.lockEnabled ? 'On' : 'Off'}</Badge>
+          </div>
+          <p className="text-xs text-muted">Protects profit on every new trade, manual or auto.</p>
+        </div>
+        <button type="button" role="switch" aria-checked={data.lockEnabled} aria-label="Profit lock" onClick={() => save({ lockEnabled: !data.lockEnabled })} className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${data.lockEnabled ? 'bg-up' : 'bg-surface-2'}`}>
+          <span className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white transition-transform ${data.lockEnabled ? 'translate-x-5' : ''}`} />
+        </button>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="text-xs text-muted">
+          When profit reaches (₹)
+          <input className={input} inputMode="numeric" value={t} onChange={(e) => setTrigger(e.target.value)} />
+        </label>
+        <label className="text-xs text-muted">
+          Lock in profit of (₹)
+          <input className={input} inputMode="numeric" value={a} onChange={(e) => setAmount(e.target.value)} />
+        </label>
+      </div>
+      {bad && <p className="text-xs text-down">The trigger must be larger than the amount you lock in.</p>}
+      <button type="button" disabled={bad || (trigger == null && amount == null)} onClick={() => save({ lockTrigger: Number(t), lockAmount: Number(a) })} className="w-full rounded-xl bg-accent py-2.5 text-sm font-bold text-white disabled:opacity-40">
+        Save
+      </button>
+      <p className="text-[11px] leading-snug text-muted">Example: at ₹1,000 profit the stop moves up to lock in ₹400, then follows the price ₹600 behind your best profit. It never moves back, and it can also close a trade early if price dips after a spike.</p>
+    </Card>
   );
 }
 
@@ -59,6 +114,8 @@ export default function Account() {
           <Row label="Realised P&L since reset" value={formatPnl(f?.realizedPnl)} className={pnlClass(f?.realizedPnl)} />
         </div>
       </Card>
+
+      <ProfitLockDefaults />
 
       <Card className="divide-y divide-line">
         <button type="button" onClick={toggle} className="flex w-full items-center justify-between px-4 py-3.5 text-sm">
