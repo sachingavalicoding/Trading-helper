@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LogOut, RotateCcw, Sun, Moon } from 'lucide-react';
+import { LogOut, RotateCcw, Sun, Moon, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
@@ -103,6 +103,23 @@ export default function Account() {
     }
   }
 
+  async function addFunds() {
+    const input = window.prompt('Add how much paper money? (₹1,000 to ₹1,00,00,000)', '10000');
+    if (input == null) return;
+    const amount = Number(input.replace(/[, ]/g, ''));
+    if (!Number.isFinite(amount) || amount < 1000) return toast.error('Enter an amount of at least ₹1,000');
+    setBusy(true);
+    try {
+      await api('/wallet/add-funds', { method: 'POST', body: { amount } });
+      refresh();
+      toast.success(`Added ${formatINR(amount)} of paper money`);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-3">
       <Card className="p-4">
@@ -132,6 +149,9 @@ export default function Account() {
           <span className="flex items-center gap-2 text-muted">
             {theme === 'dark' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />} {theme === 'dark' ? 'Dark' : 'Light'}
           </span>
+        </button>
+        <button type="button" disabled={busy} onClick={addFunds} className="flex w-full items-center gap-2 px-4 py-3.5 text-sm transition-colors hover:bg-surface-2 disabled:opacity-50">
+          <Wallet className="h-4 w-4" /> Add paper money
         </button>
         <button type="button" disabled={busy} onClick={reset} className="flex w-full items-center gap-2 px-4 py-3.5 text-sm text-warn transition-colors hover:bg-surface-2 disabled:opacity-50">
           <RotateCcw className="h-4 w-4" /> Reset wallet to {startLabel}
