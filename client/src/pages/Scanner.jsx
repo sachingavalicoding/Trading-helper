@@ -57,7 +57,22 @@ function Cell({ label, children, note }) {
 }
 
 /** One idea: what to do, where to enter, where to get out, how many shares, and why. */
-function IdeaCard({ idea, onBuy }) {
+const bandOf = (score) => (score >= 80 ? '80+' : score >= 70 ? '70-79' : '60-69');
+
+/** What ideas with a similar score really did before. A score is not a chance of winning. */
+function Calibration({ score, calibration }) {
+  const band = bandOf(score);
+  const h = calibration?.[band];
+  return (
+    <p className="text-[11px] leading-snug text-muted">
+      {h?.enough
+        ? `Past ideas scored ${band}: ${h.winRate}% reached target 1 (${h.count} ideas, average ${h.avgR > 0 ? '+' : ''}${h.avgR}R). A high score is not a promise.`
+        : `Not enough past ideas scored ${band} to know how reliable that score is yet. A high score is not a promise.`}
+    </p>
+  );
+}
+
+function IdeaCard({ idea, onBuy, calibration }) {
   const tick = useTick(idea.symbol);
   const [why, setWhy] = useState(false);
   const isBuy = idea.side === 'BUY';
@@ -130,7 +145,14 @@ function IdeaCard({ idea, onBuy }) {
         </div>
       </div>
 
-      {entering && (
+      {entering && idea.canEnter === false && (
+        <div className="rounded-lg bg-warn/15 px-3 py-2 text-sm">
+          <span className="font-semibold">Do not enter.</span> {idea.lateReason}
+        </div>
+      )}
+      <Calibration score={idea.score} calibration={calibration} />
+
+      {entering && idea.canEnter !== false && (
         <button
           type="button"
           disabled={idea.size.qty < 1}
@@ -225,6 +247,7 @@ export default function Scanner() {
   const items = useMemo(() => (data?.items || []).filter((i) => side === 'ALL' || i.side === side), [data, side]);
   const entries = items.filter((i) => i.status === 'ENTRY');
   const watching = items.filter((i) => i.status !== 'ENTRY');
+  const rejected = (data?.rejected || []).filter((r) => side === 'ALL' || r.side === side);
   const done = (data?.done || []).filter((d) => side === 'ALL' || d.side === side);
 
   return (
@@ -296,15 +319,41 @@ export default function Scanner() {
                 </EmptyState>
               </Card>
             ) : (
-              entries.map((i) => <IdeaCard key={i.ideaId || `${i.symbol}-${i.setup}`} idea={i} onBuy={setSheet} />)
+              entries.map((i) => <IdeaCard key={i.ideaId || `${i.symbol}-${i.setup}`} idea={i} onBuy={setSheet} calibration={data.calibration} />)
             )}
           </Section>
 
           {watching.length > 0 && (
             <Section title="Watching" hint="setup forming, no entry yet">
               {watching.map((i) => (
-                <IdeaCard key={`${i.symbol}-${i.setup}-${i.side}`} idea={i} onBuy={setSheet} />
+                <IdeaCard key={`${i.symbol}-${i.setup}-${i.side}`} idea={i} onBuy={setSheet} calibration={data.calibration} />
               ))}
+            </Section>
+          )}
+
+          {rejected.length > 0 && (
+            <Section title="Not worth entering" hint="rejected, with the reason">
+              <Card className="divide-y divide-line">
+                {rejected.map((r) => (
+                  <div key={`${r.symbol}-${r.setup}-${r.side}`} className="space-y-1 px-3 py-2.5 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <Link to={`/stock/${encodeURIComponent(r.symbol)}`} className="font-semibold">
+                          {r.symbol}
+                        </Link>{' '}
+                        <span className={r.side === 'BUY' ? 'text-up' : 'text-down'}>{r.side}</span>
+                        <span className="text-[11px] text-muted"> · {r.setup} · score {r.score}</span>
+                      </div>
+                      <span className="num text-xs text-muted">₹{formatPrice(r.ltp)}</span>
+                    </div>
+                    <ul className="list-disc space-y-0.5 pl-5 text-[11px] text-muted">
+                      {r.reasons.map((x) => (
+                        <li key={x}>{x}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </Card>
             </Section>
           )}
 

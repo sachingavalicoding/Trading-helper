@@ -281,3 +281,39 @@ test('an idea that does nothing expires after two hours', async () => {
   assert.equal(doc.status, 'EXPIRED');
   clock = new Date();
 });
+
+test('hard gates block an idea whatever its score: thin volume, wrong side of the market, no trend', () => {
+  const { c1 } = orbLong();
+  const good = find(run(c1), 'Opening range breakout', 'BUY');
+  assert.deepEqual(good.blocked, [], 'the clean scenario passes every gate');
+  assert.ok(good.gates.length >= 6 && good.gates.every((g) => g.pass));
+
+  const againstNifty = find(run(c1, { nifty: -0.9 }), 'Opening range breakout', 'BUY');
+  assert.ok(againstNifty.blocked.some((t) => /Nifty 50 is moving against/.test(t)));
+
+  const thin = find(run(c1.map((b) => (b.time >= T1 ? { ...b, volume: 1 } : b))), 'Opening range breakout', 'BUY');
+  assert.ok(thin.blocked.some((t) => /Volume is thin/.test(t)));
+});
+
+test('a blocked idea is never raised and shows up in the rejected list with its reasons', async () => {
+  const { auth } = await registerUser(ctx.app);
+  const res = (await request(ctx.app).get('/api/scanner').set(auth).expect(200)).body;
+  assert.ok(Array.isArray(res.rejected));
+  for (const r of res.rejected) {
+    assert.ok(r.reasons.length >= 1 && r.score >= 60);
+    assert.ok(!res.items.some((i) => i.symbol === r.symbol && i.status === 'ENTRY' && i.setup === r.setup && i.side === r.side));
+  }
+  assert.ok(res.calibration && typeof res.calibration === 'object');
+});
+
+test('an open idea that price has already run away from cannot be entered', async () => {
+  const ltp = ctx.provider.getLastTick('HDFCBANK').ltp;
+  await ctx.scanner.raise(idea('HDFCBANK', ltp));
+  ctx.provider.setPrice('HDFCBANK', ltp + 4); // 0.8R of a 5-point risk, short of the target
+  await settle();
+  await ctx.scanner.scanOnce();
+  const { auth } = await registerUser(ctx.app);
+  const item = (await request(ctx.app).get('/api/scanner').set(auth).expect(200)).body.items.find((i) => i.symbol === 'HDFCBANK');
+  assert.equal(item.canEnter, false);
+  assert.match(item.lateReason, /Too late/);
+});

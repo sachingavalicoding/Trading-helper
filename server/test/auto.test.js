@@ -94,3 +94,12 @@ test('does nothing for users who left it off', async () => {
   await trader.handle(idea('LT', 'BUY'));
   assert.equal(await Order.countDocuments({ symbol: 'LT' }), 0);
 });
+
+test('skips an idea whose price has already run away from the entry', async () => {
+  const s = settings({ maxOpen: 10 });
+  const late = idea('ITC', 'BUY');
+  late.entry = ctx.provider.getLastTick('ITC').ltp - 3; // price is already well above the entry
+  late.stopLoss = late.entry - 2;
+  const r = await trader.consider(s, late);
+  assert.match(r.skipped, /already moved/);
+});

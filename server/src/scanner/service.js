@@ -10,7 +10,11 @@ import { buildPlan } from './plan.js';
 const PLAN_AT_MIN = 9 * 60; // the morning plan goes out at 09:00 IST
 const IDEA_TTL_MS = 2 * 60 * 60 * 1000;
 const MAX_WATCHING = 6;
-const STATUS_ORDER = { ENTRY: 0, WATCHING: 1, MISSED: 2 };
+const STATUS_ORDER = { ENTRY: 0, WATCHING: 1 };
+const MAX_REJECTED = 12;
+const MAX_IDEAS_PER_STOCK = 2; // per day: a stock that keeps failing is not worth another try
+const LATE_R = 0.5; // price already ran this far (in risk units) towards the target
+const ADVERSE_R = 0.3; // price already slid this far towards the stop
 
 /**
  * Looks at all 50 Nifty stocks every minute and keeps a short ranked list of ideas.
@@ -29,7 +33,9 @@ export class ScannerService extends EventEmitter {
     this.store = new CandleStore({ market, symbols: this.symbols });
     this.open = new Map(); // symbol -> open idea docs
     this.raisedToday = new Set(); // `${day}|${symbol}|${setup}|${side}`
-    this.result = { items: [], scanned: 0, total: this.symbols.length, updatedAt: null };
+    this.perStock = new Map(); // symbol -> { count, stopped } for today
+    this.perStockDay = null;
+    this.result = { items: [], rejected: [], scanned: 0, total: this.symbols.length, updatedAt: null };
     this.scanning = false;
     this.warm = null;
     this.planSentOn = null;
@@ -45,7 +51,12 @@ export class ScannerService extends EventEmitter {
 
   async init() {
     for (const idea of await ScanIdea.find({ status: 'OPEN' }).lean()) this.#track(idea);
-    for (const idea of await ScanIdea.find({ day: this.day }, 'day symbol setup side').lean()) this.raisedToday.add(this.#key(idea));
+    for (const idea of await ScanIdea.find({ day: this.day }, 'day symbol setup side status').lean()) {
+      this.raisedToday.add(this.#key(idea));
+      const st = this.#stockToday(idea.symbol);
+      st.count += 1;
+      if (idea.status === 'STOPPED') st.stopped = true;
+    }
     this.market.on('tick', this.onTick);
   }
 
@@ -74,6 +85,15 @@ export class ScannerService extends EventEmitter {
     this.market.off('tick', this.onTick);
   }
 
+  #stockToday(symbol) {
+    if (this.perStockDay !== this.day) {
+      this.perStock = new Map();
+      this.perStockDay = this.day;
+    }
+    if (!this.perStock.has(symbol)) this.perStock.set(symbol, { count: 0, stopped: false });
+    return this.perStock.get(symbol);
+  }
+
   #key(idea) {
     return `${idea.day}|${idea.symbol}|${idea.setup}|${idea.side}`;
   }
@@ -93,6 +113,7 @@ export class ScannerService extends EventEmitter {
     const closedAt = this.now();
     const res = await ScanIdea.updateOne({ _id: idea._id, status: 'OPEN' }, { status, exitPrice: price, closedAt });
     if (!res.modifiedCount) return;
+    if (status === 'STOPPED') this.#stockToday(idea.symbol).stopped = true;
     const list = (this.open.get(idea.symbol) || []).filter((i) => String(i._id) !== String(idea._id));
     if (list.length) this.open.set(idea.symbol, list);
     else this.open.delete(idea.symbol);
@@ -134,6 +155,7 @@ export class ScannerService extends EventEmitter {
         card: c,
       });
       const idea = doc.toObject();
+      this.#stockToday(c.symbol).count += 1;
       this.#track(idea);
       this.emit('entry', idea);
       return idea;
@@ -148,14 +170,20 @@ export class ScannerService extends EventEmitter {
   #ideaItem(idea, tick) {
     const d = idea.side === 'BUY' ? 1 : -1;
     const risk = Math.abs(idea.entry - idea.stopLoss);
+    const movedR = risk ? Math.round(((d * (tick.ltp - idea.entry)) / risk) * 100) / 100 : 0;
+    let lateReason = null;
+    if (movedR > LATE_R) lateReason = `Price already ran ${movedR}R past the entry. Too late to enter.`;
+    else if (movedR < -ADVERSE_R) lateReason = `Price has slid ${Math.abs(movedR)}R towards the stop. The setup is weakening.`;
     return {
       ...idea.card,
+      canEnter: !lateReason,
+      lateReason,
       status: 'ENTRY',
       symbol: idea.symbol,
       ltp: tick.ltp,
       changePct: tick.changePct,
       openedAt: idea.createdAt,
-      movedR: risk ? Math.round(((d * (tick.ltp - idea.entry)) / risk) * 100) / 100 : 0,
+      movedR,
       ideaId: String(idea._id),
     };
   }
@@ -169,6 +197,7 @@ export class ScannerService extends EventEmitter {
       const newsBySymbol = await this.news?.signals().catch((e) => (logger.warn(`news unavailable: ${e.message}`), {})) ?? {};
       const entries = [];
       const watching = [];
+      const rejected = [];
       let scanned = 0;
       for (const symbol of this.symbols) {
         const c1 = this.store.get(symbol);
@@ -184,18 +213,30 @@ export class ScannerService extends EventEmitter {
           continue;
         }
         const { candidates } = evaluateStock({ symbol, tick, c1, niftyChangePct, news: newsBySymbol[symbol] ?? null }, { now: this.now(), enforceWindows });
-        const top = candidates.find((c) => c.score >= MIN_SCORE);
-        if (!top) continue;
-        const item = { ...top, symbol, ltp: tick.ltp, changePct: tick.changePct };
-        if (top.status === 'ENTRY') {
-          const idea = await this.raise(item);
-          if (idea) entries.push(this.#ideaItem(idea, tick));
-        } else watching.push(item);
+        const st = this.#stockToday(symbol);
+        const strong = candidates.filter((c) => c.score >= MIN_SCORE);
+        const stockBlock = st.stopped ? 'Already stopped out on this stock today' : st.count >= MAX_IDEAS_PER_STOCK ? `Already had ${st.count} ideas on this stock today` : null;
+        const ok = stockBlock ? null : strong.find((c) => c.status !== 'MISSED' && !c.blocked.length);
+        if (ok) {
+          const item = { ...ok, symbol, ltp: tick.ltp, changePct: tick.changePct };
+          if (ok.status === 'ENTRY') {
+            const idea = await this.raise(item);
+            if (idea) entries.push(this.#ideaItem(idea, tick));
+          } else watching.push(item);
+          continue;
+        }
+        // The best idea was turned down: keep it so the screen can say why.
+        const top = strong[0];
+        if (top) {
+          const reasons = [...(stockBlock ? [stockBlock] : []), ...(top.status === 'MISSED' ? ['Price already ran past the entry zone. Do not chase it.'] : []), ...top.blocked];
+          rejected.push({ symbol, side: top.side, setup: top.setup, score: top.score, status: top.status, entry: top.entry, stopLoss: top.stopLoss, target1: top.target1, trigger: top.trigger, ltp: tick.ltp, changePct: tick.changePct, reasons });
+        }
       }
       const byScore = (a, b) => b.score - a.score;
       watching.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || byScore(a, b));
       this.result = {
         items: [...entries.sort(byScore), ...watching.slice(0, MAX_WATCHING)],
+        rejected: rejected.sort(byScore).slice(0, MAX_REJECTED),
         scanned,
         total: this.symbols.length,
         updatedAt: this.now().toISOString(),

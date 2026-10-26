@@ -52,6 +52,13 @@ export class AutoTrader {
     if (this.handled.has(key)) return { skipped: 'already handled' };
     this.handled.add(key);
 
+    // The idea was raised a moment ago; skip it if price has already run away from the entry.
+    const ltp = this.engine.market.getLtp(idea.symbol);
+    const risk = Math.abs(idea.entry - idea.stopLoss);
+    if (ltp && risk) {
+      const movedR = ((idea.side === 'BUY' ? 1 : -1) * (ltp - idea.entry)) / risk;
+      if (movedR > 0.5 || movedR < -0.3) return { skipped: `price already moved ${movedR.toFixed(2)}R from the entry` };
+    }
     if (idea.score < settings.minScore) return { skipped: `score ${idea.score} is below ${settings.minScore}` };
     if (await Position.findOne({ user: userId, symbol: idea.symbol, status: 'OPEN' })) return { skipped: 'already in this stock' };
 

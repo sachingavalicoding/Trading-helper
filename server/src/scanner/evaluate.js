@@ -9,6 +9,24 @@ const LAST_ENTRY_MIN = 14 * 60 + 45;
 const STATUS_POINTS = { ENTRY: 30, WATCHING: 18, MISSED: 10 };
 const check = (id, label, points, max, text) => ({ id, label, points, max, text });
 
+const gate = (id, label, pass, text) => ({ id, label, pass, text });
+
+/**
+ * Hard checks. The score adds up good signs, but a high score can still hide one fatal flaw,
+ * so any failed gate blocks the idea whatever its score. `text` explains a failure.
+ */
+function runGates(ctx, d, vwapOk, newsDelta) {
+  const g = [];
+  g.push(gate('volume', 'Volume', ctx.relVol == null || ctx.relVol >= 0.8, `Volume is thin (${ctx.relVol?.toFixed(1)}x normal), so a breakout has little behind it`));
+  g.push(gate('vwap', 'VWAP side', ctx.vwap == null || vwapOk, 'Price is on the wrong side of VWAP for this direction'));
+  g.push(gate('trend', 'Trend', !(d * ctx.trend5 < 0 || d * ctx.trend15 < 0), 'The 5-minute or 15-minute trend points the other way'));
+  g.push(gate('nifty', 'Market', ctx.niftyChangePct == null || d * ctx.niftyChangePct > -0.5, `Nifty 50 is moving against this trade (${ctx.niftyChangePct?.toFixed(2)}%)`));
+  g.push(gate('stretch', 'Not stretched', ctx.vwapStretch == null || d * ctx.vwapStretch <= 2.5, `Price is ${Math.abs(ctx.vwapStretch ?? 0).toFixed(1)} ATR from VWAP, so chasing here is risky`));
+  g.push(gate('rsi', 'RSI', ctx.rsi == null || !(d > 0 ? ctx.rsi > 78 : ctx.rsi < 22), `RSI ${ctx.rsi?.toFixed(0)} is stretched, so a pullback is likely`));
+  g.push(gate('news', 'News', newsDelta > -10, 'Recent news points the other way'));
+  return g;
+}
+
 /** Score one idea out of 100 and explain every part of the score. */
 export function scoreCandidate(ctx, c) {
   const d = c.side === 'BUY' ? 1 : -1;
@@ -71,7 +89,8 @@ export function scoreCandidate(ctx, c) {
     score -= 8;
     penalties.push(`Price is ${Math.abs(ctx.vwapStretch).toFixed(1)} ATR from VWAP, so chasing here is risky`);
   }
-  return { ...c, score: Math.max(0, Math.min(100, score)), checks, penalties, news: ctx.news ?? null };
+  const gates = runGates(ctx, d, vwapOk, newsDelta);
+  return { ...c, score: Math.max(0, Math.min(100, score)), checks, penalties, gates, blocked: gates.filter((g) => !g.pass).map((g) => g.text), news: ctx.news ?? null };
 }
 
 /** Only suggest entries between 09:30 and 14:45 IST. */

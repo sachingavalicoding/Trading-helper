@@ -15,12 +15,20 @@ export function scannerRoutes({ scanner, config }) {
 
   router.get('/', validate(query, 'query'), async (req, res) => {
     const riskPct = req.valid.risk;
-    const [funds, done] = await Promise.all([getFunds(req.userId, config.startingBalance), scanner.doneToday()]);
-    const { items, ...scan } = scanner.result;
+    const [funds, done, finished] = await Promise.all([
+      getFunds(req.userId, config.startingBalance),
+      scanner.doneToday(),
+      ScanIdea.find({ status: { $ne: 'OPEN' } }, 'setup side status entry stopLoss exitPrice score createdAt').lean(),
+    ]);
+    // What ideas of each score band really did, so a high score is never mistaken for a promise.
+    const calibration = Object.fromEntries(summarizeIdeas(finished.map((i) => ({ ...i, openedAt: i.createdAt }))).byScore.map((r) => [r.key, { count: r.count, winRate: r.winRate, avgR: r.avgR, enough: r.enough }]));
+    const { items, rejected, ...scan } = scanner.result;
     res.json({
       ...scan,
       warming: scanner.store.loadedCount < scanner.symbols.length,
       loaded: scanner.store.loadedCount,
+      calibration,
+      rejected: rejected ?? [],
       riskPct,
       capital: funds.balance,
       items: items.map((i) => ({

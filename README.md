@@ -260,6 +260,10 @@ The code is in `server/src/scanner/plan.js` and `client/src/lib/alerts.js`; test
 
 Off by default. On the Scanner page, the "Auto paper trading" switch lets the server place **virtual** orders for scanner ideas, using the idea's stop loss and first target. It never contacts a broker. Limits you can change: minimum score (default 70), max open auto trades (3), risk per trade (1%) and a daily loss stop (3%). It skips a stock you already hold. Auto orders are tagged AUTO on the Orders page. It follows the scanner's rules, so it can lose, and the track record is the way to judge it.
 
+## Safety checks and rejected ideas
+
+A score adds up good signs, but a high score can hide one fatal flaw. So every idea must also pass hard checks: volume not thin, right side of VWAP, 5m and 15m trend not against it, Nifty 50 not against it, not stretched from VWAP, RSI not extreme, news not against it. A stock that already stopped out today, or already had 2 ideas today, is skipped. Anything rejected shows under "Not worth entering" with the reasons, and an open idea whose price has already run past the entry says "Do not enter". Each card also shows what past ideas with a similar score really did.
+
 ## Track record and replay
 
 - **Track record.** The Scanner tab shows how finished ideas ended: how many hit target 1, were stopped or expired, and the average result in **R** (1R is what the idea risked). It is split by setup, hour of the day, side and score band (`GET /api/scanner/stats`). Under 20 finished ideas the screen warns that the numbers are mostly luck.
