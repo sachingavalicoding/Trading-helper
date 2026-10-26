@@ -372,6 +372,10 @@ export default function Scanner() {
         </Card>
       )}
 
+      {data?.paused && (
+        <Card className="p-3 text-sm text-warn">{data.paused}</Card>
+      )}
+
       {data?.warming && (
         <Card className="p-3 text-sm text-muted">
           Loading price history: {data.loaded} of {data.total} stocks. Ideas appear once it finishes.
