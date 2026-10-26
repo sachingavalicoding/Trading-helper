@@ -1,4 +1,4 @@
-import { AutoSettings, Order, Position, Trade } from '../models/index.js';
+import { AutoLog, AutoSettings, Order, Position, Trade } from '../models/index.js';
 import { getFunds } from '../services/walletService.js';
 import { roundToTick } from '../utils/money.js';
 import { sizePosition } from '../scanner/sizing.js';
@@ -17,6 +17,11 @@ export class AutoTrader {
     this.engine = engine;
     this.config = config;
     this.handled = new Set(); // `${userId}|${ideaId}`
+    this.excursion = new Map(); // `${userId}|${symbol}` -> how far an open auto trade has run, in risk units
+    this.onTick = (t) => this.#track(t);
+    this.onUpdate = (u) => {
+      if (u.kind === 'fill' && u.order && u.order.role !== 'ENTRY') this.#finish(u).catch((e) => logger.warn(`auto log update failed: ${e.message}`));
+    };
     this.onEntry = (idea) => {
       this.handle(idea).catch((e) => logger.error('auto-trader failed', e));
     };
@@ -24,10 +29,78 @@ export class AutoTrader {
 
   start() {
     this.scanner.on('entry', this.onEntry);
+    this.engine.market.on('tick', this.onTick);
+    this.engine.on('update', this.onUpdate);
   }
 
   stop() {
     this.scanner.off('entry', this.onEntry);
+    this.engine.market.off('tick', this.onTick);
+    this.engine.off('update', this.onUpdate);
+  }
+
+  #track({ symbol, ltp }) {
+    for (const [key, x] of this.excursion) {
+      if (x.symbol !== symbol || !x.risk) continue;
+      const r = (x.dir * (ltp - x.entry)) / x.risk;
+      x.bestR = Math.max(x.bestR, r);
+      x.worstR = Math.min(x.worstR, r);
+      this.excursion.set(key, x);
+    }
+  }
+
+  /** Write one row of the auto log. Logging must never get in the way of trading. */
+  async #record(settings, idea, extra) {
+    try {
+      return await AutoLog.create({
+        user: settings.user,
+        day: this.engine.marketStatus().istDate,
+        idea: idea._id && /^[0-9a-f]{24}$/i.test(String(idea._id)) ? idea._id : undefined,
+        symbol: idea.symbol,
+        side: idea.side,
+        setup: idea.setup,
+        score: idea.score,
+        entry: idea.entry,
+        stopLoss: idea.stopLoss,
+        target1: idea.target1,
+        target2: idea.target2,
+        riskReward: idea.riskReward,
+        card: idea.card,
+        ...extra,
+      });
+    } catch (e) {
+      logger.warn(`auto log write failed: ${e.message}`);
+      return null;
+    }
+  }
+
+  /** A stop, target, manual exit or square-off filled: if that closed an auto trade, record how it ended. */
+  async #finish({ userId, order }) {
+    const log = await AutoLog.findOne({ user: userId, symbol: order.symbol, status: 'OPEN' });
+    if (!log) return;
+    const pos = await Position.findById(log.position).lean();
+    if (!pos || pos.status !== 'CLOSED') return;
+    const key = `${userId}|${order.symbol}`;
+    const x = this.excursion.get(key);
+    this.excursion.delete(key);
+    const gross = pos.realizedPnl;
+    const exitReason = order.role === 'TARGET' ? 'TARGET' : order.role === 'STOPLOSS' ? (gross > 0 ? 'LOCK' : 'STOP') : order.role === 'SQUAREOFF' ? 'SQUARE_OFF' : 'MANUAL';
+    const risk = Math.abs(log.entry - log.stopLoss);
+    const dir = log.side === 'BUY' ? 1 : -1;
+    const exitPrice = order.avgFillPrice;
+    const outcome = {
+      exitReason,
+      exitPrice,
+      grossPnl: round2(gross),
+      charges: round2(pos.charges),
+      netPnl: round2(gross - pos.charges),
+      resultR: risk ? round2((dir * (exitPrice - (log.fillPrice ?? log.entry))) / risk) : null,
+      minutesHeld: Math.round(((pos.closedAt || new Date()) - pos.openedAt) / 60000),
+      bestR: x ? round2(x.bestR) : null,
+      worstR: x ? round2(x.worstR) : null,
+      closedAt: pos.closedAt,
+    };
+    await AutoLog.updateOne({ _id: log._id, status: 'OPEN' }, { status: 'CLOSED', outcome });
   }
 
   /** Orders the auto-trader placed today (entries and their stop/target legs). */
@@ -46,18 +119,37 @@ export class AutoTrader {
     return { trades: entries.length, open, pnl };
   }
 
-  /** Decide for one user. Returns a short reason when it skips, or the order when it places one. */
+  /** Decide for one user, and write the decision to the auto log. Returns a short reason when it skips, or the order when it places one. */
   async consider(settings, idea) {
-    const userId = settings.user;
-    const key = `${userId}|${idea._id}`;
+    const key = `${settings.user}|${idea._id}`;
     if (this.handled.has(key)) return { skipped: 'already handled' };
     this.handled.add(key);
+
+    const seen = {};
+    const result = await this.#decide(settings, idea, seen);
+    const base = { ltp: seen.ltp, movedR: seen.movedR };
+    if (result.skipped) {
+      await this.#record(settings, idea, { ...base, decision: 'SKIPPED', status: 'SKIPPED', reason: result.skipped });
+    } else {
+      const { order } = result;
+      const position = await Position.findOne({ user: settings.user, symbol: idea.symbol, status: 'OPEN' }, '_id').lean();
+      const risk = Math.abs(idea.entry - idea.stopLoss);
+      this.excursion.set(`${settings.user}|${idea.symbol}`, { symbol: idea.symbol, entry: order.avgFillPrice ?? idea.entry, risk, dir: idea.side === 'BUY' ? 1 : -1, bestR: 0, worstR: 0 });
+      await this.#record(settings, idea, { ...base, decision: 'PLACED', status: 'OPEN', qty: order.qty, fillPrice: order.avgFillPrice, order: order._id, position: position?._id });
+    }
+    return result;
+  }
+
+  async #decide(settings, idea, seen) {
+    const userId = settings.user;
 
     // The idea was raised a moment ago; skip it if price has already run away from the entry.
     const ltp = this.engine.market.getLtp(idea.symbol);
     const risk = Math.abs(idea.entry - idea.stopLoss);
+    seen.ltp = ltp || undefined;
     if (ltp && risk) {
       const movedR = ((idea.side === 'BUY' ? 1 : -1) * (ltp - idea.entry)) / risk;
+      seen.movedR = round2(movedR);
       if (movedR > 0.5 || movedR < -0.3) return { skipped: `price already moved ${movedR.toFixed(2)}R from the entry` };
     }
     if (idea.score < settings.minScore) return { skipped: `score ${idea.score} is below ${settings.minScore}` };
