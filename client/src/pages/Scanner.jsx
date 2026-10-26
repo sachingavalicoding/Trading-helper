@@ -117,7 +117,7 @@ function IdeaCard({ idea, onBuy, calibration }) {
       </div>
 
       {idea.status === 'WATCHING' && (
-        <div className="rounded-lg bg-accent/10 px-3 py-2 text-sm">
+        <div className="rounded-lg bg-accent-soft px-3 py-2 text-sm">
           <span className="font-semibold">Watching.</span> Enter only if price trades {sideWord} <span className="num font-semibold">₹{formatPrice(idea.trigger)}</span>.
         </div>
       )}
@@ -172,7 +172,7 @@ function IdeaCard({ idea, onBuy, calibration }) {
           type="button"
           disabled={idea.size.qty < 1}
           onClick={() => onBuy(idea)}
-          className={`w-full rounded-xl py-3 text-base font-bold text-white disabled:opacity-40 ${isBuy ? 'bg-up' : 'bg-down'}`}
+          className={`btn btn-lg w-full ${isBuy ? 'btn-buy' : 'btn-sell'}`}
         >
           {isBuy ? 'Buy' : 'Sell'} {idea.size.qty} with stop loss and target 1
         </button>
@@ -309,11 +309,11 @@ export default function Scanner() {
         </div>
         <div className="flex items-center">
           {alertsSupported() && (
-            <button type="button" onClick={toggleAlerts} aria-pressed={alerts} aria-label={alerts ? 'Turn phone alerts off' : 'Turn phone alerts on'} className={`rounded-lg p-2 hover:bg-surface-2 ${alerts ? 'text-accent' : 'text-muted'}`}>
+            <button type="button" onClick={toggleAlerts} aria-pressed={alerts} aria-label={alerts ? 'Turn phone alerts off' : 'Turn phone alerts on'} className={`btn btn-ghost !p-2 ${alerts ? '!text-accent' : ''}`}>
               {alerts ? <Bell className="h-5 w-5" /> : <BellOff className="h-5 w-5" />}
             </button>
           )}
-          <button type="button" onClick={reload} aria-label="Refresh" className="rounded-lg p-2 text-muted hover:bg-surface-2">
+          <button type="button" onClick={reload} aria-label="Refresh" className="btn btn-ghost !p-2">
             <RefreshCw className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
@@ -347,7 +347,7 @@ export default function Scanner() {
               step="1000"
               defaultValue={maxAmount}
               onBlur={(e) => pickAmount(Number(e.target.value))}
-              className="num w-24 rounded-lg border border-line bg-surface px-2 py-1.5 text-right outline-none focus:border-accent"
+              className="field num !w-24 !px-2 !py-1.5 text-right !text-sm"
               aria-label="Maximum amount per trade"
             />
           </span>

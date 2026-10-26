@@ -20,7 +20,7 @@ export function TradeBreakdown({ data }) {
     <Card className="space-y-3 p-3">
       <h3 className="text-sm font-semibold">Where your results come from</h3>
       {data.insights.length > 0 && (
-        <ul className="space-y-1.5 rounded-lg bg-accent/10 p-3 text-sm">
+        <ul className="space-y-1.5 rounded-lg bg-accent-soft p-3 text-sm">
           {data.insights.map((t) => (
             <li key={t} className="flex gap-2">
               <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />

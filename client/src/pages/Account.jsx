@@ -6,6 +6,7 @@ import { useTheme } from '../context/ThemeContext.jsx';
 import { useMarket } from '../context/MarketContext.jsx';
 import { useApi } from '../lib/useApi.js';
 import { api } from '../lib/api.js';
+import { useStartingBalance } from '../lib/useStartingBalance.js';
 import { formatINR, formatPnl, pnlClass } from '../lib/format.js';
 import { Badge, Card, Skeleton, Disclaimer } from '../components/ui.jsx';
 
@@ -43,7 +44,7 @@ function ProfitLockDefaults() {
     }
   }
 
-  const input = 'num mt-1 w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-base outline-none focus:border-accent';
+  const input = 'field num mt-1 !py-2';
   return (
     <Card className="space-y-3 p-4">
       <div className="flex items-center justify-between gap-3">
@@ -53,7 +54,7 @@ function ProfitLockDefaults() {
           </div>
           <p className="text-xs text-muted">Protects profit on every new trade, manual or auto.</p>
         </div>
-        <button type="button" role="switch" aria-checked={data.lockEnabled} aria-label="Profit lock" onClick={() => save({ lockEnabled: !data.lockEnabled })} className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${data.lockEnabled ? 'bg-up' : 'bg-surface-2'}`}>
+        <button type="button" role="switch" aria-checked={data.lockEnabled} aria-label="Profit lock" onClick={() => save({ lockEnabled: !data.lockEnabled })} className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${data.lockEnabled ? 'bg-accent' : 'bg-surface-3'}`}>
           <span className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white transition-transform ${data.lockEnabled ? 'translate-x-5' : ''}`} />
         </button>
       </div>
@@ -72,7 +73,7 @@ function ProfitLockDefaults() {
         </label>
       </div>
       {bad && <p className="text-xs text-down">The trigger must be larger than the amount you lock in.</p>}
-      <button type="button" disabled={bad || (trigger == null && amount == null && ratio == null)} onClick={() => save({ lockTrigger: Number(t), lockAmount: Number(a), lockRatio: Number(r) / 100 })} className="w-full rounded-xl bg-accent py-2.5 text-sm font-bold text-white disabled:opacity-40">
+      <button type="button" disabled={bad || (trigger == null && amount == null && ratio == null)} onClick={() => save({ lockTrigger: Number(t), lockAmount: Number(a), lockRatio: Number(r) / 100 })} className="btn btn-primary w-full">
         Save
       </button>
       <p className="text-[11px] leading-snug text-muted">Example: at ₹1,000 profit the stop locks in ₹300. Every extra ₹200 of profit then lifts the lock by ₹100 (50%), so at ₹2,000 profit ₹800 is locked. It never moves back, and it can close a trade early if price dips after a spike.</p>
@@ -86,14 +87,15 @@ export default function Account() {
   const { version, refresh, status } = useMarket();
   const { data: f, loading } = useApi('/wallet', [version]);
   const [busy, setBusy] = useState(false);
+  const { label: startLabel } = useStartingBalance();
 
   async function reset() {
-    if (!window.confirm('Reset your account? All orders, positions and trade history will be deleted and your wallet goes back to ₹1,00,000.')) return;
+    if (!window.confirm('Reset your account? All orders, positions and trade history will be deleted and your wallet goes back to ' + startLabel + '.')) return;
     setBusy(true);
     try {
       await api('/wallet/reset', { method: 'POST' });
       refresh();
-      toast.success('Wallet reset to ₹1,00,000');
+      toast.success(`Wallet reset to ${startLabel}`);
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -125,16 +127,16 @@ export default function Account() {
       <ProfitLockDefaults />
 
       <Card className="divide-y divide-line">
-        <button type="button" onClick={toggle} className="flex w-full items-center justify-between px-4 py-3.5 text-sm">
+        <button type="button" onClick={toggle} className="flex w-full items-center justify-between px-4 py-3.5 text-sm transition-colors hover:bg-surface-2">
           <span>Theme</span>
           <span className="flex items-center gap-2 text-muted">
             {theme === 'dark' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />} {theme === 'dark' ? 'Dark' : 'Light'}
           </span>
         </button>
-        <button type="button" disabled={busy} onClick={reset} className="flex w-full items-center gap-2 px-4 py-3.5 text-sm text-warn disabled:opacity-50">
-          <RotateCcw className="h-4 w-4" /> Reset wallet to ₹1,00,000
+        <button type="button" disabled={busy} onClick={reset} className="flex w-full items-center gap-2 px-4 py-3.5 text-sm text-warn transition-colors hover:bg-surface-2 disabled:opacity-50">
+          <RotateCcw className="h-4 w-4" /> Reset wallet to {startLabel}
         </button>
-        <button type="button" onClick={logout} className="flex w-full items-center gap-2 px-4 py-3.5 text-sm text-down">
+        <button type="button" onClick={logout} className="flex w-full items-center gap-2 px-4 py-3.5 text-sm text-down transition-colors hover:bg-surface-2">
           <LogOut className="h-4 w-4" /> Log out
         </button>
       </Card>

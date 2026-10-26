@@ -161,7 +161,7 @@ export class OrderEngine extends EventEmitter {
       if (lean.inFlight || !isTriggered(lean, tick.ltp)) continue;
       lean.inFlight = true;
       this.locks
-        .run(String(lean.user), () => this.#fillResting(lean._id, tick.ltp))
+        .run(String(lean.user), () => this.#fillResting(lean._id, tick.ltp, tick.symbol))
         .catch((err) => logger.error(`fill ${lean._id} failed`, err))
         .finally(() => {
           lean.inFlight = false;
@@ -414,10 +414,11 @@ export class OrderEngine extends EventEmitter {
     return { order, trades: [] };
   }
 
-  async #fillResting(orderId, ltp) {
+  async #fillResting(orderId, ltp, symbol) {
     const order = await Order.findById(orderId);
     if (!order || order.status !== 'OPEN') {
-      this.#removeFromBook(order?.symbol, orderId);
+      // The order is gone (e.g. an account reset): drop it from the book so it is not re-checked on every tick.
+      this.#removeFromBook(order?.symbol ?? symbol, orderId);
       return null;
     }
     const price = this.market.getLtp(order.symbol) ?? ltp;

@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useStartingBalance } from '../lib/useStartingBalance.js';
 import { Disclaimer } from '../components/ui.jsx';
 
 export default function AuthPage({ mode }) {
   const { user, login, register } = useAuth();
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [busy, setBusy] = useState(false);
+  const { label } = useStartingBalance();
   const isRegister = mode === 'register';
   if (user) return <Navigate to="/" replace />;
 
@@ -26,14 +28,14 @@ export default function AuthPage({ mode }) {
     }
   }
 
-  const input = 'w-full rounded-xl border border-line bg-surface-2 px-4 py-3 text-base outline-none focus:border-accent';
+  const input = 'field !py-3';
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center px-5 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <img src="/icon.svg" alt="" className="mx-auto mb-3 h-12 w-12" />
           <h1 className="text-2xl font-bold">Nifty Paper Trader</h1>
-          <p className="mt-1 text-sm text-muted">Practise intraday trading on Nifty 50 with ₹1,00,000 of virtual money.</p>
+          <p className="mt-1 text-sm text-muted">Practise intraday trading on Nifty 50 with {label} of virtual money.</p>
         </div>
         <form onSubmit={submit} className="space-y-3">
           {isRegister && <input className={input} placeholder="Name" autoComplete="name" value={form.name} onChange={set('name')} required />}
@@ -48,7 +50,7 @@ export default function AuthPage({ mode }) {
             onChange={set('password')}
             required
           />
-          <button type="submit" disabled={busy} className="w-full rounded-xl bg-accent py-3.5 font-semibold text-white disabled:opacity-60">
+          <button type="submit" disabled={busy} className="btn btn-primary btn-lg w-full">
             {busy ? 'Please wait…' : isRegister ? 'Create account' : 'Log in'}
           </button>
         </form>

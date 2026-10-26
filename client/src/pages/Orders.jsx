@@ -50,7 +50,7 @@ function OrderRow({ o }) {
       </div>
       {o.status === 'OPEN' && (
         <div className="mt-2 flex justify-end">
-          <button type="button" disabled={busy} onClick={cancel} className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold hover:bg-surface-2 disabled:opacity-50">
+          <button type="button" disabled={busy} onClick={cancel} className="btn btn-secondary btn-sm">
             Cancel
           </button>
         </div>

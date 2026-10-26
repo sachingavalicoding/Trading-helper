@@ -39,10 +39,10 @@ const Row = memo(function Row({ stock, starred, onStar, onTrade }) {
         )}
       </Link>
       <div className="ml-1 flex gap-1">
-        <button type="button" {...buyTap} className="rounded-lg bg-up px-2.5 py-2 text-xs font-bold text-white" aria-label={`Buy ${stock.symbol}`}>
+        <button type="button" {...buyTap} className="btn btn-buy btn-sm !w-8 !px-0" aria-label={`Buy ${stock.symbol}`}>
           B
         </button>
-        <button type="button" {...sellTap} className="rounded-lg bg-down px-2.5 py-2 text-xs font-bold text-white" aria-label={`Sell ${stock.symbol}`}>
+        <button type="button" {...sellTap} className="btn btn-sell btn-sm !w-8 !px-0" aria-label={`Sell ${stock.symbol}`}>
           S
         </button>
       </div>
@@ -73,7 +73,7 @@ export default function Watchlist() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search Nifty 50"
-            className="w-full rounded-xl border border-line bg-surface py-2.5 pr-9 pl-9 text-sm outline-none focus:border-accent"
+            className="field !py-2.5 !pr-9 !pl-9 !text-sm"
             aria-label="Search stocks"
           />
           {query && (

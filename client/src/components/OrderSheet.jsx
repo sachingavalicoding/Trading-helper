@@ -108,7 +108,7 @@ export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initial
     }
   }
 
-  const accent = isBuy ? 'bg-up' : 'bg-down';
+  const accent = isBuy ? 'btn-buy' : 'btn-sell';
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true" aria-label={`${side} ${symbol}`}>
@@ -128,7 +128,7 @@ export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initial
             </Flash>
             <div className={`num text-xs ${pnlClass(tick?.change)}`}>{formatPct(tick?.changePct)}</div>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="-mr-2 ml-2 rounded-lg p-2 text-muted hover:bg-surface-2">
+          <button type="button" onClick={onClose} aria-label="Close" className="btn btn-ghost -mr-2 ml-2 !p-2">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -140,7 +140,7 @@ export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initial
                 key={s}
                 type="button"
                 onClick={() => setSide(s)}
-                className={`rounded-xl py-3 text-sm font-bold tracking-wide transition-colors ${side === s ? (s === 'BUY' ? 'bg-up text-white' : 'bg-down text-white') : 'bg-surface-2 text-muted'}`}
+                className={`btn ${side === s ? (s === 'BUY' ? 'btn-buy' : 'btn-sell') : 'btn-secondary !text-muted'}`}
               >
                 {s}
               </button>
@@ -160,7 +160,7 @@ export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initial
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <span className="mb-1 flex justify-between text-xs text-muted">
-                Quantity {maxQty != null && <button type="button" className="text-accent" onClick={() => setQty(Math.max(1, maxQty))}>Max {maxQty}</button>}
+                Quantity {maxQty != null && <button type="button" className="font-semibold text-accent" onClick={() => setQty(Math.max(1, maxQty))}>Max {maxQty}</button>}
               </span>
               <div className="flex items-center rounded-xl border border-line bg-surface-2">
                 <button type="button" aria-label="Decrease quantity" className="p-3 text-muted" onClick={() => setQty((q) => Math.max(1, q - 1))}>
@@ -191,7 +191,7 @@ export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initial
                 value={orderType === 'MARKET' ? '' : price}
                 placeholder={orderType === 'MARKET' ? 'At market' : ''}
                 onChange={(e) => setPrice(e.target.value)}
-                className="num w-full rounded-xl border border-line bg-surface-2 px-3 py-3 text-base font-semibold outline-none focus:border-accent disabled:opacity-60"
+                className="field num font-semibold"
                 aria-label="Limit price"
               />
             </label>
@@ -199,7 +199,7 @@ export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initial
 
           <div className="flex flex-wrap gap-2">
             {[1, 5, 10, 25, 50].map((n) => (
-              <button key={n} type="button" onClick={() => setQty(n)} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${qty === n ? 'bg-accent text-white' : 'bg-surface-2 text-muted'}`}>
+              <button key={n} type="button" onClick={() => setQty(n)} aria-pressed={qty === n} className="chip">
                 {n}
               </button>
             ))}
@@ -215,11 +215,11 @@ export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initial
                 <div className="grid grid-cols-2 gap-3">
                   <label className="block">
                     <span className="mb-1 block text-xs text-down">Stop-loss</span>
-                    <input inputMode="decimal" type="number" step="0.05" value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} className="num w-full rounded-lg border border-line bg-surface-2 px-3 py-2.5 outline-none focus:border-down" aria-label="Stop-loss price" />
+                    <input inputMode="decimal" type="number" step="0.05" value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} className="field num !py-2.5 focus:!border-down" aria-label="Stop-loss price" />
                   </label>
                   <label className="block">
                     <span className="mb-1 block text-xs text-up">Target</span>
-                    <input inputMode="decimal" type="number" step="0.05" value={target} onChange={(e) => setTarget(e.target.value)} className="num w-full rounded-lg border border-line bg-surface-2 px-3 py-2.5 outline-none focus:border-up" aria-label="Target price" />
+                    <input inputMode="decimal" type="number" step="0.05" value={target} onChange={(e) => setTarget(e.target.value)} className="field num !py-2.5 focus:!border-up" aria-label="Target price" />
                   </label>
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs">
@@ -228,7 +228,7 @@ export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initial
                     [0.01, 0.02, '1% / 2%'],
                     [0.01, 0.03, '1% / 3%'],
                   ].map(([a, b, l]) => (
-                    <button key={l} type="button" onClick={() => applyPreset(a, b)} className="rounded-lg bg-surface-2 px-2.5 py-1.5 text-muted hover:text-fg">
+                    <button key={l} type="button" onClick={() => applyPreset(a, b)} className="chip">
                       {l}
                     </button>
                   ))}
@@ -267,7 +267,7 @@ export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initial
 
         {/* Confirm stays in thumb reach even when the sheet scrolls */}
         <div className="sticky bottom-0 border-t border-line bg-surface px-4 pt-3 pb-4">
-          <button type="submit" disabled={!canSubmit} className={`w-full rounded-xl py-4 text-base font-bold text-white shadow-lg transition-opacity disabled:opacity-50 ${accent}`}>
+          <button type="submit" disabled={!canSubmit} className={`btn btn-lg w-full !py-4 ${accent}`}>
             {submitting ? 'Placing…' : `${side} ${qty || ''} ${symbol}${orderType === 'LIMIT' && price ? ` @ ₹${price}` : ''}`}
           </button>
         </div>

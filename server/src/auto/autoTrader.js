@@ -181,6 +181,8 @@ export class AutoTrader {
       target: roundToTick(idea.target2 * 2 - idea.target1), // sells at a third target, as far past target 2 as 2 is past 1; targets 1 and 2 only lift the stop, see setSteps
       source: 'AUTO',
     });
+    // A rejected order (market closed, not enough funds) opened nothing, so it must not be logged as a placed trade.
+    if (order.status !== 'FILLED') return { skipped: order.rejectReason || `order was ${String(order.status).toLowerCase()}` };
     await this.engine.setSteps(userId, idea.symbol, [idea.target1, idea.target2]);
     return { order };
   }

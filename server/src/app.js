@@ -29,7 +29,7 @@ export function createApp({ market, engine, config, tracker, scanner, news, auto
   if (config.nodeEnv === 'development') app.use(morgan('dev'));
   app.use('/api', rateLimit({ windowMs: 60 * 1000, limit: config.nodeEnv === 'test' ? 10000 : 300, standardHeaders: 'draft-7', legacyHeaders: false }));
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, disclaimer: DISCLAIMER }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, startingBalance: config.startingBalance, disclaimer: DISCLAIMER }));
   app.get('/api/market/status', (_req, res) => res.json({ ...market.status(), disclaimer: DISCLAIMER }));
 
   app.use('/api/auth', authRoutes(config));

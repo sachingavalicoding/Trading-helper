@@ -118,10 +118,10 @@ export default function StockDetail() {
             <div className={`num mt-1 text-lg font-bold ${pnlClass(unrealized)}`}>{formatPnl(unrealized)}</div>
           </div>
           <div className="flex gap-2">
-            <button type="button" onClick={() => setExitsFor(position)} className="rounded-xl border border-line px-3 py-2.5 text-sm font-semibold hover:bg-surface-2">
+            <button type="button" onClick={() => setExitsFor(position)} className="btn btn-secondary">
               SL / Target
             </button>
-            <button type="button" onClick={exit} className="rounded-xl border border-line px-4 py-2.5 text-sm font-semibold hover:bg-surface-2">
+            <button type="button" onClick={exit} className="btn btn-secondary">
               Exit
             </button>
           </div>
@@ -156,10 +156,10 @@ export default function StockDetail() {
       {/* Sticky Buy/Sell bar: sits above the bottom tab bar on phones */}
       <div className="fixed inset-x-0 bottom-[calc(57px+env(safe-area-inset-bottom))] z-30 border-t border-line bg-surface/95 px-4 py-1.5 backdrop-blur md:static md:border-0 md:bg-transparent md:p-0">
         <div className="mx-auto grid max-w-5xl grid-cols-2 gap-3">
-          <button type="button" {...buyTap} disabled={!tick} className="rounded-xl bg-up py-3 text-base font-bold text-white disabled:opacity-50">
+          <button type="button" {...buyTap} disabled={!tick} className="btn btn-buy btn-lg">
             BUY
           </button>
-          <button type="button" {...sellTap} disabled={!tick} className="rounded-xl bg-down py-3 text-base font-bold text-white disabled:opacity-50">
+          <button type="button" {...sellTap} disabled={!tick} className="btn btn-sell btn-lg">
             SELL
           </button>
         </div>

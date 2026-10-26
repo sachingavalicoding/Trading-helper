@@ -6,7 +6,7 @@ export function Skeleton({ className = '' }) {
 
 export function Card({ className = '', children, ...rest }) {
   return (
-    <div className={`rounded-xl border border-line bg-surface ${className}`} {...rest}>
+    <div className={`card-shadow rounded-2xl border border-line bg-surface ${className}`} {...rest}>
       {children}
     </div>
   );
@@ -16,7 +16,7 @@ export function Card({ className = '', children, ...rest }) {
 export function Segmented({ options, value, onChange, className = '', size = 'md' }) {
   const pad = size === 'sm' ? 'px-3 py-1 text-xs' : 'px-4 py-2 text-sm';
   return (
-    <div role="tablist" className={`inline-flex rounded-lg bg-surface-2 p-1 ${className}`}>
+    <div role="tablist" className={`inline-flex rounded-xl border border-line bg-surface-2 p-1 ${className}`}>
       {options.map((o) => (
         <button
           key={o.value}
@@ -24,7 +24,7 @@ export function Segmented({ options, value, onChange, className = '', size = 'md
           role="tab"
           aria-selected={value === o.value}
           onClick={() => onChange(o.value)}
-          className={`${pad} flex-1 rounded-md font-medium transition-colors ${value === o.value ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg'}`}
+          className={`${pad} flex-1 rounded-lg font-semibold transition-colors ${value === o.value ? 'bg-accent text-on-accent shadow-sm' : 'text-muted hover:text-fg'}`}
         >
           {o.label}
         </button>
@@ -65,10 +65,10 @@ export function Badge({ tone = 'muted', children, className = '' }) {
     up: 'bg-up-soft text-up',
     down: 'bg-down-soft text-down',
     warn: 'bg-warn/15 text-warn',
-    accent: 'bg-accent/15 text-accent',
+    accent: 'bg-accent-soft text-accent',
     muted: 'bg-surface-2 text-muted',
   };
-  return <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${tones[tone]} ${className}`}>{children}</span>;
+  return <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tones[tone]} ${className}`}>{children}</span>;
 }
 
 export function Disclaimer({ className = '' }) {
