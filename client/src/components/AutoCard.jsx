@@ -7,6 +7,7 @@ import { formatPrice, pnlClass } from '../lib/format.js';
 import { Badge, Card, Skeleton } from './ui.jsx';
 
 const FIELDS = [
+  { key: 'maxShares', label: 'Shares per trade', step: 1, min: 1, max: 100000 },
   { key: 'maxTradeAmount', label: 'Max ₹ per trade', step: 1000, min: 1000, max: 100000000 },
   { key: 'minScore', label: 'Minimum score', step: 5, min: 60, max: 100 },
   { key: 'maxOpen', label: 'Max open trades', step: 1, min: 1, max: 10 },

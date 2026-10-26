@@ -1,5 +1,5 @@
 import { aggregateCandles } from '../market/providers/BaseProvider.js';
-import { ema, rsi, atr, macd, sessionVwap } from '../signals/indicators.js';
+import { ema, rsi, atr, adx, macd, sessionVwap } from '../signals/indicators.js';
 import { buildLevels } from './levels.js';
 
 const IST = 19800;
@@ -41,7 +41,7 @@ const trend = (fast, slow) => (fast == null || slow == null || Math.abs(fast - s
  * Everything the setups need to know about one stock right now.
  * `c1` is 1-minute candles, oldest first; the last bar is still forming.
  */
-export function buildContext({ symbol, tick, c1, niftyChangePct = null, news = null }) {
+export function buildContext({ symbol, tick, c1, niftyChangePct = null, sectorChangePct = null, news = null }) {
   if (!tick || !c1 || c1.length < 40) return null;
   const c5 = aggregateCandles(c1, '5m');
   const c15 = aggregateCandles(c1, '15m');
@@ -69,6 +69,9 @@ export function buildContext({ symbol, tick, c1, niftyChangePct = null, news = n
 
   const e9 = last(ema(c5, 9));
   const e21 = last(ema(c5, 21));
+  const e50 = c5.length >= 50 ? last(ema(c5, 50)) : null;
+  // 9 above 21 above 50 is a clean uptrend, the reverse a clean downtrend, anything else is mixed.
+  const emaStack = e50 == null ? null : e9 > e21 && e21 > e50 ? 1 : e9 < e21 && e21 < e50 ? -1 : 0;
   const h9 = last(ema(c15, 9));
   const h21 = last(ema(c15, 21));
   const buy = tick.totalBuyQty;
@@ -93,6 +96,10 @@ export function buildContext({ symbol, tick, c1, niftyChangePct = null, news = n
     trend15: trend(h9, h21),
     rsi: last(rsi(c5, 14)),
     macdHist: macdHistogram(c5),
+    adx: adx(c5, 14),
+    emaStack,
+    sectorChangePct,
+    sectorStrength: sectorChangePct == null || tick.changePct == null ? null : sectorChangePct - (niftyChangePct ?? 0),
     vwapStretch: vwap ? (ltp - vwap) / atr5 : null,
     relVol: relativeVolume(c5),
     relStrength: niftyChangePct == null || tick.changePct == null ? null : tick.changePct - niftyChangePct,

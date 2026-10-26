@@ -339,3 +339,15 @@ test('a very wide stop loss blocks the idea', () => {
   assert.ok(c.gates.find((g) => g.id === 'stop').pass);
   assert.ok(Math.abs(c.entry - c.stopLoss) / c.entry * 100 <= 1.2);
 });
+
+test('three stop-outs in the last four ideas pause new ideas for a while', () => {
+  const now = ctx.scanner.now();
+  const at = (min) => new Date(now.getTime() - min * 60000);
+  ctx.scanner.finished = [{ status: 'TARGET_HIT', at: at(50) }, { status: 'STOPPED', at: at(30) }, { status: 'STOPPED', at: at(20) }, { status: 'STOPPED', at: at(10) }];
+  assert.match(ctx.scanner.chopReason(), /Choppy market/);
+  ctx.scanner.finished = [{ status: 'STOPPED', at: at(60) }, { status: 'TARGET_HIT', at: at(50) }, { status: 'TARGET_HIT', at: at(40) }, { status: 'STOPPED', at: at(30) }];
+  assert.equal(ctx.scanner.chopReason(), null);
+  ctx.scanner.finished = [{ status: 'STOPPED', at: at(200) }, { status: 'STOPPED', at: at(190) }, { status: 'STOPPED', at: at(180) }, { status: 'TARGET_HIT', at: at(170) }];
+  assert.equal(ctx.scanner.chopReason(), null);
+  ctx.scanner.finished = [];
+});

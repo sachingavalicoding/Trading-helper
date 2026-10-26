@@ -41,12 +41,15 @@ function follow(c1, from, idea) {
  * Replay the scanner over past 1-minute candles of one stock and report what it would have
  * raised and how each idea ended. Uses the same rules as the live scanner, with two differences:
  * there is no order book, and Nifty 50 strength is used only when `nifty` candles are given.
- * `days` limits the replay to the last N sessions in `c1` (older sessions still feed the indicators).
+ * `days` limits the replay to N sessions, ending `skipDays` sessions before the latest, so the same
+ * data can be cut into an older tuning period and a newer unseen one. Only candles up to each
+ * bar are given to the scanner, so it never sees the future. Older sessions still feed the indicators.
+ * `legacy` scores with the rules from before ADX, EMA 50 and sector strength were added.
  */
-export function replayStock({ symbol, c1, nifty = null, days = 3 }) {
+export function replayStock({ symbol, c1, nifty = null, days = 3, legacy = false, skipDays = 0 }) {
   const dayOf = (b) => istDay(b.time);
   const sessions = [...new Set(c1.map(dayOf))];
-  const replayDays = new Set(sessions.slice(-days));
+  const replayDays = new Set(sessions.slice(Math.max(0, sessions.length - days - skipDays), sessions.length - skipDays));
   const raised = new Set();
   const ideas = [];
 
@@ -64,7 +67,7 @@ export function replayStock({ symbol, c1, nifty = null, days = 3 }) {
     }
     const tick = tickAt(c1, i, dayStart, prevBar.close, niftyChangePct);
     const now = new Date(c1[i].time * 1000);
-    const { candidates } = evaluateStock({ symbol, tick, c1: c1.slice(0, i + 1), niftyChangePct }, { now, enforceWindows: true });
+    const { candidates } = evaluateStock({ symbol, tick, c1: c1.slice(0, i + 1), niftyChangePct }, { now, enforceWindows: true, legacy });
     const top = candidates.find((c) => c.score >= MIN_SCORE);
     if (!top || top.status !== 'ENTRY') continue;
     const key = `${day}|${top.setup}|${top.side}`;

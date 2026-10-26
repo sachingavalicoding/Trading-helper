@@ -83,11 +83,12 @@ export class AutoTrader {
       symbol: idea.symbol,
       side: idea.side,
       orderType: 'MARKET',
-      qty: size.qty,
+      qty: Math.min(size.qty, settings.maxShares ?? 1),
       stopLoss: idea.stopLoss,
-      target: idea.target1,
+      target: idea.target2, // target 1 is not a sell: it only lifts the stop, see setStep
       source: 'AUTO',
     });
+    await this.engine.setStep(userId, idea.symbol, idea.target1);
     return { order };
   }
 

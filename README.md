@@ -258,7 +258,7 @@ The code is in `server/src/scanner/plan.js` and `client/src/lib/alerts.js`; test
 
 ## Auto paper trading
 
-Off by default. On the Scanner page, the "Auto paper trading" switch lets the server place **virtual** orders for scanner ideas, using the idea's stop loss and first target. It never contacts a broker. Limits you can change: minimum score (default 70), max open auto trades (3), risk per trade (1%) and a daily loss stop (3%). It skips a stock you already hold. Auto orders are tagged AUTO on the Orders page. It follows the scanner's rules, so it can lose, and the track record is the way to judge it.
+Off by default. On the Scanner page, the "Auto paper trading" switch lets the server place **virtual** orders for scanner ideas, using the idea's stop loss and first target. It never contacts a broker. Each auto trade buys **one share** by default (change "Shares per trade" to raise it). Other limits you can change: minimum score (default 70), max open auto trades (3), risk per trade (1%) and a daily loss stop (3%). It skips a stock you already hold. Auto orders are tagged AUTO on the Orders page. It follows the scanner's rules, so it can lose, and the track record is the way to judge it.
 
 ## Safety checks and rejected ideas
 
@@ -266,7 +266,7 @@ A score adds up good signs, but a high score can hide one fatal flaw. So every i
 
 ## Limits and filters
 
-On the Scanner page you set a **max amount per trade** (default ₹30,000; shares are sized to stay under it as well as under your risk %), and filter by side, minimum score (70%+, 80%+, 90%+) and time of day. Auto paper trading has its own max amount, and defaults to at most 2 open trades, 0.5% risk per trade and a 2% daily loss stop. Ideas with a stop wider than 1.2% of the price are rejected. The scanner re-checks all 50 stocks every 15 seconds and the page refreshes every 10 seconds. An idea that price has already run away from leaves the main list and is kept under "Not worth entering".
+On the Scanner page you set a **max amount per trade** (default ₹30,000; shares are sized to stay under it as well as under your risk %), and filter by side, minimum score (70%+, 80%+, 90%+) and time of day. Auto paper trading has its own max amount, and defaults to at most 2 open trades, 0.5% risk per trade and a 2% daily loss stop. If 3 of the last 4 finished ideas were stopped out, the scanner treats the market as choppy and raises no new ideas for 45 minutes. Ideas with a stop wider than 1.2% of the price are rejected. The scanner re-checks all 50 stocks every 15 seconds and the page refreshes every 10 seconds. An idea that price has already run away from leaves the main list and is kept under "Not worth entering".
 
 ## Editing stop loss, target and trailing stop
 
@@ -310,3 +310,13 @@ The web app is prebuilt in `phone-app/`. After changing the client, run `npm run
 - The Nifty 50 list changes at each semi-annual rebalance. Check `market/instruments.js` against niftyindices.com.
 - The mock feed is random. Its prices, volumes and depth are **not** market data, and the UI says so.
 - One server process holds the resting-order book in memory. To run several instances, move the book to a shared store such as Redis.
+
+## Better scoring and backtest
+
+The score (out of 100) now also counts **ADX** trend strength, whether **EMA 9 / 21 / 50** are lined up, and whether the stock's **sector peers** are moving the same way. A stock whose 5-minute ADX is under 15 is moving sideways and is blocked. The points for every part are in one place, `WEIGHTS` in `server/src/scanner/evaluate.js`, and the old scoring is kept as `LEGACY_WEIGHTS` for comparison. The sector reading is the average move of the other Nifty 50 stocks in the same sector, so a sector with one stock has none.
+
+`npm run backtest -- --days 10 --holdout 3 --risk 1000 --slippage 0.05` replays the scanner on history with live Upstox data (after logging in). It sizes each trade to risk a fixed rupee amount, adds slippage and charges, and prints win rate, average win and loss, expectancy, profit factor and max drawdown for the old rules against the enhanced rules, once on the tuning period and once on the most recent unseen sessions. The scanner only sees candles up to each moment, so it cannot peek at the future. Replay has no order book or sector data, so it does not show the full effect of the new score. With few trades the numbers are noise, and a high score is never a promise of a win.
+
+## Auto trades run past target 1
+
+An auto trade is not sold at target 1. When price passes target 1 the stop moves up to target 1, and the trade runs on to target 2. The profit lock still applies and can hold the stop higher. If price falls back to the stop, the trade closes with at least the target-1 profit locked in, minus charges. If it never reaches target 1, the original stop applies. Manual trades are unchanged.

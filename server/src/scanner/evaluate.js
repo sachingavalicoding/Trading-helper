@@ -7,6 +7,15 @@ export const MIN_SCORE = 70; // only strong ideas are shown or alerted
 const FIRST_ENTRY_MIN = 9 * 60 + 30; // opening range is only complete at 09:30
 const LAST_ENTRY_MIN = 14 * 60 + 45;
 
+/**
+ * Points each part of the score can earn; they add up to 100 (news is a bonus on top).
+ * Change them here. LEGACY_WEIGHTS is the scorer from before ADX, EMA 50 and sector
+ * strength were added, kept so the replay can compare old against new.
+ */
+export const WEIGHTS = { setup: 30, vwap: 5, trend5: 5, trend15: 4, volume: 14, strength: 13, book: 3, rsi: 7, macd: 4, adx: 6, emaStack: 5, sector: 4 };
+export const LEGACY_WEIGHTS = { setup: 30, vwap: 7, trend5: 7, trend15: 6, volume: 18, strength: 13, book: 6, rsi: 7, macd: 6, adx: 0, emaStack: 0, sector: 0 };
+export const MIN_ADX = 15; // below this the stock is moving sideways and breakouts tend to fail
+
 const STATUS_POINTS = { ENTRY: 30, WATCHING: 18, MISSED: 10 };
 const check = (id, label, points, max, text) => ({ id, label, points, max, text });
 
@@ -16,7 +25,7 @@ const gate = (id, label, pass, text) => ({ id, label, pass, text });
  * Hard checks. The score adds up good signs, but a high score can still hide one fatal flaw,
  * so any failed gate blocks the idea whatever its score. `text` explains a failure.
  */
-function runGates(ctx, d, vwapOk, newsDelta, c) {
+function runGates(ctx, d, vwapOk, newsDelta, c, legacy) {
   const g = [];
   const stopPct = c.entry ? (Math.abs(c.entry - c.stopLoss) / c.entry) * 100 : 0;
   g.push(gate('stop', 'Stop size', stopPct <= MAX_STOP_PCT, `The stop loss is wide (${stopPct.toFixed(1)}% from entry), so one loss would be big`));
@@ -26,39 +35,55 @@ function runGates(ctx, d, vwapOk, newsDelta, c) {
   g.push(gate('nifty', 'Market', ctx.niftyChangePct == null || d * ctx.niftyChangePct > -0.5, `Nifty 50 is moving against this trade (${ctx.niftyChangePct?.toFixed(2)}%)`));
   g.push(gate('stretch', 'Not stretched', ctx.vwapStretch == null || d * ctx.vwapStretch <= 2.5, `Price is ${Math.abs(ctx.vwapStretch ?? 0).toFixed(1)} ATR from VWAP, so chasing here is risky`));
   g.push(gate('rsi', 'RSI', ctx.rsi == null || !(d > 0 ? ctx.rsi > 78 : ctx.rsi < 22), `RSI ${ctx.rsi?.toFixed(0)} is stretched, so a pullback is likely`));
+  if (!legacy) g.push(gate('adx', 'Trending', ctx.adx == null || ctx.adx >= MIN_ADX, `The stock is moving sideways (ADX ${ctx.adx?.toFixed(0)}), so a breakout is likely to fail`));
   g.push(gate('news', 'News', newsDelta > -10, 'Recent news points the other way'));
   return g;
 }
 
 /** Score one idea out of 100 and explain every part of the score. */
-export function scoreCandidate(ctx, c) {
+export function scoreCandidate(ctx, c, { legacy = false } = {}) {
+  const W = legacy ? LEGACY_WEIGHTS : WEIGHTS;
   const d = c.side === 'BUY' ? 1 : -1;
   const checks = [];
 
-  checks.push(check('setup', 'Setup', STATUS_POINTS[c.status], 30, c.status === 'ENTRY' ? 'Trigger has fired' : c.status === 'WATCHING' ? 'Setup is forming, trigger not fired yet' : 'Trigger fired but price has already run too far'));
+  checks.push(check('setup', 'Setup', Math.round((STATUS_POINTS[c.status] * W.setup) / 30), W.setup, c.status === 'ENTRY' ? 'Trigger has fired' : c.status === 'WATCHING' ? 'Setup is forming, trigger not fired yet' : 'Trigger fired but price has already run too far'));
 
   const vwapOk = ctx.vwap != null && d * (ctx.ltp - ctx.vwap) > 0;
-  checks.push(check('vwap', 'VWAP', vwapOk ? 7 : 0, 7, ctx.vwap == null ? 'No VWAP yet' : `Price is ${vwapOk ? 'on the right side of' : 'against'} VWAP`));
-  checks.push(check('trend5', 'Trend (5m)', d * ctx.trend5 > 0 ? 7 : 0, 7, d * ctx.trend5 > 0 ? 'EMA 9 and EMA 21 agree on 5-minute bars' : 'The 5-minute trend does not agree'));
-  checks.push(check('trend15', 'Trend (15m)', d * ctx.trend15 > 0 ? 6 : 0, 6, d * ctx.trend15 > 0 ? 'The 15-minute trend agrees' : 'The 15-minute trend is flat or against'));
+  checks.push(check('vwap', 'VWAP', vwapOk ? W.vwap : 0, W.vwap, ctx.vwap == null ? 'No VWAP yet' : `Price is ${vwapOk ? 'on the right side of' : 'against'} VWAP`));
+  checks.push(check('trend5', 'Trend (5m)', d * ctx.trend5 > 0 ? W.trend5 : 0, W.trend5, d * ctx.trend5 > 0 ? 'EMA 9 and EMA 21 agree on 5-minute bars' : 'The 5-minute trend does not agree'));
+  checks.push(check('trend15', 'Trend (15m)', d * ctx.trend15 > 0 ? W.trend15 : 0, W.trend15, d * ctx.trend15 > 0 ? 'The 15-minute trend agrees' : 'The 15-minute trend is flat or against'));
 
   const rv = ctx.relVol;
-  const volPts = rv == null ? 0 : rv >= 2 ? 18 : rv >= 1.5 ? 13 : rv >= 1.2 ? 7 : 0;
-  checks.push(check('volume', 'Volume', volPts, 18, rv == null ? 'Not enough history to compare volume yet' : `Volume is ${rv.toFixed(1)}x normal for this time of day`));
+  const volPts = rv == null ? 0 : Math.round(W.volume * (rv >= 2 ? 1 : rv >= 1.5 ? 0.72 : rv >= 1.2 ? 0.39 : 0));
+  checks.push(check('volume', 'Volume', volPts, W.volume, rv == null ? 'Not enough history to compare volume yet' : `Volume is ${rv.toFixed(1)}x normal for this time of day`));
 
   const rs = ctx.relStrength == null ? null : d * ctx.relStrength;
-  const rsPts = rs == null ? 0 : rs >= 0.5 ? 13 : rs >= 0.2 ? 8 : rs >= 0 ? 3 : 0;
-  checks.push(check('strength', 'Vs Nifty 50', rsPts, 13, rs == null ? 'No Nifty 50 reading' : `${rs >= 0 ? 'Stronger' : 'Weaker'} than Nifty 50 by ${Math.abs(rs).toFixed(2)}%`));
+  const rsPts = rs == null ? 0 : rs >= 0.5 ? W.strength : rs >= 0.2 ? 8 : rs >= 0 ? 3 : 0;
+  checks.push(check('strength', 'Vs Nifty 50', rsPts, W.strength, rs == null ? 'No Nifty 50 reading' : `${rs >= 0 ? 'Stronger' : 'Weaker'} than Nifty 50 by ${Math.abs(rs).toFixed(2)}%`));
 
   const bookOk = ctx.bookShare != null && (d > 0 ? ctx.bookShare > 0.6 : ctx.bookShare < 0.4);
-  checks.push(check('book', 'Order book', bookOk ? 6 : 0, 6, ctx.bookShare == null ? 'No order book' : `${Math.round(ctx.bookShare * 100)}% of pending quantity is on the buy side`));
+  checks.push(check('book', 'Order book', bookOk ? W.book : 0, W.book, ctx.bookShare == null ? 'No order book' : `${Math.round(ctx.bookShare * 100)}% of pending quantity is on the buy side`));
 
   const rsiOk = ctx.rsi != null && (d > 0 ? ctx.rsi >= 50 && ctx.rsi <= 72 : ctx.rsi >= 28 && ctx.rsi <= 50);
   checks.push(check('rsi', 'RSI', rsiOk ? 7 : 0, 7, ctx.rsi == null ? 'No RSI yet' : `RSI ${ctx.rsi.toFixed(0)}${rsiOk ? ' supports the move' : ' does not support the move'}`));
 
   const mh = ctx.macdHist;
   const macdOk = mh != null && d * mh.now > 0 && d * (mh.now - mh.prev) >= 0;
-  checks.push(check('macd', 'MACD', macdOk ? 6 : 0, 6, mh == null ? 'No MACD yet' : macdOk ? 'MACD momentum is building in this direction' : 'MACD momentum is not backing the move'));
+  checks.push(check('macd', 'MACD', macdOk ? W.macd : 0, W.macd, mh == null ? 'No MACD yet' : macdOk ? 'MACD momentum is building in this direction' : 'MACD momentum is not backing the move'));
+
+  if (W.adx) {
+    const a = ctx.adx;
+    const pts = a == null ? 0 : a >= 25 ? W.adx : a >= 20 ? Math.round(W.adx * 0.67) : a >= MIN_ADX ? Math.round(W.adx * 0.33) : 0;
+    checks.push(check('adx', 'Trend strength (ADX)', pts, W.adx, a == null ? 'Not enough bars for ADX yet' : `ADX ${a.toFixed(0)}: ${a >= 25 ? 'a strong trend' : a >= 20 ? 'a developing trend' : a >= MIN_ADX ? 'a weak trend' : 'moving sideways'}`));
+  }
+  if (W.emaStack) {
+    const st = ctx.emaStack;
+    checks.push(check('emaStack', 'EMA 9/21/50', st != null && d * st > 0 ? W.emaStack : 0, W.emaStack, st == null ? 'Not enough bars for EMA 50 yet' : d * st > 0 ? 'EMA 9, 21 and 50 are lined up in this direction' : 'EMA 9, 21 and 50 are not lined up for this direction'));
+  }
+  if (W.sector) {
+    const ss = ctx.sectorStrength == null ? null : d * ctx.sectorStrength;
+    checks.push(check('sector', 'Sector', ss != null && ss > 0.1 ? W.sector : 0, W.sector, ss == null ? 'No sector reading' : `Its sector is ${ss > 0.1 ? 'backing' : 'not backing'} this direction (${ctx.sectorStrength >= 0 ? '+' : ''}${ctx.sectorStrength.toFixed(2)}% vs Nifty 50)`));
+  }
 
   const penalties = [];
   let newsDelta = 0;
@@ -92,7 +117,7 @@ export function scoreCandidate(ctx, c) {
     score -= 8;
     penalties.push(`Price is ${Math.abs(ctx.vwapStretch).toFixed(1)} ATR from VWAP, so chasing here is risky`);
   }
-  const gates = runGates(ctx, d, vwapOk, newsDelta, c);
+  const gates = runGates(ctx, d, vwapOk, newsDelta, c, legacy);
   return { ...c, score: Math.max(0, Math.min(100, score)), checks, penalties, gates, blocked: gates.filter((g) => !g.pass).map((g) => g.text), news: ctx.news ?? null };
 }
 
@@ -106,12 +131,12 @@ function inEntryWindow(now) {
  * All ideas for one stock, best first. With `enforceWindows` (live trading hours) nothing is
  * suggested outside the entry window.
  */
-export function evaluateStock(input, { now = new Date(), enforceWindows = false } = {}) {
+export function evaluateStock(input, { now = new Date(), enforceWindows = false, legacy = false } = {}) {
   const ctx = buildContext(input);
   if (!ctx) return { ctx: null, candidates: [] };
   if (enforceWindows && !inEntryWindow(now)) return { ctx, candidates: [] };
   const candidates = SETUPS.flatMap((setup) => setup(ctx))
-    .map((c) => scoreCandidate(ctx, c))
+    .map((c) => scoreCandidate(ctx, c, { legacy }))
     .sort((a, b) => b.score - a.score);
   return { ctx, candidates };
 }

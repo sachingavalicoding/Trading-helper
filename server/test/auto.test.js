@@ -34,9 +34,10 @@ const idea = (symbol, side = 'BUY', score = 80) => {
     entry: ltp,
     stopLoss: side === 'BUY' ? ltp - ltp * 0.005 : ltp + ltp * 0.005,
     target1: side === 'BUY' ? ltp + ltp * 0.01 : ltp - ltp * 0.01,
+    target2: side === 'BUY' ? ltp + ltp * 0.02 : ltp - ltp * 0.02,
   };
 };
-const settings = (over = {}) => ({ user: user.user.id || user.user._id, enabled: true, minScore: 70, maxOpen: 3, riskPct: 1, dailyLossPct: 3, ...over });
+const settings = (over = {}) => ({ user: user.user.id || user.user._id, enabled: true, minScore: 70, maxOpen: 3, riskPct: 1, dailyLossPct: 3, maxShares: 100000, ...over });
 
 test('auto trading is off by default and can be switched on', async () => {
   const off = await request(app).get('/api/auto').set(user.auth).expect(200);
@@ -110,4 +111,31 @@ test('never puts more than the max amount into one trade', async () => {
   const r = await trader.consider(s, idea('LT', 'BUY'));
   assert.ok(r.order, r.skipped);
   assert.ok(r.order.qty * r.order.ltpAtPlacement <= 5000);
+});
+
+test('places one share per trade by default, and more only when raised', async () => {
+  const one = await registerUser(app);
+  const r1 = await trader.consider(settings({ user: one.user.id || one.user._id, maxOpen: 10, maxShares: undefined }), idea('LT', 'BUY'));
+  assert.ok(r1.order, r1.skipped);
+  assert.equal(r1.order.qty, 1);
+  const more = await registerUser(app);
+  const r2 = await trader.consider(settings({ user: more.user.id || more.user._id, maxOpen: 10, maxShares: 3, riskPct: 3 }), idea('LT', 'BUY'));
+  assert.ok(r2.order, r2.skipped);
+  assert.ok(r2.order.qty >= 1 && r2.order.qty <= 3);
+});
+
+test('past target 1 an auto trade is not sold: the stop moves up to target 1 and it runs to target 2', async () => {
+  const fresh = await registerUser(app);
+  const s = settings({ user: fresh.user.id || fresh.user._id, maxOpen: 10, maxShares: 1 });
+  ctx.provider.setPrice('ONGC', 250);
+  const i = idea('ONGC', 'BUY');
+  const r = await trader.consider(s, i);
+  assert.ok(r.order, r.skipped);
+  const target = await Order.findOne({ user: s.user, symbol: 'ONGC', role: 'TARGET', status: 'OPEN' }).lean();
+  assert.equal(Math.round(target.price * 100), Math.round(i.target2 * 100)); // sells at target 2, not 1
+  ctx.provider.setPrice('ONGC', i.target1 + (i.target2 - i.target1) / 2);
+  await settle();
+  const stop = await Order.findOne({ user: s.user, symbol: 'ONGC', role: 'STOPLOSS', status: 'OPEN' }).lean();
+  assert.ok(Math.abs(stop.triggerPrice - i.target1) <= 0.06, `stop ${stop.triggerPrice} should sit at target 1 ${i.target1}`);
+  assert.equal((await Position.findOne({ user: s.user, symbol: 'ONGC' })).status, 'OPEN');
 });

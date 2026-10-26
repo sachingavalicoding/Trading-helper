@@ -45,7 +45,7 @@ export class OrderEngine extends EventEmitter {
   async init() {
     const open = await Order.find({ status: 'OPEN' }).lean();
     for (const o of open) this.#addToBook(o);
-    for (const p of await Position.find({ status: 'OPEN', $or: [{ trailPct: { $ne: null } }, { lockTrigger: { $ne: null } }] }).lean()) this.#watchTrail(p);
+    for (const p of await Position.find({ status: 'OPEN', $or: [{ trailPct: { $ne: null } }, { lockTrigger: { $ne: null } }, { stepPrice: { $ne: null } }] }).lean()) this.#watchTrail(p);
     this.market.on('tick', this.onTick);
     logger.info(`Order engine ready, ${open.length} resting orders loaded`);
   }
@@ -85,6 +85,14 @@ export class OrderEngine extends EventEmitter {
    * Each field: a number sets it, null removes it, undefined leaves it alone.
    * `trailPct` makes the stop follow the price at that % distance and only ever move towards profit.
    */
+  /** Arm the target-1 step for an open position: past `price`, the stop moves to `price`. */
+  setStep(userId, symbol, price) {
+    return this.locks.run(String(userId), async () => {
+      const pos = await Position.findOneAndUpdate({ user: userId, symbol, status: 'OPEN' }, { stepPrice: price }, { new: true });
+      if (pos) this.#watchTrail(pos);
+    });
+  }
+
   setExits(userId, symbol, input = {}) {
     return this.locks.run(String(userId), () => this.#setExits(userId, symbol, input));
   }
@@ -276,7 +284,7 @@ export class OrderEngine extends EventEmitter {
 
   async #trailOne(posId, ltp, watchers) {
     const pos = await Position.findById(posId);
-    if (!pos || pos.status !== 'OPEN' || (pos.trailPct == null && pos.lockTrigger == null)) {
+    if (!pos || pos.status !== 'OPEN' || (pos.trailPct == null && pos.lockTrigger == null && pos.stepPrice == null)) {
       watchers.delete(posId);
       return;
     }
@@ -290,6 +298,7 @@ export class OrderEngine extends EventEmitter {
       const per = locked / qty;
       wants.push(roundToTick(long ? pos.avgPrice + per : pos.avgPrice - per));
     }
+    if (pos.stepPrice != null && (long ? ltp > pos.stepPrice : ltp < pos.stepPrice)) wants.push(pos.stepPrice);
     if (!wants.length) return;
     const want = long ? Math.max(...wants) : Math.min(...wants);
     if (!(long ? want < ltp : want > ltp)) return;

@@ -20,6 +20,7 @@ const positionSchema = new mongoose.Schema(
     margin: { type: Number, default: 0 },
     lockTrigger: { type: Number, default: null }, // once profit reaches this many rupees, the stop locks in lockAmount
     lockAmount: { type: Number, default: null },
+    stepPrice: { type: Number, default: null }, // once price passes this (target 1) the stop moves up to it and the trade runs on to target 2
     trailPct: { type: Number, default: null }, // stop loss follows the price at this % distance, only towards profit
     openedAt: { type: Date, default: Date.now },
     closedAt: { type: Date },

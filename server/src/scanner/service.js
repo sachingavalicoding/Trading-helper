@@ -14,6 +14,9 @@ const STATUS_ORDER = { ENTRY: 0, WATCHING: 1 };
 const MAX_REJECTED = 12;
 const MAX_IDEAS_PER_STOCK = 2; // per day: a stock that keeps failing is not worth another try
 const LATE_R = 0.5; // price already ran this far (in risk units) towards the target
+const CHOP_WINDOW = 4; // of the last 4 finished ideas...
+const CHOP_STOPS = 3; // ...this many stopped out means the market is choppy
+const CHOP_PAUSE_MS = 45 * 60 * 1000;
 const ADVERSE_R = 0.3; // price already slid this far towards the stop
 
 /**
@@ -35,6 +38,7 @@ export class ScannerService extends EventEmitter {
     this.raisedToday = new Set(); // `${day}|${symbol}|${setup}|${side}`
     this.perStock = new Map(); // symbol -> { count, stopped } for today
     this.perStockDay = null;
+    this.finished = []; // today's finished ideas, oldest first: { status, at }
     this.result = { items: [], rejected: [], scanned: 0, total: this.symbols.length, updatedAt: null };
     this.scanning = false;
     this.warm = null;
@@ -57,7 +61,18 @@ export class ScannerService extends EventEmitter {
       st.count += 1;
       if (idea.status === 'STOPPED') st.stopped = true;
     }
+    for (const i of await ScanIdea.find({ day: this.day, status: { $ne: 'OPEN' }, closedAt: { $ne: null } }, 'status closedAt').sort({ closedAt: 1 }).lean()) this.finished.push({ status: i.status, at: new Date(i.closedAt) });
     this.market.on('tick', this.onTick);
+  }
+
+  /** Why new ideas are paused, or null. Stops come in streaks on a choppy day, so rest after one. */
+  chopReason() {
+    const now = this.now();
+    const last = this.finished.filter((f) => istParts(f.at).dateKey === this.day).slice(-CHOP_WINDOW);
+    const stops = last.filter((f) => f.status === 'STOPPED');
+    if (last.length < CHOP_WINDOW || stops.length < CHOP_STOPS) return null;
+    const until = new Date(stops.at(-1).at.getTime() + CHOP_PAUSE_MS);
+    return now < until ? `Choppy market: ${stops.length} of the last ${last.length} ideas were stopped out. New ideas are paused until ${until.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}` : null;
   }
 
   /** Load history for every stock in the background; the screen shows progress meanwhile. */
@@ -83,6 +98,21 @@ export class ScannerService extends EventEmitter {
   stop() {
     clearInterval(this.timer);
     this.market.off('tick', this.onTick);
+  }
+
+  /** symbol -> average % change of the other stocks in its sector, or null when it has no peers with a price. */
+  #sectorMoves() {
+    const bySector = new Map();
+    for (const { symbol, sector } of NIFTY50) {
+      const pct = this.market.getTick(symbol)?.changePct;
+      if (pct == null) continue;
+      bySector.set(sector, [...(bySector.get(sector) || []), { symbol, pct }]);
+    }
+    const sectorOf = new Map(NIFTY50.map((s) => [s.symbol, s.sector]));
+    return (symbol) => {
+      const peers = (bySector.get(sectorOf.get(symbol)) || []).filter((p) => p.symbol !== symbol);
+      return peers.length ? peers.reduce((a, p) => a + p.pct, 0) / peers.length : null;
+    };
   }
 
   #stockToday(symbol) {
@@ -114,6 +144,7 @@ export class ScannerService extends EventEmitter {
     const res = await ScanIdea.updateOne({ _id: idea._id, status: 'OPEN' }, { status, exitPrice: price, closedAt, bestR: idea.bestR ?? 0, worstR: idea.worstR ?? 0 });
     if (!res.modifiedCount) return;
     if (status === 'STOPPED') this.#stockToday(idea.symbol).stopped = true;
+    this.finished.push({ status, at: closedAt });
     const list = (this.open.get(idea.symbol) || []).filter((i) => String(i._id) !== String(idea._id));
     if (list.length) this.open.set(idea.symbol, list);
     else this.open.delete(idea.symbol);
@@ -210,9 +241,11 @@ export class ScannerService extends EventEmitter {
       const enforceWindows = Boolean(this.config.enforceMarketHours);
       const niftyChangePct = this.market.getTick('NIFTY 50')?.changePct ?? null;
       const newsBySymbol = await this.#newsSignals();
+      const sectors = this.#sectorMoves();
       const entries = [];
       const watching = [];
       const rejected = [];
+      const paused = this.chopReason();
       let scanned = 0;
       for (const symbol of this.symbols) {
         const c1 = this.store.get(symbol);
@@ -227,10 +260,10 @@ export class ScannerService extends EventEmitter {
           for (const idea of open) entries.push(this.#ideaItem(idea, tick));
           continue;
         }
-        const { candidates } = evaluateStock({ symbol, tick, c1, niftyChangePct, news: newsBySymbol[symbol] ?? null }, { now: this.now(), enforceWindows });
+        const { candidates } = evaluateStock({ symbol, tick, c1, niftyChangePct, sectorChangePct: sectors(symbol), news: newsBySymbol[symbol] ?? null }, { now: this.now(), enforceWindows });
         const st = this.#stockToday(symbol);
         const strong = candidates.filter((c) => c.score >= MIN_SCORE);
-        const stockBlock = st.stopped ? 'Already stopped out on this stock today' : st.count >= MAX_IDEAS_PER_STOCK ? `Already had ${st.count} ideas on this stock today` : null;
+        const stockBlock = paused ? paused : st.stopped ? 'Already stopped out on this stock today' : st.count >= MAX_IDEAS_PER_STOCK ? `Already had ${st.count} ideas on this stock today` : null;
         const ok = stockBlock ? null : strong.find((c) => c.status !== 'MISSED' && !c.blocked.length);
         if (ok) {
           const item = { ...ok, symbol, ltp: tick.ltp, changePct: tick.changePct };
@@ -258,6 +291,7 @@ export class ScannerService extends EventEmitter {
       this.result = {
         items: [...live.sort(byScore), ...watching.slice(0, MAX_WATCHING)],
         rejected: rejected.sort(byScore).slice(0, MAX_REJECTED),
+        paused,
         scanned,
         total: this.symbols.length,
         updatedAt: this.now().toISOString(),
