@@ -315,7 +315,7 @@ export default function Scanner() {
             {entries.length === 0 ? (
               <Card>
                 <EmptyState icon={Radar} title="No good setups right now">
-                  That is normal. Only ideas that score 60 or more and pay at least 1.5 times the risk are shown. Staying out is a valid trade.
+                  That is normal. Only ideas that score 70 or more and pay at least 1.5 times the risk are shown. Staying out is a valid trade.
                 </EmptyState>
               </Card>
             ) : (

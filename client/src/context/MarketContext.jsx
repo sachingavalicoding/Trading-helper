@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api, API_BASE } from '../lib/api.js';
 import { setTick, clearTicks } from '../lib/tickStore.js';
-import { entryText, closedText, planText, systemNotify } from '../lib/alerts.js';
+import { entryText, systemNotify } from '../lib/alerts.js';
 import { useAuth } from './AuthContext.jsx';
 
 const MarketContext = createContext(null);
@@ -61,14 +61,7 @@ export function MarketProvider({ children }) {
       toast.info(`New idea: ${entryText(idea)}`, { duration: 10_000, action: { label: 'View', onClick: () => navigate('/scanner') } });
       systemNotify('New scanner idea', entryText(idea), `entry-${idea.symbol}`);
     });
-    socket.on('scanner:closed', (idea) => {
-      toast(closedText(idea));
-      systemNotify('Scanner idea closed', closedText(idea), `closed-${idea.symbol}`);
-    });
-    socket.on('scanner:plan', (plan) => {
-      toast.info(planText(plan), { duration: 10_000, action: { label: 'View', onClick: () => navigate('/scanner') } });
-      systemNotify('Morning plan', planText(plan), 'plan');
-    });
+    // Only a new entry idea interrupts you. Closed ideas and the morning plan stay on the Scanner page.
 
     return () => {
       alive = false;

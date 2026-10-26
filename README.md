@@ -225,7 +225,7 @@ Not included yet: gap fill.
 **Status and score**
 
 - Each idea is **Entry now** (trigger fired and price is still in the entry zone), **Watching** (setup forming) or **Missed** (price ran too far to chase).
-- Each idea scores out of 100: the setup (30), trend agreement on VWAP and 5m/15m EMAs (20), volume against normal for that time of day (20), strength against Nifty 50 (15), order book (8) and RSI (7). Penalties apply when Nifty 50 moves against the trade or RSI is stretched. Only ideas scoring 60 or more are shown.
+- Each idea scores out of 100: the setup (30), trend agreement on VWAP and 5m/15m EMAs (20), volume against normal for that time of day (20), strength against Nifty 50 (15), order book (8) and RSI (7). Penalties apply when Nifty 50 moves against the trade or RSI is stretched. Only ideas scoring 70 or more that also pass the safety checks are shown, and a phone alert is sent only when a new entry idea appears (not for watching ideas, closed ideas or the morning plan).
 - An idea needs at least 1.5 times reward to risk, or it is dropped. The stop is never tighter than 0.3% of the price.
 - With market hours enforced, nothing is suggested before 09:30 or after 14:45 IST.
 

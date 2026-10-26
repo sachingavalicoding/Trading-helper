@@ -2,7 +2,7 @@ import { buildContext } from './context.js';
 import { SETUPS } from './setups.js';
 import { istParts } from '../market/marketHours.js';
 
-export const MIN_SCORE = 60;
+export const MIN_SCORE = 70; // only strong ideas are shown or alerted
 const FIRST_ENTRY_MIN = 9 * 60 + 30; // opening range is only complete at 09:30
 const LAST_ENTRY_MIN = 14 * 60 + 45;
 
