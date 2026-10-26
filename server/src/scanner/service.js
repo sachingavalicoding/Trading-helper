@@ -111,7 +111,7 @@ export class ScannerService extends EventEmitter {
 
   async #close(idea, status, price) {
     const closedAt = this.now();
-    const res = await ScanIdea.updateOne({ _id: idea._id, status: 'OPEN' }, { status, exitPrice: price, closedAt });
+    const res = await ScanIdea.updateOne({ _id: idea._id, status: 'OPEN' }, { status, exitPrice: price, closedAt, bestR: idea.bestR ?? 0, worstR: idea.worstR ?? 0 });
     if (!res.modifiedCount) return;
     if (status === 'STOPPED') this.#stockToday(idea.symbol).stopped = true;
     const list = (this.open.get(idea.symbol) || []).filter((i) => String(i._id) !== String(idea._id));
@@ -125,6 +125,12 @@ export class ScannerService extends EventEmitter {
   async #check({ symbol, ltp }) {
     for (const idea of [...(this.open.get(symbol) || [])]) {
       const long = idea.side === 'BUY';
+      const risk = Math.abs(idea.entry - idea.stopLoss);
+      if (risk) {
+        const r = ((long ? 1 : -1) * (ltp - idea.entry)) / risk;
+        idea.bestR = Math.max(idea.bestR ?? 0, r);
+        idea.worstR = Math.min(idea.worstR ?? 0, r);
+      }
       if (long ? ltp >= idea.target1 : ltp <= idea.target1) await this.#close(idea, 'TARGET_HIT', ltp);
       else if (long ? ltp <= idea.stopLoss : ltp >= idea.stopLoss) await this.#close(idea, 'STOPPED', ltp);
       else if (this.#expired(idea)) await this.#close(idea, 'EXPIRED', ltp);

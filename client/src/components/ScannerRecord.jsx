@@ -41,6 +41,11 @@ export function ScannerRecord() {
               <div className="text-[11px] text-muted">average per idea</div>
             </div>
           </div>
+          {data.stopped?.count >= 5 && (
+            <p className="rounded-lg bg-surface-2 px-3 py-2 text-xs leading-snug">
+              Of {data.stopped.count} stopped ideas, <span className="font-semibold">{data.stopped.reachedHalfR}%</span> were in profit by half their risk first and {data.stopped.reachedOneR}% by the full risk, before turning into a loss. Typical time to the stop: {data.stopped.medianMinutes ?? '–'} min.
+            </p>
+          )}
           <Segmented size="sm" options={VIEWS} value={view} onChange={setView} className="w-full" />
           <div className="divide-y divide-line text-sm">
             {data[view].map((r) => (

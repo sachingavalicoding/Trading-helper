@@ -36,6 +36,24 @@ function group(ideas, keyOf, order) {
 }
 
 /**
+ * What stopped-out ideas did before they were stopped: how often they were in profit first,
+ * and how long they lasted. Only ideas recorded after excursion tracking began carry `bestR`.
+ */
+function stoppedProfile(done) {
+  const stopped = done.filter((i) => i.status === 'STOPPED' && i.bestR != null);
+  if (!stopped.length) return { count: 0, reachedHalfR: null, reachedOneR: null, medianMinutes: null, avgBestR: null };
+  const mins = stopped.filter((i) => i.closedAt && i.openedAt).map((i) => (new Date(i.closedAt) - new Date(i.openedAt)) / 60000).sort((a, b) => a - b);
+  const share = (x) => round((stopped.filter((i) => i.bestR >= x).length / stopped.length) * 100, 0);
+  return {
+    count: stopped.length,
+    reachedHalfR: share(0.5),
+    reachedOneR: share(1),
+    medianMinutes: mins.length ? round(mins[Math.floor(mins.length / 2)], 0) : null,
+    avgBestR: round(stopped.reduce((a, i) => a + i.bestR, 0) / stopped.length),
+  };
+}
+
+/**
  * Track record of finished ideas (status not OPEN). `openedAt` is when the idea was raised.
  * Hit rate alone misleads, so every row also shows average R (result per unit of risk).
  */
@@ -45,6 +63,7 @@ export function summarizeIdeas(ideas) {
   return {
     minSample: MIN_SAMPLE,
     overall: bucket(done),
+    stopped: stoppedProfile(done),
     bySetup: group(done, (i) => i.setup),
     bySide: group(done, (i) => i.side),
     byHour: group(done, hour, (h) => h).map((r) => ({ ...r, label: `${String(r.key).padStart(2, '0')}:00` })),
