@@ -82,7 +82,61 @@ export function AutoCard() {
           ))}
         </div>
       )}
+      <AutoLog />
       <p className="text-[11px] leading-snug text-muted">{data.disclaimer}</p>
     </Card>
+  );
+}
+
+const EXIT_LABEL = { STOP: 'Stopped', LOCK: 'Locked profit', TARGET: 'Target', MANUAL: 'Manual exit', SQUARE_OFF: 'Square-off' };
+
+/** Every decision the auto-trader made today with its reason and result, to review in the evening. */
+function AutoLog() {
+  const [show, setShow] = useState(false);
+  const { data } = useApi(show ? '/auto/log' : null, [show]);
+  const sum = data?.summary;
+  return (
+    <div className="border-t border-line pt-2">
+      <button type="button" onClick={() => setShow((o) => !o)} className="text-xs text-accent">
+        {show ? 'Hide auto log' : "Today's auto log"}
+      </button>
+      {show && !data && <Skeleton className="mt-2 h-16" />}
+      {show && sum && (
+        <div className="mt-2 space-y-2 text-xs">
+          <p className="num text-muted">
+            {sum.placed} placed · {sum.skipped} skipped · {sum.wins} won · {sum.losses} lost · net{' '}
+            <span className={pnlClass(sum.netPnl)}>₹{formatPrice(sum.netPnl)}</span> (charges ₹{formatPrice(sum.charges)})
+            {sum.gaveBack > 0 && ` · ${sum.gaveBack} were in profit first, then lost`}
+          </p>
+          {sum.byExit.length > 0 && (
+            <p className="num text-muted">
+              {sum.byExit.map((g) => `${EXIT_LABEL[g.key] || g.key} ${g.trades} (₹${formatPrice(g.netPnl)})`).join(' · ')}
+            </p>
+          )}
+          {sum.skipReasons.length > 0 && <p className="text-muted">Skipped because: {sum.skipReasons.map((r) => `${r.example} ×${r.count}`).join(' · ')}</p>}
+          {sum.skippedHindsight.followed > 0 && (
+            <p className="text-muted">
+              Of the skipped ideas, {sum.skippedHindsight.wouldHitTarget} later hit target 1 and {sum.skippedHindsight.wouldStop} hit the stop.
+            </p>
+          )}
+          <ul className="divide-y divide-line">
+            {data.entries.map((e) => (
+              <li key={e._id} className="flex items-start justify-between gap-2 py-1.5">
+                <div className="min-w-0">
+                  <p className="font-medium">
+                    {e.symbol} {e.side} <span className="text-muted">· {e.setup || 'idea'} · score {e.score}</span>
+                  </p>
+                  <p className="text-muted">
+                    {e.decision === 'SKIPPED' ? `Skipped: ${e.reason}` : e.status === 'OPEN' ? `Open · ${e.qty} @ ₹${formatPrice(e.fillPrice)}` : `${EXIT_LABEL[e.outcome.exitReason]} · ${e.qty} @ ₹${formatPrice(e.fillPrice)} → ₹${formatPrice(e.outcome.exitPrice)} · ${e.outcome.minutesHeld}m · best ${e.outcome.bestR ?? '–'}R / worst ${e.outcome.worstR ?? '–'}R`}
+                  </p>
+                </div>
+                {e.outcome && <span className={`num shrink-0 ${pnlClass(e.outcome.netPnl)}`}>₹{formatPrice(e.outcome.netPnl)}</span>}
+              </li>
+            ))}
+          </ul>
+          {data.entries.length === 0 && <p className="text-muted">No decisions yet today.</p>}
+        </div>
+      )}
+    </div>
   );
 }

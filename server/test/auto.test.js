@@ -4,7 +4,8 @@ import request from 'supertest';
 import { setup, teardown, closeDb, registerUser, settle } from './helpers.js';
 import { createApp } from '../src/app.js';
 import { AutoTrader } from '../src/auto/autoTrader.js';
-import { AutoSettings, Order, Position } from '../src/models/index.js';
+import { AutoLog, AutoSettings, Order, Position } from '../src/models/index.js';
+import { summarizeLog } from '../src/auto/logSummary.js';
 
 let ctx;
 let app;
@@ -141,4 +142,108 @@ test('past each target an auto trade is not sold: the stop jumps to just short o
   await settle();
   assert.ok(Math.abs((await stopAt()) - (i.entry + 0.95 * (i.target2 - i.entry))) <= 0.06, 'stop just short of target 2');
   assert.equal((await Position.findOne({ user: s.user, symbol: 'ONGC' })).status, 'OPEN');
+});
+
+test('the auto log records every decision, placed or skipped, with the numbers behind it', async () => {
+  const fresh = await registerUser(app);
+  const s = settings({ user: fresh.user.id || fresh.user._id, maxOpen: 10, maxShares: 1 });
+  await trader.consider(s, idea('SBIN', 'BUY', 60));
+  const i = idea('SBIN', 'BUY', 85);
+  i.setup = 'ORB';
+  i.card = { checks: [{ key: 'vwap', points: 4 }] };
+  const r = await trader.consider(s, i);
+  assert.ok(r.order, r.skipped);
+  const rows = await AutoLog.find({ user: s.user }).sort({ decidedAt: 1 }).lean();
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].decision, 'SKIPPED');
+  assert.match(rows[0].reason, /below/);
+  assert.equal(rows[1].decision, 'PLACED');
+  assert.equal(rows[1].status, 'OPEN');
+  assert.equal(rows[1].setup, 'ORB');
+  assert.equal(rows[1].qty, 1);
+  assert.equal(String(rows[1].order), String(r.order._id));
+  assert.equal(rows[1].card.checks[0].key, 'vwap');
+  assert.ok(rows[1].ltp > 0 && rows[1].position);
+
+  const res = await request(app).get('/api/auto/log').set(fresh.auth).expect(200);
+  assert.equal(res.body.summary.placed, 1);
+  assert.equal(res.body.summary.skipped, 1);
+  assert.equal(res.body.entries[0].checks, undefined);
+  assert.equal(res.body.entries[1].checks[0].key, 'vwap');
+  await request(app).get('/api/auto/log?day=nope').set(fresh.auth).expect(400);
+});
+
+test('the log fills in how a trade ended: stop, profit lock, target, manual exit', async () => {
+  trader.start();
+  try {
+    const fresh = await registerUser(app);
+    const uid = fresh.user.id || fresh.user._id;
+    const s = settings({ user: uid, maxOpen: 10, maxShares: 1 });
+    const outcomeOf = async (symbol) => (await AutoLog.findOne({ user: uid, symbol, decision: 'PLACED' }).lean());
+
+    // stopped out at a loss
+    ctx.provider.setPrice('INFY', 1500);
+    await settle();
+    const a = idea('INFY', 'BUY');
+    await trader.consider(s, a);
+    ctx.provider.setPrice('INFY', a.entry + 2); // best R > 0
+    await settle();
+    ctx.provider.setPrice('INFY', a.stopLoss - 1);
+    await settle();
+    await new Promise((r) => setTimeout(r, 50));
+    let row = await outcomeOf('INFY');
+    assert.equal(row.status, 'CLOSED');
+    assert.equal(row.outcome.exitReason, 'STOP');
+    assert.ok(row.outcome.netPnl < 0);
+    assert.ok(row.outcome.resultR < 0);
+    assert.ok(row.outcome.bestR > 0 && row.outcome.worstR < 0);
+    assert.equal(row.outcome.netPnl, Math.round((row.outcome.grossPnl - row.outcome.charges) * 100) / 100);
+
+    // a manual exit
+    ctx.provider.setPrice('ITC', 400);
+    await settle();
+    const b = idea('ITC', 'SELL');
+    await trader.consider(s, b);
+    await request(app).post('/api/positions/ITC/exit').set(fresh.auth).expect(200);
+    await new Promise((r) => setTimeout(r, 50));
+    row = await outcomeOf('ITC');
+    assert.equal(row.outcome.exitReason, 'MANUAL');
+
+    // the stop jumps past target 1, then price falls back and the raised stop is hit: a lock
+    ctx.provider.setPrice('SBIN', 800);
+    await settle();
+    const c = idea('SBIN', 'BUY');
+    await trader.consider(s, c);
+    ctx.provider.setPrice('SBIN', c.target1 + 0.5);
+    await settle();
+    ctx.provider.setPrice('SBIN', c.entry + 0.9 * (c.target1 - c.entry));
+    await settle();
+    await new Promise((r) => setTimeout(r, 50));
+    row = await outcomeOf('SBIN');
+    assert.equal(row.status, 'CLOSED');
+    assert.equal(row.outcome.exitReason, 'LOCK');
+    assert.ok(row.outcome.netPnl !== undefined && row.outcome.grossPnl > 0);
+  } finally {
+    trader.stop();
+  }
+});
+
+test('the day summary adds up exits and setups, groups skip reasons, and checks skips in hindsight', () => {
+  const closed = (setup, exitReason, netPnl, extra = {}) => ({ decision: 'PLACED', status: 'CLOSED', setup, score: 82, outcome: { exitReason, netPnl, grossPnl: netPnl + 10, charges: 10, resultR: netPnl > 0 ? 1 : -1, minutesHeld: 30, ...extra } });
+  const skipped = (reason, idea) => ({ decision: 'SKIPPED', status: 'SKIPPED', reason, idea });
+  const ideas = new Map([['a', { status: 'TARGET_HIT' }], ['b', { status: 'STOPPED' }]]);
+  const sum = summarizeLog(
+    [closed('ORB', 'STOP', -100, { bestR: 0.8 }), closed('ORB', 'TARGET', 200), closed('VWAP', 'STOP', -50), { decision: 'PLACED', status: 'OPEN', setup: 'ORB', score: 75 }, skipped('score 62 is below 70', 'a'), skipped('score 65 is below 70', 'b'), skipped('already in this stock')],
+    ideas,
+  );
+  assert.equal(sum.placed, 4);
+  assert.equal(sum.closed, 3);
+  assert.equal(sum.open, 1);
+  assert.equal(sum.netPnl, 50);
+  assert.equal(sum.charges, 30);
+  assert.equal(sum.gaveBack, 1);
+  assert.equal(sum.byExit.find((g) => g.key === 'STOP').trades, 2);
+  assert.equal(sum.bySetup.find((g) => g.key === 'ORB').netPnl, 100);
+  assert.equal(sum.skipReasons[0].count, 2);
+  assert.deepEqual(sum.skippedHindsight, { followed: 2, wouldHitTarget: 1, wouldStop: 1, unresolved: 0 });
 });
