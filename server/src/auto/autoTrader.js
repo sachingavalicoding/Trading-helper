@@ -81,7 +81,7 @@ export class AutoTrader {
 
   /** A stop, target, manual exit or square-off filled: if that closed an auto trade, record how it ended. */
   async #finish({ userId, order }) {
-    const log = await AutoLog.findOne({ user: userId, symbol: order.symbol, status: 'OPEN' });
+    const log = await AutoLog.findOne({ user: userId, symbol: order.symbol, status: 'OPEN', segment: { $ne: 'OPT' } });
     if (!log) return;
     const pos = await Position.findById(log.position).lean();
     if (!pos || pos.status !== 'CLOSED') return;
@@ -110,7 +110,7 @@ export class AutoTrader {
 
   /** Orders the auto-trader placed today (entries and their stop/target legs). */
   async #todaysAutoOrders(userId) {
-    return Order.find({ user: userId, source: 'AUTO', tradingDay: this.engine.marketStatus().istDate }, '_id symbol role status').lean();
+    return Order.find({ user: userId, source: 'AUTO', segment: { $ne: 'OPT' }, tradingDay: this.engine.marketStatus().istDate }, '_id symbol role status').lean();
   }
 
   /** Auto-trade P&L booked today, after charges. */

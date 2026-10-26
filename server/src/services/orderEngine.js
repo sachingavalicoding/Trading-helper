@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { Order, Position, Trade, TradeDefaults } from '../models/index.js';
 import { TRADE_DEFAULTS } from '../models/TradeDefaults.js';
 import { isTradable } from '../market/instruments.js';
+import { isOptionSymbol, DEFAULT_LOT_SIZE } from '../options/symbols.js';
 import { getMarketStatus } from '../market/marketHours.js';
 import { calculateCharges, roundTripCharges, splitCharges } from './charges.js';
 import { getFunds, adjustBalance, resetAccount } from './walletService.js';
@@ -29,7 +30,7 @@ export function isTriggered(order, ltp) {
  * Emits 'update' ({ userId, kind: 'order'|'fill'|'squareoff', order, trades, message }).
  */
 const LOCK_CHARGES_MULT = 1.5; // a profit lock or target step never puts the stop below cost + this many times the round-trip charges
-const STEP_KEEP = 0.95; // past a target, keep the stop this share of the way from entry to it
+const STEP_KEEP = 0.8; // past a target, keep the stop this share of the way from entry to it (leaves room for a pullback)
 
 export class OrderEngine extends EventEmitter {
   constructor({ market, config, now = () => new Date() }) {
@@ -110,8 +111,9 @@ export class OrderEngine extends EventEmitter {
   }
 
   /** Exit every open position and cancel every resting order (auto square-off or "exit all"). */
-  async squareOff({ userId = null, reason = 'Auto square-off at 15:15 IST' } = {}) {
-    const filter = userId ? { user: userId } : {};
+  async squareOff({ userId = null, reason = 'Auto square-off at 15:15 IST', segment = 'ALL' } = {}) {
+    const bySegment = segment === 'OPT' ? { segment: 'OPT' } : segment === 'EQ' ? { segment: { $ne: 'OPT' } } : {};
+    const filter = { ...(userId ? { user: userId } : {}), ...bySegment };
     const users = new Set([
       ...(await Order.distinct('user', { ...filter, status: 'OPEN' })).map(String),
       ...(await Position.distinct('user', { ...filter, status: 'OPEN' })).map(String),
@@ -119,8 +121,8 @@ export class OrderEngine extends EventEmitter {
     let exited = 0;
     for (const uid of users) {
       await this.locks.run(uid, async () => {
-        for (const order of await Order.find({ user: uid, status: 'OPEN' })) await this.#cancel(order, reason);
-        for (const pos of await Position.find({ user: uid, status: 'OPEN' })) {
+        for (const order of await Order.find({ user: uid, status: 'OPEN', ...bySegment })) await this.#cancel(order, reason);
+        for (const pos of await Position.find({ user: uid, status: 'OPEN', ...bySegment })) {
           try {
             await this.#marketExit(pos, 'SQUAREOFF');
             exited++;
@@ -179,7 +181,8 @@ export class OrderEngine extends EventEmitter {
     if (!ltp) throw unavailable('No live price for this stock yet. Try again in a moment.', 'NO_PRICE');
     const long = pos.netQty > 0;
     const tick = (v) => roundToTick(Number(v));
-    if (trailPct != null && !(trailPct >= 0.1 && trailPct <= 10)) throw badRequest('Trailing distance must be between 0.1% and 10%', 'INVALID_TRAIL');
+    const [minTrail, maxTrail] = pos.segment === 'OPT' ? [1, 60] : [0.1, 10]; // a premium swings far more than a share price
+    if (trailPct != null && !(trailPct >= minTrail && trailPct <= maxTrail)) throw badRequest(`Trailing distance must be between ${minTrail}% and ${maxTrail}%`, 'INVALID_TRAIL');
     if (lockTrigger !== undefined || lockAmount !== undefined) {
       const t = lockTrigger === undefined ? pos.lockTrigger : lockTrigger;
       const a = lockAmount === undefined ? pos.lockAmount : lockAmount;
@@ -296,7 +299,7 @@ export class OrderEngine extends EventEmitter {
     const wants = [];
     if (pos.trailPct != null) wants.push(roundToTick(long ? ltp * (1 - pos.trailPct / 100) : ltp * (1 + pos.trailPct / 100)));
     // Stops that lock in profit (the rupee lock and the target ladder) must still be a gain after charges.
-    const floorPer = (LOCK_CHARGES_MULT * roundTripCharges({ qty, price: pos.avgPrice })) / qty;
+    const floorPer = (LOCK_CHARGES_MULT * roundTripCharges({ qty, price: pos.avgPrice, segment: pos.segment })) / qty;
     const chargesFloor = roundToTick(long ? pos.avgPrice + floorPer : pos.avgPrice - floorPer);
     const lockStop = (w) => (long ? Math.max(w, chargesFloor) : Math.min(w, chargesFloor));
     const profit = (long ? ltp - pos.avgPrice : pos.avgPrice - ltp) * qty;
@@ -344,15 +347,22 @@ export class OrderEngine extends EventEmitter {
     const orderType = input.orderType;
     const qty = Number(input.qty);
 
-    if (!isTradable(symbol)) throw badRequest('Only Nifty 50 stocks can be traded', 'INVALID_SYMBOL');
+    const option = isOptionSymbol(symbol);
+    if (!isTradable(symbol) && !option) throw badRequest('Only Nifty 50 stocks and Nifty index options can be traded', 'INVALID_SYMBOL');
     if (!['BUY', 'SELL'].includes(side)) throw badRequest('side must be BUY or SELL');
     if (!['MARKET', 'LIMIT'].includes(orderType)) throw badRequest('orderType must be MARKET or LIMIT');
     if (!Number.isInteger(qty) || qty < 1) throw badRequest('Quantity must be a whole number of at least 1', 'INVALID_QTY');
     if (qty > this.config.maxOrderQty) throw badRequest(`Quantity cannot exceed ${this.config.maxOrderQty}`, 'INVALID_QTY');
+    if (option) {
+      const lot = this.#lotSize(symbol);
+      if (qty % lot !== 0) throw badRequest(`Options trade in lots of ${lot}`, 'INVALID_QTY');
+    }
 
+    if (option && !this.market.getLtp(symbol)) await this.market.watchOption?.(symbol); // start the contract's price stream
     const ltp = this.market.getLtp(symbol);
     if (!ltp) throw unavailable('No live price for this stock yet. Try again in a moment.', 'NO_PRICE');
 
+    const segment = option ? 'OPT' : 'EQ';
     const price = orderType === 'LIMIT' ? roundToTick(Number(input.price)) : undefined;
     if (orderType === 'LIMIT') {
       if (!(price > 0)) throw badRequest('Limit price is required', 'INVALID_PRICE');
@@ -391,11 +401,12 @@ export class OrderEngine extends EventEmitter {
     const openingQty = this.#openingQty(position, side, qty);
 
     let reject = null;
-    if (this.config.enforceMarketHours && !status.isOpen) reject = 'Market is closed. NSE trades 09:15 to 15:30 IST, Monday to Friday.';
+    if (option && openingQty > 0 && side === 'SELL') reject = 'Options are bought to open here. Writing (selling) options is not allowed.';
+    else if (this.config.enforceMarketHours && !status.isOpen) reject = 'Market is closed. NSE trades 09:15 to 15:30 IST, Monday to Friday.';
     else if (this.config.enforceMarketHours && status.afterSquareOff && openingQty > 0) {
       reject = 'New intraday positions are not allowed after the 15:15 IST square-off.';
     } else if (openingQty > 0) {
-      const required = this.#marginFor(openingQty, ref) + calculateCharges({ side, qty, price: ref }).total;
+      const required = this.#marginFor(openingQty, ref, segment) + calculateCharges({ side, qty, price: ref, segment }).total;
       const funds = await getFunds(userId, this.config.startingBalance);
       if (required > funds.available) {
         reject = `Insufficient funds. Required ₹${round2(required)}, available ₹${funds.available}.`;
@@ -412,7 +423,7 @@ export class OrderEngine extends EventEmitter {
     const marketable = orderType === 'MARKET' || isTriggered(order, ltp);
     if (marketable) return this.#fill(order, ltp);
 
-    order.blockedMargin = round2(this.#marginFor(openingQty, price));
+    order.blockedMargin = round2(this.#marginFor(openingQty, price, segment));
     await order.save();
     this.#addToBook(order.toObject());
     this.emit('update', { userId: String(userId), kind: 'order', order: order.toJSON() });
@@ -434,7 +445,7 @@ export class OrderEngine extends EventEmitter {
       const openingQty = this.#openingQty(position, order.side, order.qty);
       if (openingQty > 0) {
         const funds = await getFunds(order.user, this.config.startingBalance);
-        const required = this.#marginFor(openingQty, price) + calculateCharges({ side: order.side, qty: order.qty, price }).total;
+        const required = this.#marginFor(openingQty, price, order.segment) + calculateCharges({ side: order.side, qty: order.qty, price, segment: order.segment }).total;
         if (required > funds.available + order.blockedMargin) {
           order.status = 'REJECTED';
           order.rejectReason = 'Insufficient funds when the order triggered';
@@ -487,9 +498,10 @@ export class OrderEngine extends EventEmitter {
     }
 
     const { side, qty, symbol } = order;
+    const segment = isOptionSymbol(symbol) ? 'OPT' : 'EQ';
     const now = this.now();
     const tradingDay = this.marketStatus().istDate;
-    const charges = calculateCharges({ side, qty, price });
+    const charges = calculateCharges({ side, qty, price, segment });
     const trades = [];
     let remaining = qty;
     let pnlDelta = 0;
@@ -541,7 +553,7 @@ export class OrderEngine extends EventEmitter {
       }
       this.#bookSide(position, side, remaining, price);
       position.charges = round2(position.charges + ch.total);
-      position.margin = round2(position.margin + this.#marginFor(remaining, price));
+      position.margin = round2(position.margin + this.#marginFor(remaining, price, segment));
       await position.save();
       if (position.lockTrigger != null) this.#watchTrail(position);
       trades.push(this.#trade(order, position, remaining, price, ch, 0, now, tradingDay));
@@ -611,6 +623,7 @@ export class OrderEngine extends EventEmitter {
       order: order._id,
       position: position._id,
       symbol: order.symbol,
+      segment: isOptionSymbol(order.symbol) ? 'OPT' : 'EQ',
       side: order.side,
       role: order.role,
       qty,
@@ -639,8 +652,13 @@ export class OrderEngine extends EventEmitter {
     return Math.max(0, qty - Math.abs(position.netQty));
   }
 
-  #marginFor(qty, price) {
-    return (qty * price) / this.config.misLeverage;
+  // Shares are bought on intraday leverage; an option buyer pays the whole premium and nothing more can be lost.
+  #marginFor(qty, price, segment = 'EQ') {
+    return segment === 'OPT' ? qty * price : (qty * price) / this.config.misLeverage;
+  }
+
+  #lotSize(symbol) {
+    return this.market.lotSize?.(symbol) ?? this.config.niftyLotSize ?? DEFAULT_LOT_SIZE;
   }
 
   #addToBook(order) {

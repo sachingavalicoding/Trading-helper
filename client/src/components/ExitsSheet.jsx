@@ -13,6 +13,13 @@ const TRAIL = [
   { value: 1, label: '1%' },
   { value: 2, label: '2%' },
 ];
+// A premium swings far more than a share price, so an option's trail is a much wider share of it.
+const OPTION_TRAIL = [
+  { value: 0, label: 'Off' },
+  { value: 15, label: '15%' },
+  { value: 25, label: '25%' },
+  { value: 35, label: '35%' },
+];
 const tick05 = (p) => Number((Math.round(p / 0.05) * 0.05).toFixed(2));
 
 /** Change the stop loss and target of an open position, or let the stop trail the price. */
@@ -21,6 +28,7 @@ export function ExitsSheet({ position, onClose }) {
   const tick = useTick(symbol);
   const { refresh } = useMarket();
   const long = position.netQty > 0;
+  const option = position.segment === 'OPT';
   const [stopLoss, setStopLoss] = useState('');
   const [target, setTarget] = useState('');
   const [trail, setTrail] = useState(0);
@@ -86,7 +94,7 @@ export function ExitsSheet({ position, onClose }) {
       <div role="dialog" aria-label={`Stop loss and target for ${symbol}`} onClick={(e) => e.stopPropagation()} className="w-full max-w-md space-y-4 rounded-t-2xl border border-line bg-surface p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:rounded-2xl">
         <div className="flex items-start justify-between">
           <div>
-            <div className="text-lg font-bold">{symbol}</div>
+            <div className="text-lg font-bold">{position.label || symbol}</div>
             <div className="num text-xs text-muted">
               {long ? 'Long' : 'Short'} {Math.abs(position.netQty)} @ {formatPrice(position.avgPrice)} · now {formatPrice(ltp)}
             </div>
@@ -121,7 +129,7 @@ export function ExitsSheet({ position, onClose }) {
 
         <div>
           <div className="mb-1 text-xs font-semibold">Trailing stop</div>
-          <Segmented size="sm" options={TRAIL} value={trail} onChange={setTrail} className="w-full" />
+          <Segmented size="sm" options={option ? OPTION_TRAIL : TRAIL} value={trail} onChange={setTrail} className="w-full" />
           <p className="mt-1 text-[11px] leading-snug text-muted">
             The stop follows the price at this distance and only moves towards profit, never back. It starts from the current price if you have no stop.
           </p>

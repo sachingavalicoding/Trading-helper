@@ -12,9 +12,29 @@ export const RATES = {
   gstPct: 0.18, // GST 18% on brokerage + exchange + SEBI fees
 };
 
-/** Charges for one execution of `qty` shares at `price`. */
-export function calculateCharges({ side, qty, price }) {
+// Index options bought and sold intraday: a flat fee per order, and the taxes on the premium (not on the strike value).
+export const OPTION_RATES = {
+  brokerageFlat: 20, // ₹20 per executed order
+  sttSellPct: 0.0015, // STT on the sell side premium (raised in 2026; the older 0.1% would be a little lower)
+  exchangePct: 0.000351, // NSE options transaction charge on premium
+  sebiPct: 0.000001,
+  stampBuyPct: 0.00003,
+  gstPct: 0.18,
+};
+
+/** Charges for one execution of `qty` shares (or option units) at `price`. `segment` 'OPT' prices index options. */
+export function calculateCharges({ side, qty, price, segment = 'EQ' }) {
   const turnover = qty * price;
+  if (segment === 'OPT') {
+    const R = OPTION_RATES;
+    const brokerage = R.brokerageFlat;
+    const stt = side === 'SELL' ? round2(turnover * R.sttSellPct) : 0;
+    const exchange = round2(turnover * R.exchangePct);
+    const sebi = round2(turnover * R.sebiPct);
+    const stamp = side === 'BUY' ? round2(turnover * R.stampBuyPct) : 0;
+    const gst = round2((brokerage + exchange + sebi) * R.gstPct);
+    return { brokerage, stt, exchange, sebi, stamp, gst, total: round2(brokerage + stt + exchange + sebi + stamp + gst) };
+  }
   const brokerage = round2(Math.min(RATES.brokerageCap, turnover * RATES.brokeragePct));
   const stt = side === 'SELL' ? round2(turnover * RATES.sttSellPct) : 0;
   const exchange = round2(turnover * RATES.exchangePct);
@@ -33,6 +53,6 @@ export function splitCharges(charges, fraction) {
 }
 
 /** Estimated cost of buying and selling `qty` shares around `price`: what a trade must earn before it is a gain. */
-export function roundTripCharges({ qty, price }) {
-  return round2(calculateCharges({ side: 'BUY', qty, price }).total + calculateCharges({ side: 'SELL', qty, price }).total);
+export function roundTripCharges({ qty, price, segment = 'EQ' }) {
+  return round2(calculateCharges({ side: 'BUY', qty, price, segment }).total + calculateCharges({ side: 'SELL', qty, price, segment }).total);
 }

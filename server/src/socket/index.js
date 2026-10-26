@@ -1,6 +1,7 @@
 import { Server } from 'socket.io';
 import { verifyToken } from '../middleware/auth.js';
 import { ALL_SYMBOLS, isIndex } from '../market/instruments.js';
+import { isOptionSymbol } from '../options/symbols.js';
 
 const THROTTLE_MS = 250; // at most 4 updates per symbol per second to each client
 const MAX_SUBSCRIPTIONS = 80;
@@ -34,7 +35,7 @@ export function attachSocket(httpServer, { market, engine, config, scanner }) {
     const roomsFor = (symbols, withDepth) =>
       (Array.isArray(symbols) ? symbols : [symbols])
         .map((s) => String(s).toUpperCase())
-        .filter((s) => valid.has(s))
+        .filter((s) => valid.has(s) || isOptionSymbol(s))
         .map((s) => `${withDepth ? 'depth' : 'sym'}:${s}`);
 
     // Payloads come from the browser, so a null or odd one must never throw inside a handler (that would crash the server).

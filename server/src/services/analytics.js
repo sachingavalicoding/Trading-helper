@@ -9,12 +9,13 @@ const MIN_FOR_PATTERNS = 10; // fewer closed trades than this say little about h
  * Dashboard numbers. A "trade" for win rate / best / worst is one closed round trip
  * (a Position), scored on net P&L after charges.
  */
-export async function getDashboard(userId, { startingBalance, ltpOf }) {
+export async function getDashboard(userId, { startingBalance, ltpOf, segment = 'EQ' }) {
   const uid = new mongoose.Types.ObjectId(String(userId));
+  const seg = segment === 'OPT' ? { segment: 'OPT' } : segment === 'EQ' ? { segment: { $ne: 'OPT' } } : {};
   const [closed, open, fills] = await Promise.all([
-    Position.find({ user: uid, status: 'CLOSED' }).sort({ closedAt: 1 }).lean(),
-    Position.find({ user: uid, status: 'OPEN' }).lean(),
-    Trade.find({ user: uid }).sort({ executedAt: 1 }).select('executedAt tradingDay realizedPnl charges.total').lean(),
+    Position.find({ user: uid, status: 'CLOSED', ...seg }).sort({ closedAt: 1 }).lean(),
+    Position.find({ user: uid, status: 'OPEN', ...seg }).lean(),
+    Trade.find({ user: uid, ...seg }).sort({ executedAt: 1 }).select('executedAt tradingDay realizedPnl charges.total').lean(),
   ]);
 
   const scored = closed.map((p) => ({

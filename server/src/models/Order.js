@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { isOptionSymbol } from '../options/symbols.js';
 
 export const ORDER_TYPES = ['MARKET', 'LIMIT', 'SL_M'];
 export const ORDER_STATUS = ['OPEN', 'FILLED', 'CANCELLED', 'REJECTED'];
@@ -13,6 +14,7 @@ const orderSchema = new mongoose.Schema(
     side: { type: String, enum: ['BUY', 'SELL'], required: true },
     orderType: { type: String, enum: ORDER_TYPES, required: true },
     product: { type: String, enum: ['MIS'], default: 'MIS' },
+    segment: { type: String, enum: ['EQ', 'OPT'], default: 'EQ', index: true }, // shares or Nifty index options; kept apart on every screen
     role: { type: String, enum: ORDER_ROLES, default: 'ENTRY' },
     source: { type: String, enum: ['MANUAL', 'AUTO'], default: 'MANUAL' }, // AUTO = placed by the paper auto-trader
     qty: { type: Number, required: true, min: 1 },
@@ -36,5 +38,10 @@ const orderSchema = new mongoose.Schema(
 );
 
 orderSchema.index({ user: 1, createdAt: -1 });
+
+// Every order, from any code path, lands in the right segment by its symbol.
+orderSchema.pre('validate', function setSegment() {
+  this.segment = isOptionSymbol(this.symbol) ? 'OPT' : 'EQ';
+});
 
 export const Order = mongoose.model('Order', orderSchema);

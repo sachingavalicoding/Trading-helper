@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { LayoutDashboard } from 'lucide-react';
 import { useMarket } from '../context/MarketContext.jsx';
 import { useApi } from '../lib/useApi.js';
@@ -7,7 +7,7 @@ import { IST_OFFSET_SEC } from '../lib/chart.js';
 import { formatPnl, formatINR, formatDateTime, formatPrice, pnlClass } from '../lib/format.js';
 import { TradeBreakdown } from '../components/TradeBreakdown.jsx';
 import { MiniChart } from '../components/MiniChart.jsx';
-import { Card, Skeleton, EmptyState, Disclaimer, Badge } from '../components/ui.jsx';
+import { Card, Segmented, Skeleton, EmptyState, Disclaimer, Badge } from '../components/ui.jsx';
 
 function Stat({ label, value, tone, sub }) {
   return (
@@ -64,7 +64,8 @@ function SignalRecord({ version }) {
 
 export default function Dashboard() {
   const { version } = useMarket();
-  const { data, loading } = useApi('/dashboard', [version]);
+  const [segment, setSegment] = useState('EQ');
+  const { data, loading } = useApi(`/dashboard?segment=${segment}`, [version, segment]);
   const open = data?.openPositions || [];
   const ltpOf = useLtps(open.map((p) => p.symbol));
 
@@ -98,8 +99,17 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-3">
+      <Segmented
+        className="w-full"
+        value={segment}
+        onChange={setSegment}
+        options={[
+          { value: 'EQ', label: 'Shares' },
+          { value: 'OPT', label: 'Options' },
+        ]}
+      />
       <Card className="p-4">
-        <div className="text-xs text-muted">Total P&amp;L (after charges)</div>
+        <div className="text-xs text-muted">{segment === 'OPT' ? 'Options' : 'Shares'} P&amp;L (after charges)</div>
         <div className={`num mt-1 text-3xl font-bold ${pnlClass(total)}`}>{formatPnl(total)}</div>
         <div className="num mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
           <span>
@@ -130,7 +140,7 @@ export default function Dashboard() {
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           <Card className="p-3">
-            <h3 className="mb-2 text-sm font-semibold">Equity curve</h3>
+            <h3 className="mb-2 text-sm font-semibold">{segment === 'OPT' ? 'Options P&L curve' : 'Equity curve'}</h3>
             <MiniChart kind="area" data={equity} />
           </Card>
           <Card className="p-3">

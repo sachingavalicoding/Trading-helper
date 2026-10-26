@@ -60,6 +60,19 @@ export class BaseProvider extends EventEmitter {
     return [];
   }
 
+  /** Expiry dates (YYYY-MM-DD, soonest first) of Nifty index options the feed lists; [] when it has none. */
+  async getOptionExpiries() {
+    return [];
+  }
+
+  /**
+   * Nifty option contracts for one expiry: [{ symbol, strike, type: 'CE'|'PE', expiry, lotSize }], where `symbol` is the
+   * app's own name (see options/symbols.js). Contracts the feed lists become subscribable by that symbol.
+   */
+  async getOptionContracts(_expiry) {
+    return [];
+  }
+
   setStatus(connected, message) {
     this.connected = connected;
     this.emit('status', { connected, message });
