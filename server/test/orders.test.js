@@ -186,6 +186,18 @@ test('wallet reset wipes history and restores ₹1,00,000', async () => {
   assert.equal((await api().get('/api/orders').set(user.auth)).body.orders.length, 0);
 });
 
+test('adding paper money raises balance and starting capital together, so P&L is unchanged', async () => {
+  const before = (await api().get('/api/wallet').set(user.auth).expect(200)).body;
+  const f = (await api().post('/api/wallet/add-funds').set(user.auth).send({ amount: 30000 }).expect(200)).body;
+  assert.equal(f.balance, before.balance + 30000);
+  assert.equal(f.startingBalance, before.startingBalance + 30000);
+  assert.equal(f.realizedPnl, before.realizedPnl);
+  assert.equal(f.available, before.available + 30000);
+  await api().post('/api/wallet/add-funds').set(user.auth).send({ amount: 5 }).expect(400);
+  await api().post('/api/wallet/add-funds').set(user.auth).send({ amount: -5000 }).expect(400);
+  await api().post('/api/wallet/add-funds').send({ amount: 5000 }).expect(401);
+});
+
 test('users cannot see or cancel each other\'s orders', async () => {
   const res = await place({ symbol: 'RELIANCE', side: 'BUY', orderType: 'LIMIT', qty: 1, price: 990 }).expect(201);
   const other = await registerUser(ctx.app);

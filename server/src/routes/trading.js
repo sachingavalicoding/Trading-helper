@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Order, Position, Trade, TradeDefaults } from '../models/index.js';
 import { TRADE_DEFAULTS } from '../models/TradeDefaults.js';
 import { validate } from '../middleware/validate.js';
-import { getFunds } from '../services/walletService.js';
+import { addFunds, getFunds } from '../services/walletService.js';
 import { getDashboard } from '../services/analytics.js';
 import { parseOptionSymbol, optionLabel } from '../options/symbols.js';
 
@@ -42,6 +42,7 @@ const listQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
   segment,
 });
+const addFundsSchema = z.object({ amount: z.coerce.number().min(1000).max(10_000_000) });
 const positionQuery = z.object({ status: z.enum(['OPEN', 'CLOSED', 'ALL']).default('ALL'), day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), segment });
 const dashboardQuery = z.object({ segment });
 // An option's symbol says its strike, expiry and side; screens get those pre-split.
@@ -54,6 +55,12 @@ export function tradingRoutes({ engine, market, config }) {
   const router = Router();
 
   router.get('/wallet', async (req, res) => {
+    res.json(await getFunds(req.userId, config.startingBalance));
+  });
+
+  // Top up the virtual wallet. Nothing real moves: it is a paper balance, and the starting capital rises with it so P&L is unchanged.
+  router.post('/wallet/add-funds', validate(addFundsSchema), async (req, res) => {
+    await addFunds(req.userId, req.body.amount, config.startingBalance);
     res.json(await getFunds(req.userId, config.startingBalance));
   });
 

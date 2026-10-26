@@ -32,6 +32,12 @@ export async function getFunds(userId, startingBalance) {
   };
 }
 
+/** Add virtual money. The starting capital rises too, so realised P&L (balance - starting) is not changed by a top-up. */
+export async function addFunds(userId, amount, startingBalance) {
+  await getOrCreateWallet(userId, startingBalance);
+  await Wallet.updateOne({ user: userId }, { $inc: { balance: round2(amount), startingBalance: round2(amount) } });
+}
+
 export async function adjustBalance(userId, delta) {
   await Wallet.updateOne({ user: userId }, { $inc: { balance: round2(delta) } });
 }
