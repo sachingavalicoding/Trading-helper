@@ -310,3 +310,9 @@ The web app is prebuilt in `phone-app/`. After changing the client, run `npm run
 - The Nifty 50 list changes at each semi-annual rebalance. Check `market/instruments.js` against niftyindices.com.
 - The mock feed is random. Its prices, volumes and depth are **not** market data, and the UI says so.
 - One server process holds the resting-order book in memory. To run several instances, move the book to a shared store such as Redis.
+
+## Better scoring and backtest
+
+The score (out of 100) now also counts **ADX** trend strength, whether **EMA 9 / 21 / 50** are lined up, and whether the stock's **sector peers** are moving the same way. A stock whose 5-minute ADX is under 15 is moving sideways and is blocked. The points for every part are in one place, `WEIGHTS` in `server/src/scanner/evaluate.js`, and the old scoring is kept as `LEGACY_WEIGHTS` for comparison. The sector reading is the average move of the other Nifty 50 stocks in the same sector, so a sector with one stock has none.
+
+`npm run backtest -- --days 10 --holdout 3 --risk 1000 --slippage 0.05` replays the scanner on history with live Upstox data (after logging in). It sizes each trade to risk a fixed rupee amount, adds slippage and charges, and prints win rate, average win and loss, expectancy, profit factor and max drawdown for the old rules against the enhanced rules, once on the tuning period and once on the most recent unseen sessions. The scanner only sees candles up to each moment, so it cannot peek at the future. Replay has no order book or sector data, so it does not show the full effect of the new score. With few trades the numbers are noise, and a high score is never a promise of a win.

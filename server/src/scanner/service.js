@@ -100,6 +100,21 @@ export class ScannerService extends EventEmitter {
     this.market.off('tick', this.onTick);
   }
 
+  /** symbol -> average % change of the other stocks in its sector, or null when it has no peers with a price. */
+  #sectorMoves() {
+    const bySector = new Map();
+    for (const { symbol, sector } of NIFTY50) {
+      const pct = this.market.getTick(symbol)?.changePct;
+      if (pct == null) continue;
+      bySector.set(sector, [...(bySector.get(sector) || []), { symbol, pct }]);
+    }
+    const sectorOf = new Map(NIFTY50.map((s) => [s.symbol, s.sector]));
+    return (symbol) => {
+      const peers = (bySector.get(sectorOf.get(symbol)) || []).filter((p) => p.symbol !== symbol);
+      return peers.length ? peers.reduce((a, p) => a + p.pct, 0) / peers.length : null;
+    };
+  }
+
   #stockToday(symbol) {
     if (this.perStockDay !== this.day) {
       this.perStock = new Map();
@@ -220,6 +235,7 @@ export class ScannerService extends EventEmitter {
       const enforceWindows = Boolean(this.config.enforceMarketHours);
       const niftyChangePct = this.market.getTick('NIFTY 50')?.changePct ?? null;
       const newsBySymbol = await this.#newsSignals();
+      const sectors = this.#sectorMoves();
       const entries = [];
       const watching = [];
       const rejected = [];
@@ -238,7 +254,7 @@ export class ScannerService extends EventEmitter {
           for (const idea of open) entries.push(this.#ideaItem(idea, tick));
           continue;
         }
-        const { candidates } = evaluateStock({ symbol, tick, c1, niftyChangePct, news: newsBySymbol[symbol] ?? null }, { now: this.now(), enforceWindows });
+        const { candidates } = evaluateStock({ symbol, tick, c1, niftyChangePct, sectorChangePct: sectors(symbol), news: newsBySymbol[symbol] ?? null }, { now: this.now(), enforceWindows });
         const st = this.#stockToday(symbol);
         const strong = candidates.filter((c) => c.score >= MIN_SCORE);
         const stockBlock = paused ? paused : st.stopped ? 'Already stopped out on this stock today' : st.count >= MAX_IDEAS_PER_STOCK ? `Already had ${st.count} ideas on this stock today` : null;

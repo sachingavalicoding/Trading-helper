@@ -121,6 +121,45 @@ export function atr(candles, period = 14) {
   return value;
 }
 
+/** Average directional index (Wilder): how strongly price is trending, 0-100, direction-free. Null without enough bars. */
+export function adx(candles, period = 14) {
+  if (candles.length < period * 2 + 1) return null;
+  let tr = 0;
+  let pdm = 0;
+  let ndm = 0;
+  const dxs = [];
+  const dx = () => {
+    const pdi = tr ? (100 * pdm) / tr : 0;
+    const ndi = tr ? (100 * ndm) / tr : 0;
+    return pdi + ndi > 1 ? (100 * Math.abs(pdi - ndi)) / (pdi + ndi) : 0; // under 1% of the range moved directionally: no trend
+  };
+  for (let i = 1; i < candles.length; i++) {
+    const c = candles[i];
+    const p = candles[i - 1];
+    const up = c.high - p.high;
+    const down = p.low - c.low;
+    const t = Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+    const eps = 1e-9 * c.close; // equal highs or lows differ only by float noise
+    const pd = up > down && up > eps ? up : 0;
+    const nd = down > up && down > eps ? down : 0;
+    if (i <= period) {
+      tr += t;
+      pdm += pd;
+      ndm += nd;
+      if (i === period) dxs.push(dx());
+    } else {
+      tr = tr - tr / period + t;
+      pdm = pdm - pdm / period + pd;
+      ndm = ndm - ndm / period + nd;
+      dxs.push(dx());
+    }
+  }
+  if (dxs.length < period) return null;
+  let value = dxs.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < dxs.length; i++) value = (value * (period - 1) + dxs[i]) / period;
+  return value;
+}
+
 const istDay = (t) => Math.floor((t + 19800) / 86400);
 
 /** Today's session VWAP (IST day of the last candle), or null without volume. */

@@ -8,7 +8,8 @@
     "start": "node src/index.js",
     "test": "node --test --test-concurrency=1 \"test/**/*.test.js\"",
     "upstox:token": "node scripts/upstox-token.js",
-    "replay": "node scripts/replay.js"
+    "replay": "node scripts/replay.js",
+    "backtest": "node scripts/backtest.js"
   },
   "license": "UNLICENSED",
   "dependencies": {
