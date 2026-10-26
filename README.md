@@ -268,6 +268,10 @@ A score adds up good signs, but a high score can hide one fatal flaw. So every i
 
 On the Scanner page you set a **max amount per trade** (default ₹30,000; shares are sized to stay under it as well as under your risk %), and filter by side, minimum score (70%+, 80%+, 90%+) and time of day. Auto paper trading has its own max amount, and defaults to at most 2 open trades, 0.5% risk per trade and a 2% daily loss stop. Ideas with a stop wider than 1.2% of the price are rejected. The scanner re-checks all 50 stocks every 15 seconds and the page refreshes every 10 seconds. An idea that price has already run away from leaves the main list and is kept under "Not worth entering".
 
+## Editing stop loss, target and trailing stop
+
+Tap SL / Target on an open position (on the Positions page or the stock's chart page) to add, change or remove its stop loss and target, move the stop to your cost price, or turn on a trailing stop (0.5%, 1% or 2%). A trailing stop follows the price at that distance and only moves towards profit, never back. The Buy and Sell buttons stay at the bottom of the chart page.
+
 ## Track record and replay
 
 - **Track record.** The Scanner tab shows how finished ideas ended: how many hit target 1, were stopped or expired, and the average result in **R** (1R is what the idea risked). It is split by setup, hour of the day, side and score band (`GET /api/scanner/stats`). Under 20 finished ideas the screen warns that the numbers are mostly luck.

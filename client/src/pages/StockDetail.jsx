@@ -13,6 +13,7 @@ import { DepthPanel } from '../components/DepthPanel.jsx';
 import { SignalCard } from '../components/SignalCard.jsx';
 import { NewsCard } from '../components/NewsCard.jsx';
 import { OrderSheet } from '../components/OrderSheet.jsx';
+import { ExitsSheet } from '../components/ExitsSheet.jsx';
 import { Card, Flash, Skeleton, Badge, EmptyState } from '../components/ui.jsx';
 
 function Stat({ label, value }) {
@@ -29,6 +30,7 @@ export default function StockDetail() {
   const { instruments, subscribeDepth, version, status } = useMarket();
   const tick = useTick(symbol);
   const [sheet, setSheet] = useState(null); // { side, plan? }
+  const [exitsFor, setExitsFor] = useState(null);
   // Only a deliberate tap opens the order sheet, never a chart drag that ends on the button.
   const buyTap = useDeliberateTap(() => setSheet({ side: 'BUY' }));
   const sellTap = useDeliberateTap(() => setSheet({ side: 'SELL' }));
@@ -115,9 +117,14 @@ export default function StockDetail() {
             </div>
             <div className={`num mt-1 text-lg font-bold ${pnlClass(unrealized)}`}>{formatPnl(unrealized)}</div>
           </div>
-          <button type="button" onClick={exit} className="rounded-xl border border-line px-4 py-2.5 text-sm font-semibold hover:bg-surface-2">
-            Exit
-          </button>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setExitsFor(position)} className="rounded-xl border border-line px-3 py-2.5 text-sm font-semibold hover:bg-surface-2">
+              SL / Target
+            </button>
+            <button type="button" onClick={exit} className="rounded-xl border border-line px-4 py-2.5 text-sm font-semibold hover:bg-surface-2">
+              Exit
+            </button>
+          </div>
         </Card>
       )}
 
@@ -158,6 +165,7 @@ export default function StockDetail() {
         </div>
       </div>
 
+      {exitsFor && <ExitsSheet position={exitsFor} onClose={() => setExitsFor(null)} />}
       {sheet && <OrderSheet symbol={symbol} name={stock?.name} side={sheet.side} plan={sheet.plan} onClose={() => setSheet(null)} />}
     </div>
   );
