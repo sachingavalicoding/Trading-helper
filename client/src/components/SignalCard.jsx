@@ -7,8 +7,8 @@ import { Card, Skeleton, Badge } from './ui.jsx';
 const REFRESH_MS = 60_000;
 
 const ACTION_STYLE = {
-  BUY: { label: 'BUY', className: 'bg-up text-white' },
-  SELL: { label: 'SELL', className: 'bg-down text-white' },
+  BUY: { label: 'BUY', className: 'bg-up text-on-up' },
+  SELL: { label: 'SELL', className: 'bg-down text-on-down' },
   NO_TRADE: { label: 'NO TRADE', className: 'bg-surface-2 text-fg' },
 };
 
@@ -81,7 +81,7 @@ export function SignalCard({ symbol, onUsePlan }) {
       </div>
 
       {s.position && (
-        <div className={`rounded-lg px-3 py-2 text-sm ${s.position.advice === 'HOLD' ? 'bg-accent/10' : 'bg-warn/15'}`}>
+        <div className={`rounded-lg px-3 py-2 text-sm ${s.position.advice === 'HOLD' ? 'bg-accent-soft' : 'bg-warn/15'}`}>
           <Badge tone={s.position.advice === 'HOLD' ? 'accent' : 'warn'}>{s.position.advice === 'HOLD' ? 'Hold' : 'Consider exit'}</Badge> <span className="align-middle">{s.position.text}</span>
         </div>
       )}
@@ -98,7 +98,7 @@ export function SignalCard({ symbol, onUsePlan }) {
             <button
               type="button"
               onClick={() => onUsePlan(s.action, s.plan)}
-              className={`w-full rounded-xl py-2.5 text-sm font-bold text-white ${s.action === 'BUY' ? 'bg-up' : 'bg-down'}`}
+              className={`btn w-full ${s.action === 'BUY' ? 'btn-buy' : 'btn-sell'}`}
             >
               {s.action === 'BUY' ? 'Buy' : 'Sell'} with this stop loss and target
             </button>

@@ -8,7 +8,7 @@ export function ThemeProvider({ children }) {
     const root = document.documentElement;
     root.classList.remove('dark', 'light');
     root.classList.add(theme);
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#0b0f17' : '#f4f6fa');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#090b0f' : '#f4f5f8');
     try {
       localStorage.setItem('theme', theme);
     } catch {

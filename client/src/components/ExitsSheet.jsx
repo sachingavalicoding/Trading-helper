@@ -80,7 +80,7 @@ export function ExitsSheet({ position, onClose }) {
     }
   }
 
-  const input = 'num w-full rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-base outline-none focus:border-accent';
+  const input = 'field num !py-2.5';
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center" onClick={onClose}>
       <div role="dialog" aria-label={`Stop loss and target for ${symbol}`} onClick={(e) => e.stopPropagation()} className="w-full max-w-md space-y-4 rounded-t-2xl border border-line bg-surface p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:rounded-2xl">
@@ -91,7 +91,7 @@ export function ExitsSheet({ position, onClose }) {
               {long ? 'Long' : 'Short'} {Math.abs(position.netQty)} @ {formatPrice(position.avgPrice)} · now {formatPrice(ltp)}
             </div>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="p-1 text-muted">
+          <button type="button" onClick={onClose} aria-label="Close" className="btn btn-ghost !p-1.5">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -108,13 +108,13 @@ export function ExitsSheet({ position, onClose }) {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={!breakevenOk} onClick={() => setStopLoss(String(tick05(position.avgPrice)))} className="rounded-lg bg-surface-2 px-3 py-1.5 text-xs font-medium disabled:opacity-40">
+          <button type="button" disabled={!breakevenOk} onClick={() => setStopLoss(String(tick05(position.avgPrice)))} className="chip disabled:opacity-40">
             Move stop to cost
           </button>
-          <button type="button" onClick={() => setStopLoss('')} className="rounded-lg bg-surface-2 px-3 py-1.5 text-xs font-medium">
+          <button type="button" onClick={() => setStopLoss('')} className="chip">
             Clear stop
           </button>
-          <button type="button" onClick={() => setTarget('')} className="rounded-lg bg-surface-2 px-3 py-1.5 text-xs font-medium">
+          <button type="button" onClick={() => setTarget('')} className="chip">
             Clear target
           </button>
         </div>
@@ -130,7 +130,7 @@ export function ExitsSheet({ position, onClose }) {
         <div>
           <div className="flex items-center justify-between">
             <div className="text-xs font-semibold">Profit lock (₹)</div>
-            <button type="button" role="switch" aria-checked={lockOn} aria-label="Profit lock" onClick={() => setLockOn((v) => !v)} className={`relative h-6 w-11 rounded-full transition-colors ${lockOn ? 'bg-up' : 'bg-surface-2'}`}>
+            <button type="button" role="switch" aria-checked={lockOn} aria-label="Profit lock" onClick={() => setLockOn((v) => !v)} className={`relative h-6 w-11 rounded-full transition-colors ${lockOn ? 'bg-accent' : 'bg-surface-3'}`}>
               <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${lockOn ? 'translate-x-5' : ''}`} />
             </button>
           </div>
@@ -153,7 +153,7 @@ export function ExitsSheet({ position, onClose }) {
 
         {error && <p className="text-sm text-down">{error}</p>}
         {lockBad && <p className="text-sm text-down">The profit trigger must be larger than the amount you lock in.</p>}
-        <button type="button" disabled={saving || !loaded || Boolean(error) || lockBad} onClick={save} className="w-full rounded-xl bg-accent py-3 text-base font-bold text-white disabled:opacity-50">
+        <button type="button" disabled={saving || !loaded || Boolean(error) || lockBad} onClick={save} className="btn btn-primary btn-lg w-full">
           Save
         </button>
         <p className="text-center text-[11px] text-muted">Paper trading for learning. Not investment advice.</p>

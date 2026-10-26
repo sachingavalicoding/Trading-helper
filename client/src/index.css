@@ -2,37 +2,52 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Theme tokens. Dark is the default; `html.light` switches to the light palette. */
+/* Theme tokens. Dark is the default; `html.light` switches to the light palette.
+   Graphite surfaces, one indigo accent, and market colours that stay readable on both themes. */
 :root,
 .dark {
-  --bg: #0b0f17;
-  --surface: #121826;
-  --surface-2: #1a2233;
-  --border: #253048;
-  --text: #e6ebf5;
-  --muted: #8b97b0;
-  --up: #22c55e;
-  --up-soft: rgba(34, 197, 94, 0.14);
-  --down: #ef4444;
-  --down-soft: rgba(239, 68, 68, 0.14);
-  --accent: #3b82f6;
-  --warn: #f59e0b;
+  --bg: #090b0f;
+  --surface: #11141a;
+  --surface-2: #181c24;
+  --surface-3: #202530;
+  --border: #242a35;
+  --text: #e9ecf2;
+  --muted: #8c94a4;
+  --up: #1fcf8c;
+  --up-soft: rgba(31, 207, 140, 0.13);
+  --on-up: #02150d;
+  --down: #ff5f6f;
+  --down-soft: rgba(255, 95, 111, 0.13);
+  --on-down: #1a0408;
+  --accent: #6b83ff;
+  --accent-soft: rgba(107, 131, 255, 0.14);
+  --on-accent: #ffffff;
+  --warn: #f2b13d;
+  --ring: rgba(107, 131, 255, 0.45);
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   color-scheme: dark;
 }
 
 .light {
-  --bg: #f4f6fa;
+  --bg: #f4f5f8;
   --surface: #ffffff;
-  --surface-2: #eef1f6;
-  --border: #dde3ec;
-  --text: #0f172a;
-  --muted: #5b6780;
-  --up: #16a34a;
-  --up-soft: rgba(22, 163, 74, 0.12);
-  --down: #dc2626;
-  --down-soft: rgba(220, 38, 38, 0.1);
-  --accent: #2563eb;
-  --warn: #d97706;
+  --surface-2: #eef0f5;
+  --surface-3: #e4e8ef;
+  --border: #e0e4ec;
+  --text: #11151d;
+  --muted: #5b6475;
+  --up: #0a8f5f;
+  --up-soft: rgba(10, 143, 95, 0.1);
+  --on-up: #ffffff;
+  --down: #d93a4d;
+  --down-soft: rgba(217, 58, 77, 0.09);
+  --on-down: #ffffff;
+  --accent: #4259e0;
+  --accent-soft: rgba(66, 89, 224, 0.1);
+  --on-accent: #ffffff;
+  --warn: #b97a0a;
+  --ring: rgba(66, 89, 224, 0.35);
+  --shadow: 0 1px 2px rgba(17, 21, 29, 0.05), 0 8px 24px -14px rgba(17, 21, 29, 0.18);
   color-scheme: light;
 }
 
@@ -40,14 +55,19 @@
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
   --color-line: var(--border);
   --color-fg: var(--text);
   --color-muted: var(--muted);
   --color-up: var(--up);
   --color-up-soft: var(--up-soft);
+  --color-on-up: var(--on-up);
   --color-down: var(--down);
   --color-down-soft: var(--down-soft);
+  --color-on-down: var(--on-down);
   --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
   --color-warn: var(--warn);
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
@@ -55,13 +75,22 @@
 html,
 body {
   background: var(--bg);
+  font-family: var(--font-sans);
   color: var(--text);
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
 }
 
 body {
-  font-feature-settings: 'tnum' 1; /* tabular numbers so prices don't jiggle */
+  font-feature-settings: 'tnum' 1, 'cv11' 1, 'ss03' 1; /* tabular numbers so prices don't jiggle */
+  -webkit-font-smoothing: antialiased;
+  background-image: radial-gradient(900px 420px at 50% -120px, var(--accent-soft), transparent 70%);
+  background-repeat: no-repeat;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .num {
@@ -69,6 +98,77 @@ body {
 }
 
 /* Live price flash on tick */
+@layer components {
+/* ---- Buttons: one system, used everywhere ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 0.65rem;
+  border: 1px solid transparent;
+  padding: 0.65rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 0.1s, filter 0.15s;
+}
+.btn:active:not(:disabled) { transform: scale(0.98); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-lg { padding: 0.85rem 1.25rem; font-size: 1rem; border-radius: 0.8rem; }
+.btn-sm { padding: 0.4rem 0.7rem; font-size: 0.75rem; border-radius: 0.5rem; }
+.btn-primary { background: var(--accent); color: var(--on-accent); }
+.btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
+.btn-buy { background: var(--up); color: var(--on-up); }
+.btn-buy:hover:not(:disabled) { filter: brightness(1.08); }
+.btn-sell { background: var(--down); color: var(--on-down); }
+.btn-sell:hover:not(:disabled) { filter: brightness(1.08); }
+.btn-secondary { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+.btn-secondary:hover:not(:disabled) { background: var(--surface-3); }
+.btn-ghost { background: transparent; color: var(--muted); }
+.btn-ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.btn-outline-down { background: var(--down-soft); color: var(--down); border-color: transparent; }
+.btn-outline-down:hover:not(:disabled) { filter: brightness(1.15); }
+
+/* Small toggle pill (quantity presets, presets, filters) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  padding: 0.3rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+.chip:hover { color: var(--text); }
+.chip[aria-pressed='true'], .chip.is-on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+/* Text fields */
+.field {
+  width: 100%;
+  border-radius: 0.65rem;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  padding: 0.7rem 0.85rem;
+  font-size: 1rem;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.field::placeholder { color: var(--muted); opacity: 0.8; }
+.field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+.field:disabled { opacity: 0.55; }
+
+.card-shadow { box-shadow: var(--shadow); }
+}
+
 @keyframes flash-up {
   from { background-color: var(--up-soft); }
   to { background-color: transparent; }

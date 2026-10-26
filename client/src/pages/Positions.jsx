@@ -42,10 +42,10 @@ function OpenRow({ p, onExit, onEdit, busy }) {
         {p.lockTrigger ? ` · lock ₹${p.lockAmount} at ₹${p.lockTrigger}` : ''}
       </div>
       <div className="mt-2 flex justify-end gap-2">
-        <button type="button" onClick={() => onEdit(p)} className="rounded-lg border border-line px-4 py-1.5 text-xs font-semibold hover:bg-surface-2">
+        <button type="button" onClick={() => onEdit(p)} className="btn btn-secondary btn-sm">
           SL / Target
         </button>
-        <button type="button" disabled={busy} onClick={() => onExit(p.symbol)} className="rounded-lg border border-line px-4 py-1.5 text-xs font-semibold hover:bg-surface-2 disabled:opacity-50">
+        <button type="button" disabled={busy} onClick={() => onExit(p.symbol)} className="btn btn-secondary btn-sm">
           Exit
         </button>
       </div>
@@ -104,7 +104,7 @@ export default function Positions() {
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold">Open positions ({positions.length})</h2>
         {positions.length > 0 && (
-          <button type="button" disabled={busy} onClick={exitAll} className="rounded-lg bg-down-soft px-3 py-1.5 text-xs font-semibold text-down disabled:opacity-50">
+          <button type="button" disabled={busy} onClick={exitAll} className="btn btn-outline-down btn-sm">
             Exit all
           </button>
         )}

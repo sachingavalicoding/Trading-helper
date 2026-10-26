@@ -51,7 +51,7 @@ function IndicatorSheet({ active, available, onToggle, onClose }) {
                 <button type="button" role="menuitemcheckbox" aria-checked={on} onClick={() => onToggle(i.id)} className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm active:bg-surface-2">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ background: i.color }} />
                   <span className="flex-1">{i.label}</span>
-                  <span className={`flex h-5 w-5 items-center justify-center rounded-md border ${on ? 'border-accent bg-accent text-white' : 'border-line'}`}>{on && <Check className="h-3.5 w-3.5" />}</span>
+                  <span className={`flex h-5 w-5 items-center justify-center rounded-md border ${on ? 'border-accent bg-accent text-on-accent' : 'border-line'}`}>{on && <Check className="h-3.5 w-3.5" />}</span>
                 </button>
               </li>
             );
@@ -259,7 +259,7 @@ export function CandleChart({ symbol, isIndex = false, lines = [] }) {
             type="button"
             onClick={() => setIntervalValue(tf)}
             aria-pressed={interval === tf}
-            className={`rounded-md px-2.5 py-1.5 text-xs font-semibold ${interval === tf ? 'bg-surface-2 text-fg' : 'text-muted'}`}
+            className={`rounded-md px-2.5 py-1.5 text-xs font-semibold ${interval === tf ? 'bg-accent-soft text-accent' : 'text-muted hover:text-fg'}`}
           >
             {tf}
           </button>

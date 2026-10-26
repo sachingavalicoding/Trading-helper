@@ -48,7 +48,7 @@ export function NewsCard({ symbol = 'MARKET', title = 'News', limit = 6 }) {
     <Card className="space-y-2 p-3">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">{title}</h2>
-        <button type="button" onClick={reload} aria-label="Refresh news" className="-mr-1 rounded-lg p-1.5 text-muted hover:bg-surface-2">
+        <button type="button" onClick={reload} aria-label="Refresh news" className="btn btn-ghost -mr-1 !p-1.5">
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
