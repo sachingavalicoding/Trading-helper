@@ -7,6 +7,7 @@ import { useApi } from '../lib/useApi.js';
 import { useTick } from '../lib/tickStore.js';
 import { formatPrice, formatPct, formatINR, formatTime, pnlClass } from '../lib/format.js';
 import { OrderSheet } from '../components/OrderSheet.jsx';
+import { AutoCard } from '../components/AutoCard.jsx';
 import { Movers } from '../components/Movers.jsx';
 import { MorningPlan } from '../components/MorningPlan.jsx';
 import { ScannerRecord } from '../components/ScannerRecord.jsx';
@@ -248,6 +249,8 @@ export default function Scanner() {
       </div>
 
       <MorningPlan />
+
+      <AutoCard />
 
       <Movers />
 

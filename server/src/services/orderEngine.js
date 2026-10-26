@@ -192,6 +192,7 @@ export class OrderEngine extends EventEmitter {
       stopLoss,
       target,
       role: 'ENTRY',
+      source: input.source === 'AUTO' ? 'AUTO' : 'MANUAL', // the HTTP schema strips this, so only server code can set it
       ltpAtPlacement: ltp,
       tradingDay: status.istDate,
     });
@@ -386,7 +387,7 @@ export class OrderEngine extends EventEmitter {
 
   async #createExitLegs(entry, qty, tradingDay) {
     const exitSide = opposite(entry.side);
-    const common = { user: entry.user, symbol: entry.symbol, side: exitSide, qty, parentOrder: entry._id, ocoGroup: String(entry._id), tradingDay };
+    const common = { user: entry.user, symbol: entry.symbol, side: exitSide, qty, source: entry.source, parentOrder: entry._id, ocoGroup: String(entry._id), tradingDay };
     const legs = [];
     if (entry.stopLoss) legs.push(new Order({ ...common, orderType: 'SL_M', triggerPrice: entry.stopLoss, role: 'STOPLOSS' }));
     if (entry.target) legs.push(new Order({ ...common, orderType: 'LIMIT', price: entry.target, role: 'TARGET' }));

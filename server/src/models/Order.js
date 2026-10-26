@@ -14,6 +14,7 @@ const orderSchema = new mongoose.Schema(
     orderType: { type: String, enum: ORDER_TYPES, required: true },
     product: { type: String, enum: ['MIS'], default: 'MIS' },
     role: { type: String, enum: ORDER_ROLES, default: 'ENTRY' },
+    source: { type: String, enum: ['MANUAL', 'AUTO'], default: 'MANUAL' }, // AUTO = placed by the paper auto-trader
     qty: { type: Number, required: true, min: 1 },
     price: { type: Number }, // limit price
     triggerPrice: { type: Number }, // SL-M trigger

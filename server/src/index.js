@@ -7,6 +7,7 @@ import { OrderEngine } from './services/orderEngine.js';
 import { createApp } from './app.js';
 import { SignalTracker } from './signals/tracker.js';
 import { ScannerService } from './scanner/service.js';
+import { AutoTrader } from './auto/autoTrader.js';
 import { NewsService } from './news/service.js';
 import { attachSocket } from './socket/index.js';
 import { logger } from './utils/logger.js';
@@ -35,8 +36,10 @@ async function main() {
   scanner.news = news;
   if (env.newsEnabled) news.start();
   scanner.start();
+  const autoTrader = new AutoTrader({ scanner, engine, config: env });
+  autoTrader.start();
 
-  const app = createApp({ market, engine, config: env, tracker, scanner, news });
+  const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader });
   const server = http.createServer(app);
   const io = attachSocket(server, { market, engine, config: env, scanner });
 
@@ -49,6 +52,7 @@ async function main() {
     logger.info(`${signal} received, shutting down`);
     engine.stop();
     tracker.stop();
+    autoTrader.stop();
     scanner.stop();
     news.stop();
     io.closeAll();
