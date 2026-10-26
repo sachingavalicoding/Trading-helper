@@ -7,6 +7,14 @@ const page = (title, body) => `<!doctype html><html><head><meta charset="utf-8">
 <title>${title}</title><style>body{font-family:system-ui,sans-serif;background:#0b0f17;color:#e6ebf5;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px}
 main{max-width:420px;text-align:center}a{color:#3b82f6}</style></head><body><main>${body}</main></body></html>`;
 
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
+/** Only the machine running the server may use the Upstox login pages, never another device on the Wi-Fi. */
+export function loopbackOnly(req, res, next) {
+  if (LOOPBACK.has(req.socket?.remoteAddress)) return next();
+  res.status(403).send(page('Not allowed', '<h2>The Upstox login can only be opened on the device that runs the server.</h2>'));
+}
+
 /**
  * Local-development helper for the daily Upstox login:
  *   GET /upstox/login     -> redirects to Upstox
@@ -17,6 +25,7 @@ main{max-width:420px;text-align:center}a{color:#3b82f6}</style></head><body><mai
 export function upstoxRoutes(config) {
   const router = Router();
   const creds = config.upstox;
+  router.use(loopbackOnly);
 
   router.get('/login', (_req, res) => {
     if (!creds.apiKey || !creds.redirectUri) {

@@ -333,3 +333,7 @@ A setup is **switched off automatically** when its last 20 finished ideas (count
 ## Realistic targets and a 14:30 cut-off
 
 An idea is blocked when target 1 is further away than 80% of the stock's usual daily range (from its last month of daily candles); no daily history means no check. Every idea already needs at least 1.5 times as much reward as risk. New ideas stop at 14:30 IST instead of 14:45, so they have time to work before the 15:15 square-off. In `npm run backtest` the "old rules" keep the 14:45 cut-off and have no reach check.
+
+## Security notes
+
+The app trades paper money only. The real risks are your secrets: keep `.env` (Upstox key, secret and token, Mongo password, `JWT_SECRET`) off GitHub and out of chats, and use a MongoDB user that can reach only this database. The Upstox login pages (`/upstox/login` and `/upstox/callback`) answer only the device running the server, never another phone on the Wi-Fi. Registration is open, so run the server only on a network you trust.

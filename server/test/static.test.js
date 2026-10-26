@@ -34,3 +34,18 @@ test('unknown API paths still return JSON 404, and missing files 404', async () 
   assert.equal(res.body.error.code, 'NOT_FOUND');
   await request(ctx.app).get('/missing.js').expect(404);
 });
+
+test('the Upstox login pages only answer the device running the server', async () => {
+  const { loopbackOnly } = await import('../src/routes/upstox.js');
+  const run = (remoteAddress) => {
+    const res = { code: 200, status(c) { this.code = c; return this; }, send() { return this; } };
+    let called = false;
+    loopbackOnly({ socket: { remoteAddress } }, res, () => { called = true; });
+    return { called, code: res.code };
+  };
+  assert.equal(run('127.0.0.1').called, true);
+  assert.equal(run('::1').called, true);
+  assert.equal(run('::ffff:127.0.0.1').called, true);
+  assert.deepEqual(run('192.168.1.20'), { called: false, code: 403 });
+  assert.deepEqual(run(undefined), { called: false, code: 403 });
+});
