@@ -7,6 +7,7 @@ import { useApi } from '../lib/useApi.js';
 import { useTick } from '../lib/tickStore.js';
 import { formatPrice, formatPct, formatINR, formatTime, pnlClass } from '../lib/format.js';
 import { OrderSheet } from '../components/OrderSheet.jsx';
+import { Movers } from '../components/Movers.jsx';
 import { MorningPlan } from '../components/MorningPlan.jsx';
 import { ScannerRecord } from '../components/ScannerRecord.jsx';
 import { alertsOn, alertsSupported, setAlerts } from '../lib/alerts.js';
@@ -247,6 +248,8 @@ export default function Scanner() {
       </div>
 
       <MorningPlan />
+
+      <Movers />
 
       <Card className="space-y-3 p-3">
         <div className="flex items-center justify-between gap-3">
