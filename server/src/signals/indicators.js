@@ -258,3 +258,77 @@ export function squeezeRelease(candles, period = 20) {
   const mid = b.middle.at(-1).value;
   return { released: wasSqueezed && widening, side: close > mid ? 1 : close < mid ? -1 : 0 };
 }
+
+/**
+ * Choppiness index, 0-100: high (above ~61.8) means price is going nowhere inside a range, low (under ~38.2) means a clean
+ * trend. It does not give a direction, only whether a trend-following entry has a chance. Null without `period + 1` bars.
+ */
+export function choppiness(candles, period = 14) {
+  if (candles.length < period + 1) return null;
+  const win = candles.slice(-period);
+  let trSum = 0;
+  for (let i = candles.length - period; i < candles.length; i++) {
+    const c = candles[i];
+    const pc = candles[i - 1].close;
+    trSum += Math.max(c.high - c.low, Math.abs(c.high - pc), Math.abs(c.low - pc));
+  }
+  const range = Math.max(...win.map((c) => c.high)) - Math.min(...win.map((c) => c.low));
+  return range > 0 ? (100 * Math.log10(trSum / range)) / Math.log10(period) : 100;
+}
+
+/** Slow stochastic: where the close sits in the last `k` bars' range (0 = at the low, 100 = at the high), smoothed. Returns { k, d } or null. */
+export function stochastic(candles, k = 14, smooth = 3, dPeriod = 3) {
+  if (candles.length < k + smooth + dPeriod) return null;
+  const raw = [];
+  for (let i = k - 1; i < candles.length; i++) {
+    const win = candles.slice(i - k + 1, i + 1);
+    const hi = Math.max(...win.map((c) => c.high));
+    const lo = Math.min(...win.map((c) => c.low));
+    raw.push(hi > lo ? (100 * (candles[i].close - lo)) / (hi - lo) : 50);
+  }
+  const avg = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const kLine = [];
+  for (let i = smooth - 1; i < raw.length; i++) kLine.push(avg(raw.slice(i - smooth + 1, i + 1)));
+  if (kLine.length < dPeriod) return null;
+  return { k: kLine.at(-1), d: avg(kLine.slice(-dPeriod)) };
+}
+
+/**
+ * Heikin-Ashi candles smooth out noise: a run of same-coloured bodies with no wick on the trend side is a clean trend.
+ * Returns the candles and `streak`: how many of the latest bars share a colour (+ up, - down).
+ */
+export function heikinAshi(candles) {
+  const out = [];
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i];
+    const close = (c.open + c.high + c.low + c.close) / 4;
+    const open = i === 0 ? (c.open + c.close) / 2 : (out[i - 1].open + out[i - 1].close) / 2;
+    out.push({ time: c.time, open, close, high: Math.max(c.high, open, close), low: Math.min(c.low, open, close) });
+  }
+  let streak = 0;
+  for (let i = out.length - 1; i >= 0; i--) {
+    const up = out[i].close >= out[i].open;
+    if (streak === 0) streak = up ? 1 : -1;
+    else if ((streak > 0) === up) streak += streak > 0 ? 1 : -1;
+    else break;
+  }
+  return { candles: out, streak };
+}
+
+/** Rate of change in percent over `bars` bars, or null. */
+export function roc(candles, bars = 6) {
+  if (candles.length <= bars) return null;
+  const then = candles.at(-1 - bars).close;
+  return then ? ((candles.at(-1).close - then) / then) * 100 : null;
+}
+
+/**
+ * Today's average price: the mean typical price of the session's bars. An index has no volume, so VWAP cannot be computed,
+ * and this is the usual stand-in: it plays the same role as the line that price is "above" or "below" for the day.
+ */
+export function sessionMean(candles) {
+  if (!candles.length) return null;
+  const day = istDay(candles.at(-1).time);
+  const today = candles.filter((c) => istDay(c.time) === day);
+  return today.length ? today.reduce((s, c) => s + (c.high + c.low + c.close) / 3, 0) / today.length : null;
+}

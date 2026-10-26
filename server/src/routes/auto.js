@@ -9,6 +9,7 @@ export const AUTO_DISCLAIMER = 'Auto trading places virtual (paper) orders only.
 const patch = z
   .object({
     enabled: z.boolean(),
+    lockByRisk: z.boolean(),
     minScore: z.coerce.number().min(60).max(100),
     maxOpen: z.coerce.number().int().min(1).max(10),
     riskPct: z.coerce.number().min(0.1).max(3),
@@ -24,7 +25,7 @@ export function autoRoutes({ autoTrader }) {
   const view = async (userId, doc) => {
     const s = doc || new AutoSettings({ user: userId });
     return {
-      settings: { enabled: s.enabled, minScore: s.minScore, maxOpen: s.maxOpen, riskPct: s.riskPct, dailyLossPct: s.dailyLossPct, maxShares: s.maxShares, maxTradeAmount: s.maxTradeAmount },
+      settings: { enabled: s.enabled, minScore: s.minScore, maxOpen: s.maxOpen, riskPct: s.riskPct, dailyLossPct: s.dailyLossPct, maxShares: s.maxShares, maxTradeAmount: s.maxTradeAmount, lockByRisk: s.lockByRisk },
       today: await autoTrader.todaySummary(userId),
       disclaimer: AUTO_DISCLAIMER,
     };
@@ -44,7 +45,7 @@ export function autoRoutes({ autoTrader }) {
     const parsed = dayOf.safeParse(req.query.day ?? autoTrader.engine.marketStatus().istDate);
     if (!parsed.success) return res.status(400).json({ error: { message: 'day must look like 2026-10-26' } });
     const day = parsed.data;
-    const entries = await AutoLog.find({ user: req.userId, day }).sort({ decidedAt: 1 }).lean();
+    const entries = await AutoLog.find({ user: req.userId, day, segment: { $ne: 'OPT' } }).sort({ decidedAt: 1 }).lean();
     const ids = entries.map((e) => e.idea).filter(Boolean);
     const ideas = new Map((ids.length ? await ScanIdea.find({ _id: { $in: ids } }, 'status').lean() : []).map((i) => [String(i._id), i]));
     res.json({ day, summary: summarizeLog(entries, ideas), entries: entries.map(({ card, ...e }) => ({ ...e, checks: card?.checks })) });

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { isOptionSymbol } from '../options/symbols.js';
 
 // One document per round trip: opened when flat -> non-zero, closed when it returns to flat.
 // netQty is signed (+ long, - short).
@@ -7,6 +8,7 @@ const positionSchema = new mongoose.Schema(
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     symbol: { type: String, required: true },
     product: { type: String, enum: ['MIS'], default: 'MIS' },
+    segment: { type: String, enum: ['EQ', 'OPT'], default: 'EQ', index: true }, // shares or Nifty index options; kept apart on every screen
     status: { type: String, enum: ['OPEN', 'CLOSED'], default: 'OPEN' },
     direction: { type: String, enum: ['LONG', 'SHORT'], required: true },
     netQty: { type: Number, required: true },
@@ -29,6 +31,10 @@ const positionSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+
+positionSchema.pre('validate', function setSegment() {
+  this.segment = isOptionSymbol(this.symbol) ? 'OPT' : 'EQ';
+});
 
 positionSchema.index({ user: 1, symbol: 1 }, { unique: true, partialFilterExpression: { status: 'OPEN' } });
 positionSchema.index({ user: 1, status: 1, closedAt: -1 });

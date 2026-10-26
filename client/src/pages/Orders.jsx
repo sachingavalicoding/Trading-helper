@@ -32,7 +32,7 @@ function OrderRow({ o }) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className={`text-xs font-bold ${o.side === 'BUY' ? 'text-up' : 'text-down'}`}>{o.side}</span>
-            <span className="font-semibold">{o.symbol}</span>
+            <span className="font-semibold">{o.label || o.symbol}</span>
             {ROLE_LABEL[o.role] && <Badge>{ROLE_LABEL[o.role]}</Badge>}
             {o.source === 'AUTO' && <Badge tone="accent">AUTO</Badge>}
           </div>
@@ -68,7 +68,7 @@ function TradeRow({ t }) {
         <div>
           <div className="flex items-center gap-1.5">
             <span className={`text-xs font-bold ${t.side === 'BUY' ? 'text-up' : 'text-down'}`}>{t.side}</span>
-            <span className="font-semibold">{t.symbol}</span>
+            <span className="font-semibold">{t.label || t.symbol}</span>
             {ROLE_LABEL[t.role] && <Badge>{ROLE_LABEL[t.role]}</Badge>}
           </div>
           <div className="num mt-0.5 text-xs text-muted">
@@ -98,14 +98,24 @@ function TradeRow({ t }) {
 export default function Orders() {
   const { version } = useMarket();
   const [tab, setTab] = useState('orders');
-  const orders = useApi(tab === 'orders' ? '/orders?limit=200' : null, [version]);
-  const trades = useApi(tab === 'trades' ? '/trades?limit=200' : null, [version]);
+  const [segment, setSegment] = useState('EQ');
+  const orders = useApi(tab === 'orders' ? `/orders?limit=200&segment=${segment}` : null, [version, segment]);
+  const trades = useApi(tab === 'trades' ? `/trades?limit=200&segment=${segment}` : null, [version, segment]);
   const current = tab === 'orders' ? orders : trades;
   const pending = orders.data?.orders.filter((o) => o.status === 'OPEN') || [];
   const done = orders.data?.orders.filter((o) => o.status !== 'OPEN') || [];
 
   return (
     <div className="space-y-3">
+      <Segmented
+        className="w-full"
+        value={segment}
+        onChange={setSegment}
+        options={[
+          { value: 'EQ', label: 'Shares' },
+          { value: 'OPT', label: 'Options' },
+        ]}
+      />
       <Segmented
         className="w-full"
         value={tab}

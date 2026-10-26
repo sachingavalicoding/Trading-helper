@@ -5,7 +5,7 @@ import mongoose from 'mongoose';
 // how the trade ended, so a day can be reviewed: was it the rules, the entry, or just the market?
 const outcomeSchema = new mongoose.Schema(
   {
-    exitReason: { type: String, enum: ['STOP', 'LOCK', 'TARGET', 'MANUAL', 'SQUARE_OFF'] },
+    exitReason: { type: String, enum: ['STOP', 'LOCK', 'TARGET', 'MANUAL', 'SQUARE_OFF', 'TIME'] },
     exitPrice: Number,
     grossPnl: Number,
     charges: Number,
@@ -25,6 +25,8 @@ const autoLogSchema = new mongoose.Schema(
     day: { type: String, required: true }, // IST date
     idea: { type: mongoose.Schema.Types.ObjectId, ref: 'ScanIdea' },
     symbol: { type: String, required: true },
+    segment: { type: String, enum: ['EQ', 'OPT'], default: 'EQ' },
+    detail: { type: mongoose.Schema.Types.Mixed }, // options: the read of the chart behind the trade (direction, stop on the Nifty chart, premium plan)
     side: { type: String, enum: ['BUY', 'SELL'], required: true },
     setup: String,
     score: Number,

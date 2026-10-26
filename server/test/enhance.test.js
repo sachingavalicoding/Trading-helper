@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { summarizeDaily } from '../src/scanner/daily.js';
 import { adx, supertrend, obvChange, squeezeRelease } from '../src/signals/indicators.js';
 import { pivotsFrom, candleConfirms } from '../src/scanner/pivots.js';
-import { scoreCandidate, WEIGHTS, LEGACY_WEIGHTS, MIN_ADX } from '../src/scanner/evaluate.js';
+import { scoreCandidate, adaptTargets, WEIGHTS, LEGACY_WEIGHTS, MIN_ADX } from '../src/scanner/evaluate.js';
 
 const bars = (n, close) => Array.from({ length: n }, (_, i) => {
   const c = close(i);
@@ -150,4 +150,25 @@ test('a target further away than the stock usually travels in a day is blocked, 
   assert.ok(!scoreCandidate(ctx({ month: { trend: 1, sessions: 22, avgRangePct: 1 } }), cand({ entry: 100, target1: 100.6 })).blocked.length);
   assert.ok(!scoreCandidate(ctx({ month: null }), cand({ entry: 100, target1: 110 })).blocked.length, 'no daily history: nothing is assumed');
   assert.ok(!scoreCandidate(ctx({ month: { trend: 1, sessions: 22, avgRangePct: 1 } }), cand({ entry: 100, target1: 101.5 }), { legacy: true }).blocked.length);
+});
+
+test('a far target is pulled in to a slow stock\'s usual reach instead of dropping the idea, as long as it still pays', () => {
+  const slow = ctx({ month: { trend: 1, sessions: 22, avgRangePct: 1 } });
+  const far = cand({ entry: 100, stopLoss: 99.4, target1: 101.5, target2: 103, riskReward: 2.5, targetNote: 'the day high' });
+  const a = adaptTargets(slow, far);
+  assert.equal(a.target1, 100.8, '0.8 of a 1% day');
+  assert.ok(a.target2 > a.target1 && a.target2 < far.target2, 'target 2 shrinks with it');
+  assert.equal(a.riskReward, 1.33);
+  assert.equal(a.adapted, true);
+  assert.match(a.targetNote, /pulled in/);
+  assert.equal(far.target1, 101.5, 'the input is not changed');
+  assert.ok(!scoreCandidate(slow, a).blocked.length, 'the shortened idea passes the reach check');
+
+  // a reachable target is left alone; so is a stock with no history
+  assert.equal(adaptTargets(slow, cand({ entry: 100, stopLoss: 99.4, target1: 100.6, target2: 101 })).adapted, undefined);
+  assert.equal(adaptTargets(ctx({ month: null }), far), far);
+  // if the shortened target would not pay 1.2x the risk, the idea is left as it was and the reach check blocks it
+  const tight = cand({ entry: 100, stopLoss: 99.1, target1: 101.5, target2: 103 });
+  assert.equal(adaptTargets(slow, tight), tight);
+  assert.ok(scoreCandidate(slow, tight).blocked.some((t) => /usually moves only/.test(t)));
 });

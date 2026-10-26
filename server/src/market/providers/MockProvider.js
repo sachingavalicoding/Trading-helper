@@ -1,6 +1,8 @@
 import { BaseProvider, aggregateCandles } from './BaseProvider.js';
 import { NIFTY50, INDICES, isIndex } from '../instruments.js';
 import { roundToTick, round2 } from '../../utils/money.js';
+import { UNDERLYING, STRIKE_STEP, DEFAULT_LOT_SIZE, atmStrike, optionSymbol, weeklyExpiries, isOptionSymbol } from '../../options/symbols.js';
+import { premiumFor } from '../../options/pricing.js';
 
 const HISTORY_BARS = 375; // one full NSE session of 1-minute bars
 
@@ -16,10 +18,14 @@ const gauss = () => {
  * Every number it produces is synthetic and the UI labels it SIMULATED.
  */
 export class MockProvider extends BaseProvider {
-  constructor({ intervalMs = 1000, now = () => Date.now() } = {}) {
+  constructor({ intervalMs = 1000, now = () => Date.now(), lotSize = DEFAULT_LOT_SIZE, expiryWeekday } = {}) {
     super();
     this.intervalMs = intervalMs;
     this.now = now;
+    this.lotSize = lotSize;
+    this.expiryWeekday = expiryWeekday;
+    this.iv = 0.14; // implied volatility the simulated premiums are priced with; it drifts a little
+    this.optionState = new Map(); // option symbol -> { ltp, open, high, low, prevClose }
     this.state = new Map();
     this.timer = null;
   }
@@ -49,8 +55,27 @@ export class MockProvider extends BaseProvider {
     this.setStatus(false, 'Simulated feed stopped');
   }
 
-  async subscribe() {
-    // The mock feed always streams every instrument.
+  async subscribe(symbols = []) {
+    // The mock feed always streams every share and index; option contracts start streaming once asked for.
+    for (const sym of symbols) if (isOptionSymbol(sym) && !this.optionState.has(sym)) this.#startOption(sym);
+  }
+
+  async getOptionExpiries() {
+    return weeklyExpiries(new Date(this.now()), { count: 3, weekday: this.expiryWeekday });
+  }
+
+  async getOptionContracts(expiry) {
+    const spot = this.state.get(UNDERLYING)?.ltp;
+    if (!spot) return [];
+    const mid = atmStrike(spot);
+    const out = [];
+    for (let k = -10; k <= 10; k++) {
+      for (const type of ['CE', 'PE']) {
+        const strike = mid + k * STRIKE_STEP;
+        out.push({ symbol: optionSymbol({ expiry, strike, type }), strike, type, expiry, lotSize: this.lotSize });
+      }
+    }
+    return out;
   }
 
   async getHistory(symbol, interval = '1m') {
@@ -73,17 +98,70 @@ export class MockProvider extends BaseProvider {
     return [...byDay.values()];
   }
 
-  /** Test helper: force a price and emit a tick immediately. */
+  /** Test helper: force a price and emit a tick immediately. Moving the Nifty moves every streaming option with it. */
   setPrice(symbol, price) {
+    const o = this.optionState.get(symbol);
+    if (o) {
+      this.#applyOption(symbol, o, price);
+      this.emit('tick', this.#optionTick(symbol, o));
+      return;
+    }
     const s = this.state.get(symbol);
     if (!s) throw new Error(`unknown symbol ${symbol}`);
     this.#apply(s, price, 0);
     this.emit('tick', this.#tick(s));
+    if (s.symbol === UNDERLYING) this.#emitOptions(s.ltp);
   }
 
   getLastTick(symbol) {
+    const o = this.optionState.get(symbol);
+    if (o) return this.#optionTick(symbol, o);
     const s = this.state.get(symbol);
     return s ? this.#tick(s) : null;
+  }
+
+  #startOption(symbol) {
+    const spot = this.state.get(UNDERLYING)?.ltp;
+    const fair = spot ? premiumFor(symbol, spot, { iv: this.iv, now: new Date(this.now()) }) : null;
+    if (fair == null) return;
+    const ltp = roundToTick(Math.max(fair, 0.05));
+    this.optionState.set(symbol, { ltp, open: ltp, high: ltp, low: ltp, prevClose: ltp });
+    this.emit('tick', this.#optionTick(symbol, this.optionState.get(symbol)));
+  }
+
+  #applyOption(symbol, o, price) {
+    o.ltp = roundToTick(Math.max(price, 0.05));
+    o.high = Math.max(o.high, o.ltp);
+    o.low = Math.min(o.low, o.ltp);
+  }
+
+  #emitOptions(spot) {
+    for (const [symbol, o] of this.optionState) {
+      this.#applyOption(symbol, o, premiumFor(symbol, spot, { iv: this.iv, now: new Date(this.now()) }));
+      this.emit('tick', this.#optionTick(symbol, o));
+    }
+  }
+
+  #optionTick(symbol, o) {
+    const change = round2(o.ltp - o.prevClose);
+    return {
+      symbol,
+      ltp: o.ltp,
+      open: o.open,
+      high: o.high,
+      low: o.low,
+      prevClose: o.prevClose,
+      change,
+      changePct: o.prevClose ? round2((change / o.prevClose) * 100) : null,
+      volume: 0,
+      atp: null,
+      totalBuyQty: null,
+      totalSellQty: null,
+      depth: null,
+      ts: this.now(),
+      isIndex: false,
+      source: 'mock',
+    };
   }
 
   #init(inst) {
@@ -166,6 +244,10 @@ export class MockProvider extends BaseProvider {
       const qty = s.index ? 0 : Math.max(1, Math.round(Math.random() * 400 * (1500 / Math.max(s.prevClose, 100))));
       this.#apply(s, next, qty);
       this.emit('tick', this.#tick(s));
+      if (s.symbol === UNDERLYING) {
+        this.iv = Math.min(0.24, Math.max(0.1, this.iv + gauss() * 0.0004));
+        this.#emitOptions(s.ltp);
+      }
     }
   }
 
