@@ -42,7 +42,7 @@ export function scannerRoutes({ scanner, config }) {
 
   // How finished ideas ended, by setup, side, hour and score.
   router.get('/stats', async (_req, res) => {
-    const ideas = await ScanIdea.find({ status: { $ne: 'OPEN' } }, 'setup side status entry stopLoss exitPrice score createdAt').lean();
+    const ideas = await ScanIdea.find({ status: { $ne: 'OPEN' } }, 'setup side status entry stopLoss exitPrice score createdAt closedAt bestR').lean();
     res.json({ ...summarizeIdeas(ideas.map((i) => ({ ...i, openedAt: i.createdAt }))), disclaimer: SCANNER_DISCLAIMER });
   });
 
