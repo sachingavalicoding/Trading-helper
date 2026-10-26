@@ -323,3 +323,9 @@ An auto trade is not sold at target 1 or 2. Past each of them the stop jumps to 
 ## Last month, entry quality, and a cap on open ideas
 
 The scanner reads about a month of **daily candles** for every stock (once a day, from Upstox). It adds a "Last month" check to the score (do the last 20+ sessions trend the same way as the trade?), and the month's high and low become levels the setups and targets can use. A stock that has already moved a lot today is **not** blocked just for that: what matters is whether the entry is still close to the trigger, as the scanner already checks. At most 5 ideas are open at once; extras wait under "Not worth entering" until one closes.
+
+## More signals in the score
+
+The 100-point score now also checks: **candle confirmation** (the last 5-minute bar closed strongly in the trade's direction, or is a rejection bar), **Nifty 50 trend and market breadth** (index VWAP and EMA trend, and how many of the 50 stocks are up), **Supertrend**, **on-balance volume**, a **Bollinger squeeze** that is breaking out, and yesterday's **central pivot range**. Yesterday's CPR top and bottom and the R1 and S1 pivots also become levels. All point values are in `WEIGHTS` in `server/src/scanner/evaluate.js` and still total 100. A missing reading earns no points and never blocks an idea.
+
+A setup is **switched off automatically** when its last 20 finished ideas (counted over the last 3 days) averaged worse than -0.25R. It comes back by itself as those results age out. The Scanner page lists such ideas under "Not worth entering" with the reason. Time-of-day weighting is not built yet: it needs more track record first.

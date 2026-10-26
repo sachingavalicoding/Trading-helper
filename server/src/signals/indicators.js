@@ -196,3 +196,65 @@ export function swings(candles, span = 2) {
   }
   return { highs, lows };
 }
+
+/**
+ * Supertrend (ATR-based). Returns the direction of the latest bar, +1 up or -1 down, and the
+ * trailing line, or null without enough bars. Default 10 bars and a multiplier of 3.
+ */
+export function supertrend(candles, period = 10, mult = 3) {
+  if (candles.length < period + 2) return null;
+  const tr = (i) => Math.max(candles[i].high - candles[i].low, Math.abs(candles[i].high - candles[i - 1].close), Math.abs(candles[i].low - candles[i - 1].close));
+  let atrV = 0;
+  for (let i = 1; i <= period; i++) atrV += tr(i);
+  atrV /= period;
+  let upper = Infinity;
+  let lower = -Infinity;
+  let dir = 1;
+  let line = null;
+  for (let i = period; i < candles.length; i++) {
+    if (i > period) atrV = (atrV * (period - 1) + tr(i)) / period;
+    const mid = (candles[i].high + candles[i].low) / 2;
+    const basicUpper = mid + mult * atrV;
+    const basicLower = mid - mult * atrV;
+    const prevClose = candles[i - 1].close;
+    upper = basicUpper < upper || prevClose > upper ? basicUpper : upper;
+    lower = basicLower > lower || prevClose < lower ? basicLower : lower;
+    if (dir === 1 && candles[i].close < lower) dir = -1;
+    else if (dir === -1 && candles[i].close > upper) dir = 1;
+    line = dir === 1 ? lower : upper;
+  }
+  return { dir, line };
+}
+
+/** On-balance volume change over the last `bars` bars: positive when volume has flowed into rising bars. */
+export function obvChange(candles, bars = 12) {
+  if (candles.length < bars + 2) return null;
+  let obv = 0;
+  const series = [0];
+  for (let i = 1; i < candles.length; i++) {
+    if (candles[i].close > candles[i - 1].close) obv += candles[i].volume;
+    else if (candles[i].close < candles[i - 1].close) obv -= candles[i].volume;
+    series.push(obv);
+  }
+  return series.at(-1) - series.at(-1 - bars);
+}
+
+/**
+ * Has a Bollinger squeeze just released? True when the band width was in the quietest fifth of
+ * the last 60 bars within the last 10 bars and is now widening. Returns { released, side } where
+ * side is +1 / -1 for the close relative to the middle band, or null without enough bars.
+ */
+export function squeezeRelease(candles, period = 20) {
+  const b = bollinger(candles, period, 2);
+  const n = b.upper.length;
+  if (n < 40) return null;
+  const width = b.upper.map((u, i) => (u.value - b.lower[i].value) / (b.middle[i].value || 1));
+  const recent = width.slice(-60);
+  const sorted = [...recent].sort((a, b2) => a - b2);
+  const quiet = sorted[Math.floor(sorted.length * 0.2)];
+  const wasSqueezed = width.slice(-10, -1).some((w) => w <= quiet);
+  const widening = width.at(-1) > width.at(-2);
+  const close = candles.at(-1).close;
+  const mid = b.middle.at(-1).value;
+  return { released: wasSqueezed && widening, side: close > mid ? 1 : close < mid ? -1 : 0 };
+}

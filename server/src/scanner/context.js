@@ -1,5 +1,6 @@
 import { aggregateCandles } from '../market/providers/BaseProvider.js';
-import { ema, rsi, atr, adx, macd, sessionVwap } from '../signals/indicators.js';
+import { ema, rsi, atr, adx, macd, sessionVwap, supertrend, obvChange, squeezeRelease } from '../signals/indicators.js';
+import { pivotsFrom, candleConfirms } from './pivots.js';
 import { buildLevels } from './levels.js';
 import { summarizeDaily } from './daily.js';
 
@@ -42,7 +43,7 @@ const trend = (fast, slow) => (fast == null || slow == null || Math.abs(fast - s
  * Everything the setups need to know about one stock right now.
  * `c1` is 1-minute candles, oldest first; the last bar is still forming.
  */
-export function buildContext({ symbol, tick, c1, niftyChangePct = null, sectorChangePct = null, daily = null, news = null }) {
+export function buildContext({ symbol, tick, c1, niftyChangePct = null, sectorChangePct = null, daily = null, marketState = null, news = null }) {
   if (!tick || !c1 || c1.length < 40) return null;
   const c5 = aggregateCandles(c1, '5m');
   const c15 = aggregateCandles(c1, '15m');
@@ -56,14 +57,18 @@ export function buildContext({ symbol, tick, c1, niftyChangePct = null, sectorCh
 
   let pdh = null;
   let pdl = null;
+  let pdc = null;
   if (prior1.length) {
     const pDay = istDay(prior1.at(-1).time);
     const prev = prior1.filter((b) => istDay(b.time) === pDay);
     pdh = Math.max(...prev.map((b) => b.high));
     pdl = Math.min(...prev.map((b) => b.low));
+    pdc = prev.at(-1).close;
   }
 
   const month = summarizeDaily(daily, ltp, day);
+  const pivots = pdh != null ? pivotsFrom({ high: pdh, low: pdl, close: pdc }) : null;
+  const done5 = c5.slice(0, -1); // the last 5-minute bar is still forming
   const vwap = sessionVwap(c1);
   const atr5 = atr(c5, 14) || ltp * 0.003;
   const first15 = today1.slice(0, 15);
@@ -93,13 +98,20 @@ export function buildContext({ symbol, tick, c1, niftyChangePct = null, sectorCh
     or,
     pdh,
     pdl,
-    levels: buildLevels({ c5, tick, vwap, pdh, pdl, month }),
+    levels: buildLevels({ c5, tick, vwap, pdh, pdl, month, pivots }),
     month,
     trend5: trend(e9, e21),
     trend15: trend(h9, h21),
     rsi: last(rsi(c5, 14)),
     macdHist: macdHistogram(c5),
     adx: adx(c5, 14),
+    supertrend: supertrend(done5),
+    obv: obvChange(done5),
+    squeeze: squeezeRelease(done5),
+    pivots,
+    lastBar: done5.at(-1) ?? null,
+    candleOk: (d) => candleConfirms(done5.at(-1), d),
+    marketState,
     emaStack,
     sectorChangePct,
     sectorStrength: sectorChangePct == null || tick.changePct == null ? null : sectorChangePct - (niftyChangePct ?? 0),

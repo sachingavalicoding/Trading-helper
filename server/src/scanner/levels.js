@@ -9,7 +9,7 @@ export const levelName = (kind) => kind.split(' · ').map((k) => (k === k.toUppe
  * low, today's high, low and open, and VWAP. Levels within 0.15% of each other are merged.
  * Returns [{ price, kind }] sorted by price, lowest first.
  */
-export function buildLevels({ c5, tick, vwap, pdh, pdl, month = null }) {
+export function buildLevels({ c5, tick, vwap, pdh, pdl, month = null, pivots = null }) {
   const { highs, lows } = swings(c5.slice(-80));
   const raw = [
     ...highs.map((price) => ({ price, kind: 'Swing high' })),
@@ -20,6 +20,7 @@ export function buildLevels({ c5, tick, vwap, pdh, pdl, month = null }) {
   ];
   if (pdh != null) raw.push({ price: pdh, kind: "Previous day's high" });
   if (pdl != null) raw.push({ price: pdl, kind: "Previous day's low" });
+  if (pivots) raw.push({ price: pivots.tc, kind: 'CPR top' }, { price: pivots.bc, kind: 'CPR bottom' }, { price: pivots.r1, kind: 'Pivot R1' }, { price: pivots.s1, kind: 'Pivot S1' });
   if (month) raw.push({ price: month.high, kind: 'Month high' }, { price: month.low, kind: 'Month low' });
   if (vwap) raw.push({ price: vwap, kind: 'VWAP' });
   const merged = [];
