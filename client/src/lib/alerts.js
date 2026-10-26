@@ -33,10 +33,15 @@ export async function setAlerts(on) {
   return granted;
 }
 
-export function systemNotify(title, body, tag) {
+export function systemNotify(title, body, tag, onClick) {
   if (!alertsOn() || !document.hidden) return;
   try {
-    new Notification(title, { body, tag, icon: '/icon.svg' });
+    const n = new Notification(title, { body, tag, icon: '/icon.svg' });
+    n.onclick = () => {
+      window.focus();
+      onClick?.();
+      n.close();
+    };
   } catch {
     /* some mobile browsers only allow notifications from a service worker */
   }

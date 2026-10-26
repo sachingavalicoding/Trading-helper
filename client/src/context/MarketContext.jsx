@@ -58,8 +58,10 @@ export function MarketProvider({ children }) {
     });
 
     socket.on('scanner:entry', (idea) => {
-      toast.info(`New idea: ${entryText(idea)}`, { duration: 10_000, action: { label: 'View', onClick: () => navigate('/scanner') } });
-      systemNotify('New scanner idea', entryText(idea), `entry-${idea.symbol}`);
+      // View opens the order sheet for this idea, ready to confirm, instead of making you search for the stock.
+      const go = () => navigate(`/scanner?open=${encodeURIComponent(idea.symbol)}`);
+      toast.info(`New idea: ${entryText(idea)}`, { duration: 10_000, action: { label: idea.side === 'BUY' ? 'Buy' : 'Sell', onClick: go } });
+      systemNotify('New scanner idea', entryText(idea), `entry-${idea.symbol}`, go);
     });
     // Only a new entry idea interrupts you. Closed ideas and the morning plan stay on the Scanner page.
 

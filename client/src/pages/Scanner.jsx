@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Bell, BellOff, ChevronDown, Radar, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMarket } from '../context/MarketContext.jsx';
@@ -245,6 +245,9 @@ export default function Scanner() {
     else toast(on ? 'Alerts on. You get a phone notification when this tab is in the background.' : 'Alerts off');
   }
   const [sheet, setSheet] = useState(null);
+  const [params, setParams] = useSearchParams();
+  const openSymbol = params.get('open');
+  const tries = useRef(0);
   const { instruments } = useMarket();
   const { data, loading, error, reload } = useApi(`/scanner?risk=${risk}&maxAmount=${maxAmount}`, [risk, maxAmount]);
 
@@ -252,6 +255,23 @@ export default function Scanner() {
     const id = setInterval(reload, REFRESH_MS);
     return () => clearInterval(id);
   }, [reload]);
+
+  // Arriving from an alert: open the order sheet for that idea straight away.
+  useEffect(() => {
+    if (!openSymbol || !data || data.warming) return;
+    const idea = data.items.find((i) => i.symbol === openSymbol && i.status === 'ENTRY');
+    if (idea && idea.canEnter !== false && idea.size.qty >= 1) {
+      setSheet(idea);
+    } else if (!idea && tries.current < 2) {
+      tries.current += 1; // the list may predate the alert: look again once
+      reload();
+      return;
+    } else {
+      toast(idea?.lateReason || `The ${openSymbol} idea is no longer available to enter.`);
+    }
+    tries.current = 0;
+    setParams({}, { replace: true });
+  }, [openSymbol, data, reload, setParams]);
 
   const pickAmount = (v) => {
     if (!(v >= 1000)) return;
