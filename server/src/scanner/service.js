@@ -39,6 +39,8 @@ export class ScannerService extends EventEmitter {
     this.raisedToday = new Set(); // `${day}|${symbol}|${setup}|${side}`
     this.perStock = new Map(); // symbol -> { count, stopped } for today
     this.perStockDay = null;
+    this.daily = new Map(); // symbol -> about a month of daily candles
+    this.dailyDay = null;
     this.finished = []; // today's finished ideas, oldest first: { status, at }
     this.result = { items: [], rejected: [], scanned: 0, total: this.symbols.length, updatedAt: null };
     this.scanning = false;
@@ -66,6 +68,29 @@ export class ScannerService extends EventEmitter {
     this.market.on('tick', this.onTick);
   }
 
+  /** The last month of daily candles for every stock, read once a day (they do not change while trading). */
+  async loadDaily() {
+    if (this.dailyDay === this.day || this.dailyLoading) return;
+    this.dailyLoading = true;
+    try {
+      for (let i = 0; i < this.symbols.length; i += 5) {
+        await Promise.all(
+          this.symbols.slice(i, i + 5).map(async (symbol) => {
+            try {
+              const candles = await this.market.getDaily(symbol);
+              if (candles.length) this.daily.set(symbol, candles);
+            } catch (err) {
+              logger.warn(`Scanner could not load ${symbol} daily candles: ${err.message}`);
+            }
+          }),
+        );
+      }
+      this.dailyDay = this.day;
+    } finally {
+      this.dailyLoading = false;
+    }
+  }
+
   /** Why new ideas are paused, or null. Stops come in streaks on a choppy day, so rest after one. */
   chopReason() {
     const now = this.now();
@@ -78,7 +103,10 @@ export class ScannerService extends EventEmitter {
 
   /** Load history for every stock in the background; the screen shows progress meanwhile. */
   warmUp() {
-    this.warm ||= this.store.loadAll().then(() => logger.info(`Scanner ready: ${this.store.loadedCount} stocks loaded`));
+    this.warm ||= this.store.loadAll().then(() => {
+      logger.info(`Scanner ready: ${this.store.loadedCount} stocks loaded`);
+      return this.loadDaily();
+    });
     return this.warm;
   }
 
@@ -243,6 +271,7 @@ export class ScannerService extends EventEmitter {
       const niftyChangePct = this.market.getTick('NIFTY 50')?.changePct ?? null;
       const newsBySymbol = await this.#newsSignals();
       const sectors = this.#sectorMoves();
+      if (this.dailyDay !== this.day && this.warm) this.loadDaily().catch((e) => logger.warn(`daily load failed: ${e.message}`));
       const entries = [];
       const watching = [];
       const rejected = [];
@@ -261,7 +290,7 @@ export class ScannerService extends EventEmitter {
           for (const idea of open) entries.push(this.#ideaItem(idea, tick));
           continue;
         }
-        const { candidates } = evaluateStock({ symbol, tick, c1, niftyChangePct, sectorChangePct: sectors(symbol), news: newsBySymbol[symbol] ?? null }, { now: this.now(), enforceWindows });
+        const { candidates } = evaluateStock({ symbol, tick, c1, niftyChangePct, sectorChangePct: sectors(symbol), daily: this.daily.get(symbol) ?? null, news: newsBySymbol[symbol] ?? null }, { now: this.now(), enforceWindows });
         const st = this.#stockToday(symbol);
         const strong = candidates.filter((c) => c.score >= MIN_SCORE);
         const openCount = [...this.open.values()].reduce((n, l) => n + l.length, 0);

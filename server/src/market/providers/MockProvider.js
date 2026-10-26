@@ -59,6 +59,20 @@ export class MockProvider extends BaseProvider {
     return aggregateCandles(s.bars.map((b) => ({ ...b })), interval);
   }
 
+  /** The mock feed only keeps a few sessions, so these are rolled up from its minute bars. */
+  async getDailyHistory(symbol) {
+    const s = this.state.get(symbol);
+    if (!s) return [];
+    const byDay = new Map();
+    for (const b of s.bars) {
+      const k = Math.floor((b.time + 19800) / 86400);
+      const d = byDay.get(k);
+      if (!d) byDay.set(k, { time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume });
+      else Object.assign(d, { high: Math.max(d.high, b.high), low: Math.min(d.low, b.low), close: b.close, volume: d.volume + b.volume });
+    }
+    return [...byDay.values()];
+  }
+
   /** Test helper: force a price and emit a tick immediately. */
   setPrice(symbol, price) {
     const s = this.state.get(symbol);

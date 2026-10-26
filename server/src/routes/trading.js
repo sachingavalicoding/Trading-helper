@@ -31,6 +31,7 @@ const defaultsSchema = z.object({
   lockEnabled: z.boolean().optional(),
   lockTrigger: z.coerce.number().min(1).max(10_000_000).optional(),
   lockAmount: z.coerce.number().min(1).max(10_000_000).optional(),
+  lockRatio: z.coerce.number().min(0.1).max(1).optional(),
 }).refine((d) => d.lockTrigger == null || d.lockAmount == null || d.lockTrigger > d.lockAmount, { message: 'The profit trigger must be larger than the amount you lock in', path: ['lockAmount'] });
 const listQuery = z.object({
   status: z.enum(['OPEN', 'FILLED', 'CANCELLED', 'REJECTED']).optional(),
@@ -88,15 +89,15 @@ export function tradingRoutes({ engine, market, config }) {
 
   router.get('/trade-defaults', async (req, res) => {
     const d = await TradeDefaults.findOne({ user: req.userId }).lean();
-    res.json({ lockEnabled: d?.lockEnabled ?? TRADE_DEFAULTS.lockEnabled, lockTrigger: d?.lockTrigger ?? TRADE_DEFAULTS.lockTrigger, lockAmount: d?.lockAmount ?? TRADE_DEFAULTS.lockAmount });
+    res.json({ lockEnabled: d?.lockEnabled ?? TRADE_DEFAULTS.lockEnabled, lockTrigger: d?.lockTrigger ?? TRADE_DEFAULTS.lockTrigger, lockAmount: d?.lockAmount ?? TRADE_DEFAULTS.lockAmount, lockRatio: d?.lockRatio ?? TRADE_DEFAULTS.lockRatio });
   });
 
   router.put('/trade-defaults', validate(defaultsSchema), async (req, res) => {
     const current = (await TradeDefaults.findOne({ user: req.userId }).lean()) ?? TRADE_DEFAULTS;
     const next = { ...TRADE_DEFAULTS, ...current, ...req.body };
     if (!(next.lockTrigger > next.lockAmount)) return res.status(400).json({ error: { code: 'VALIDATION', message: 'The profit trigger must be larger than the amount you lock in' } });
-    const doc = await TradeDefaults.findOneAndUpdate({ user: req.userId }, { $set: { lockEnabled: next.lockEnabled, lockTrigger: next.lockTrigger, lockAmount: next.lockAmount }, $setOnInsert: { user: req.userId } }, { upsert: true, new: true, runValidators: true });
-    res.json({ lockEnabled: doc.lockEnabled, lockTrigger: doc.lockTrigger, lockAmount: doc.lockAmount });
+    const doc = await TradeDefaults.findOneAndUpdate({ user: req.userId }, { $set: { lockEnabled: next.lockEnabled, lockTrigger: next.lockTrigger, lockAmount: next.lockAmount, lockRatio: next.lockRatio }, $setOnInsert: { user: req.userId } }, { upsert: true, new: true, runValidators: true });
+    res.json({ lockEnabled: doc.lockEnabled, lockTrigger: doc.lockTrigger, lockAmount: doc.lockAmount, lockRatio: doc.lockRatio });
   });
 
   router.get('/positions/:symbol/exits', async (req, res) => {

@@ -124,7 +124,7 @@ test('shares are sized from the risk and max amount unless a cap is set', async 
   assert.equal(r2.order.qty, 1);
 });
 
-test('past target 1 an auto trade is not sold: the stop moves up to target 1 and it runs to target 2', async () => {
+test('past each target an auto trade is not sold: the stop jumps to just short of it, and the sale is at a third target', async () => {
   const fresh = await registerUser(app);
   const s = settings({ user: fresh.user.id || fresh.user._id, maxOpen: 10, maxShares: 1 });
   ctx.provider.setPrice('ONGC', 250);
@@ -132,10 +132,13 @@ test('past target 1 an auto trade is not sold: the stop moves up to target 1 and
   const r = await trader.consider(s, i);
   assert.ok(r.order, r.skipped);
   const target = await Order.findOne({ user: s.user, symbol: 'ONGC', role: 'TARGET', status: 'OPEN' }).lean();
-  assert.equal(Math.round(target.price * 100), Math.round(i.target2 * 100)); // sells at target 2, not 1
-  ctx.provider.setPrice('ONGC', i.target1 + (i.target2 - i.target1) / 2);
+  assert.ok(Math.abs(target.price - (i.target2 * 2 - i.target1)) <= 0.06, 'sells at a third target, not 1 or 2');
+  const stopAt = async () => (await Order.findOne({ user: s.user, symbol: 'ONGC', role: 'STOPLOSS', status: 'OPEN' }).lean()).triggerPrice;
+  ctx.provider.setPrice('ONGC', i.target1 + 0.5);
   await settle();
-  const stop = await Order.findOne({ user: s.user, symbol: 'ONGC', role: 'STOPLOSS', status: 'OPEN' }).lean();
-  assert.ok(Math.abs(stop.triggerPrice - i.target1) <= 0.06, `stop ${stop.triggerPrice} should sit at target 1 ${i.target1}`);
+  assert.ok(Math.abs((await stopAt()) - (i.entry + 0.95 * (i.target1 - i.entry))) <= 0.06, 'stop just short of target 1');
+  ctx.provider.setPrice('ONGC', i.target2 + 0.5);
+  await settle();
+  assert.ok(Math.abs((await stopAt()) - (i.entry + 0.95 * (i.target2 - i.entry))) <= 0.06, 'stop just short of target 2');
   assert.equal((await Position.findOne({ user: s.user, symbol: 'ONGC' })).status, 'OPEN');
 });

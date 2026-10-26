@@ -1,5 +1,6 @@
 import { AutoSettings, Order, Position, Trade } from '../models/index.js';
 import { getFunds } from '../services/walletService.js';
+import { roundToTick } from '../utils/money.js';
 import { sizePosition } from '../scanner/sizing.js';
 import { logger } from '../utils/logger.js';
 
@@ -85,10 +86,10 @@ export class AutoTrader {
       orderType: 'MARKET',
       qty: settings.maxShares > 0 ? Math.min(size.qty, settings.maxShares) : size.qty,
       stopLoss: idea.stopLoss,
-      target: idea.target2, // target 1 is not a sell: it only lifts the stop, see setStep
+      target: roundToTick(idea.target2 * 2 - idea.target1), // sells at a third target, as far past target 2 as 2 is past 1; targets 1 and 2 only lift the stop, see setSteps
       source: 'AUTO',
     });
-    await this.engine.setStep(userId, idea.symbol, idea.target1);
+    await this.engine.setSteps(userId, idea.symbol, [idea.target1, idea.target2]);
     return { order };
   }
 

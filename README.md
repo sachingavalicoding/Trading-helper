@@ -274,7 +274,7 @@ Tap SL / Target on an open position (on the Positions page or the stock's chart 
 
 ## Profit lock
 
-Every new trade starts with a profit lock, in rupees. Defaults: when the open profit reaches ₹1,000 the stop moves to lock in ₹400, then it follows ₹600 behind your best profit and never moves back. If the trade has no stop yet, one is created. Change the defaults on the Account page, or per trade in the SL / Target sheet. It applies to auto trades too. Profit is before charges. Because it can close a trade on a dip after a spike, it protects gains but can also cut a trade that would have recovered.
+Every new trade starts with a profit lock, in rupees. Defaults: when the open profit reaches ₹1,000 the stop moves to lock in ₹300, and every extra ₹200 of profit lifts the lock by ₹100 (a 50% ratio), so at ₹2,000 profit ₹800 is locked. It never moves back. If the trade has no stop yet, one is created. Change the numbers on the Account page. Profit is before charges. Because it can close a trade on a dip after a spike, it protects gains but can also cut a trade that would have recovered.
 
 ## Track record and replay
 
@@ -313,14 +313,13 @@ The web app is prebuilt in `phone-app/`. After changing the client, run `npm run
 
 ## Better scoring and backtest
 
-The score (out of 100) now also counts **ADX** trend strength, whether **EMA 9 / 21 / 50** are lined up, and whether the stock's **sector peers** are moving the same way. A stock whose 5-minute ADX is under 15 is moving sideways and is blocked. The points for every part are in one place, `WEIGHTS` in `server/src/scanner/evaluate.js`, and the old scoring is kept as `LEGACY_WEIGHTS` for comparison. The sector reading is the average move of the other Nifty 50 stocks in the same sector, so a sector with one stock has none.
+The score (out of 100) now also counts **ADX** trend strength, whether **EMA 9 / 21 / 50** are lined up, and whether the stock's **sector peers** are moving the same way. A stock whose 5-minute ADX is under 15 is moving sideways and simply earns no trend points; nothing is blocked for it. The points for every part are in one place, `WEIGHTS` in `server/src/scanner/evaluate.js`, and the old scoring is kept as `LEGACY_WEIGHTS` for comparison. The sector reading is the average move of the other Nifty 50 stocks in the same sector, so a sector with one stock has none.
 
 `npm run backtest -- --days 10 --holdout 3 --risk 1000 --slippage 0.05` replays the scanner on history with live Upstox data (after logging in). It sizes each trade to risk a fixed rupee amount, adds slippage and charges, and prints win rate, average win and loss, expectancy, profit factor and max drawdown for the old rules against the enhanced rules, once on the tuning period and once on the most recent unseen sessions. The scanner only sees candles up to each moment, so it cannot peek at the future. Replay has no order book or sector data, so it does not show the full effect of the new score. With few trades the numbers are noise, and a high score is never a promise of a win.
 
-## Auto trades run past target 1
+## Auto trades climb through the targets
 
-An auto trade is not sold at target 1. When price passes target 1 the stop moves up to target 1, and the trade runs on to target 2. The profit lock still applies and can hold the stop higher. If price falls back to the stop, the trade closes with at least the target-1 profit locked in, minus charges. If it never reaches target 1, the original stop applies. Manual trades are unchanged.
+An auto trade is not sold at target 1 or 2. Past each of them the stop jumps to 95% of the way from entry to that target, so the profit up to there is protected, and the trade is sold at a third target, as far beyond target 2 as target 2 is beyond target 1. The profit lock below can hold the stop higher. If price falls back to the stop the trade closes with that profit, minus charges. Manual trades are unchanged.
+## Last month, entry quality, and a cap on open ideas
 
-## No chasing, and a cap on open ideas
-
-An idea is blocked when the stock has already moved more than 3% from yesterday's close in the trade's direction (a BUY on a stock up 7% today, a SELL on one down 7%). At most 5 ideas are open at once; extra ones wait under "Not worth entering" until one closes.
+The scanner reads about a month of **daily candles** for every stock (once a day, from Upstox). It adds a "Last month" check to the score (do the last 20+ sessions trend the same way as the trade?), and the month's high and low become levels the setups and targets can use. A stock that has already moved a lot today is **not** blocked just for that: what matters is whether the entry is still close to the trigger, as the scanner already checks. At most 5 ideas are open at once; extras wait under "Not worth entering" until one closes.

@@ -1,6 +1,7 @@
 import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { ema, rsi, atr, adx, macd, sessionVwap } from '../signals/indicators.js';
 import { buildLevels } from './levels.js';
+import { summarizeDaily } from './daily.js';
 
 const IST = 19800;
 export const istDay = (t) => Math.floor((t + IST) / 86400);
@@ -41,7 +42,7 @@ const trend = (fast, slow) => (fast == null || slow == null || Math.abs(fast - s
  * Everything the setups need to know about one stock right now.
  * `c1` is 1-minute candles, oldest first; the last bar is still forming.
  */
-export function buildContext({ symbol, tick, c1, niftyChangePct = null, sectorChangePct = null, news = null }) {
+export function buildContext({ symbol, tick, c1, niftyChangePct = null, sectorChangePct = null, daily = null, news = null }) {
   if (!tick || !c1 || c1.length < 40) return null;
   const c5 = aggregateCandles(c1, '5m');
   const c15 = aggregateCandles(c1, '15m');
@@ -62,6 +63,7 @@ export function buildContext({ symbol, tick, c1, niftyChangePct = null, sectorCh
     pdl = Math.min(...prev.map((b) => b.low));
   }
 
+  const month = summarizeDaily(daily, ltp, day);
   const vwap = sessionVwap(c1);
   const atr5 = atr(c5, 14) || ltp * 0.003;
   const first15 = today1.slice(0, 15);
@@ -91,7 +93,8 @@ export function buildContext({ symbol, tick, c1, niftyChangePct = null, sectorCh
     or,
     pdh,
     pdl,
-    levels: buildLevels({ c5, tick, vwap, pdh, pdl }),
+    levels: buildLevels({ c5, tick, vwap, pdh, pdl, month }),
+    month,
     trend5: trend(e9, e21),
     trend15: trend(h9, h21),
     rsi: last(rsi(c5, 14)),

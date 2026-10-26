@@ -28,6 +28,8 @@ export function isTriggered(order, ltp) {
  *
  * Emits 'update' ({ userId, kind: 'order'|'fill'|'squareoff', order, trades, message }).
  */
+const STEP_KEEP = 0.95; // past a target, keep the stop this share of the way from entry to it
+
 export class OrderEngine extends EventEmitter {
   constructor({ market, config, now = () => new Date() }) {
     super();
@@ -45,7 +47,7 @@ export class OrderEngine extends EventEmitter {
   async init() {
     const open = await Order.find({ status: 'OPEN' }).lean();
     for (const o of open) this.#addToBook(o);
-    for (const p of await Position.find({ status: 'OPEN', $or: [{ trailPct: { $ne: null } }, { lockTrigger: { $ne: null } }, { stepPrice: { $ne: null } }] }).lean()) this.#watchTrail(p);
+    for (const p of await Position.find({ status: 'OPEN', $or: [{ trailPct: { $ne: null } }, { lockTrigger: { $ne: null } }, { 'stepPrices.0': { $exists: true } }] }).lean()) this.#watchTrail(p);
     this.market.on('tick', this.onTick);
     logger.info(`Order engine ready, ${open.length} resting orders loaded`);
   }
@@ -85,10 +87,10 @@ export class OrderEngine extends EventEmitter {
    * Each field: a number sets it, null removes it, undefined leaves it alone.
    * `trailPct` makes the stop follow the price at that % distance and only ever move towards profit.
    */
-  /** Arm the target-1 step for an open position: past `price`, the stop moves to `price`. */
-  setStep(userId, symbol, price) {
+  /** Arm the target ladder for an open position: past each price the stop jumps to STEP_KEEP of the way to it. */
+  setSteps(userId, symbol, prices) {
     return this.locks.run(String(userId), async () => {
-      const pos = await Position.findOneAndUpdate({ user: userId, symbol, status: 'OPEN' }, { stepPrice: price }, { new: true });
+      const pos = await Position.findOneAndUpdate({ user: userId, symbol, status: 'OPEN' }, { stepPrices: prices }, { new: true });
       if (pos) this.#watchTrail(pos);
     });
   }
@@ -284,7 +286,7 @@ export class OrderEngine extends EventEmitter {
 
   async #trailOne(posId, ltp, watchers) {
     const pos = await Position.findById(posId);
-    if (!pos || pos.status !== 'OPEN' || (pos.trailPct == null && pos.lockTrigger == null && pos.stepPrice == null)) {
+    if (!pos || pos.status !== 'OPEN' || (pos.trailPct == null && pos.lockTrigger == null && !pos.stepPrices?.length)) {
       watchers.delete(posId);
       return;
     }
@@ -294,11 +296,14 @@ export class OrderEngine extends EventEmitter {
     if (pos.trailPct != null) wants.push(roundToTick(long ? ltp * (1 - pos.trailPct / 100) : ltp * (1 + pos.trailPct / 100)));
     const profit = (long ? ltp - pos.avgPrice : pos.avgPrice - ltp) * qty;
     if (pos.lockTrigger != null && profit >= pos.lockTrigger) {
-      const locked = Math.max(pos.lockAmount, profit - (pos.lockTrigger - pos.lockAmount));
+      // With a ratio the lock climbs by that share of every extra rupee; without one it trails the best profit.
+      const locked = pos.lockRatio != null ? pos.lockAmount + pos.lockRatio * (profit - pos.lockTrigger) : Math.max(pos.lockAmount, profit - (pos.lockTrigger - pos.lockAmount));
       const per = locked / qty;
       wants.push(roundToTick(long ? pos.avgPrice + per : pos.avgPrice - per));
     }
-    if (pos.stepPrice != null && (long ? ltp > pos.stepPrice : ltp < pos.stepPrice)) wants.push(pos.stepPrice);
+    for (const step of pos.stepPrices || []) {
+      if (long ? ltp > step : ltp < step) wants.push(roundToTick(pos.avgPrice + STEP_KEEP * (step - pos.avgPrice)));
+    }
     if (!wants.length) return;
     const want = long ? Math.max(...wants) : Math.min(...wants);
     if (!(long ? want < ltp : want > ltp)) return;
@@ -525,6 +530,7 @@ export class OrderEngine extends EventEmitter {
         if (d.lockEnabled && d.lockTrigger > d.lockAmount) {
           position.lockTrigger = d.lockTrigger;
           position.lockAmount = d.lockAmount;
+          position.lockRatio = d.lockRatio ?? null;
         }
       }
       this.#bookSide(position, side, remaining, price);
