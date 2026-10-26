@@ -227,7 +227,7 @@ Not included yet: gap fill.
 - Each idea is **Entry now** (trigger fired and price is still in the entry zone), **Watching** (setup forming) or **Missed** (price ran too far to chase).
 - Each idea scores out of 100: the setup (30), trend agreement on VWAP and 5m/15m EMAs (20), volume against normal for that time of day (20), strength against Nifty 50 (15), order book (8) and RSI (7). Penalties apply when Nifty 50 moves against the trade or RSI is stretched. Only ideas scoring 70 or more that also pass the safety checks are shown, and a phone alert is sent only when a new entry idea appears (not for watching ideas, closed ideas or the morning plan).
 - An idea needs at least 1.5 times reward to risk, or it is dropped. The stop is never tighter than 0.3% of the price.
-- With market hours enforced, nothing is suggested before 09:30 or after 14:45 IST.
+- With market hours enforced, nothing is suggested before 09:30 or after 14:30 IST.
 
 **Plans do not move.** When an idea goes to Entry now it is saved with its entry, stop and targets, and followed until target 1, the stop loss or two hours pass (or 15:15 IST). There is one idea per stock, setup and side per day. Outcomes are stored in the `ScanIdea` collection and listed under **Done today**.
 
@@ -329,3 +329,7 @@ The scanner reads about a month of **daily candles** for every stock (once a day
 The 100-point score now also checks: **candle confirmation** (the last 5-minute bar closed strongly in the trade's direction, or is a rejection bar), **Nifty 50 trend and market breadth** (index VWAP and EMA trend, and how many of the 50 stocks are up), **Supertrend**, **on-balance volume**, a **Bollinger squeeze** that is breaking out, and yesterday's **central pivot range**. Yesterday's CPR top and bottom and the R1 and S1 pivots also become levels. All point values are in `WEIGHTS` in `server/src/scanner/evaluate.js` and still total 100. A missing reading earns no points and never blocks an idea.
 
 A setup is **switched off automatically** when its last 20 finished ideas (counted over the last 3 days) averaged worse than -0.25R. It comes back by itself as those results age out. The Scanner page lists such ideas under "Not worth entering" with the reason. Time-of-day weighting is not built yet: it needs more track record first.
+
+## Realistic targets and a 14:30 cut-off
+
+An idea is blocked when target 1 is further away than 80% of the stock's usual daily range (from its last month of daily candles); no daily history means no check. Every idea already needs at least 1.5 times as much reward as risk. New ideas stop at 14:30 IST instead of 14:45, so they have time to work before the 15:15 square-off. In `npm run backtest` the "old rules" keep the 14:45 cut-off and have no reach check.

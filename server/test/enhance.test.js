@@ -143,3 +143,11 @@ test('a Bollinger squeeze that starts to widen is a release; a steadily noisy ch
   assert.equal(squeezeRelease(bars(70, (i) => 100 + 2 * Math.sin(i))).released, false);
   assert.equal(squeezeRelease(bars(10, (i) => i)), null);
 });
+
+test('a target further away than the stock usually travels in a day is blocked, a reachable one is not', () => {
+  const far = scoreCandidate(ctx({ month: { trend: 1, sessions: 22, avgRangePct: 1 } }), cand({ entry: 100, target1: 101.5 }));
+  assert.ok(far.blocked.some((t) => /usually moves only/.test(t)));
+  assert.ok(!scoreCandidate(ctx({ month: { trend: 1, sessions: 22, avgRangePct: 1 } }), cand({ entry: 100, target1: 100.6 })).blocked.length);
+  assert.ok(!scoreCandidate(ctx({ month: null }), cand({ entry: 100, target1: 110 })).blocked.length, 'no daily history: nothing is assumed');
+  assert.ok(!scoreCandidate(ctx({ month: { trend: 1, sessions: 22, avgRangePct: 1 } }), cand({ entry: 100, target1: 101.5 }), { legacy: true }).blocked.length);
+});

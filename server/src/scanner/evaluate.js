@@ -5,7 +5,9 @@ import { istParts } from '../market/marketHours.js';
 export const MAX_STOP_PCT = 1.2; // a stop wider than this risks too much on one idea
 export const MIN_SCORE = 70; // only strong ideas are shown or alerted
 const FIRST_ENTRY_MIN = 9 * 60 + 30; // opening range is only complete at 09:30
-const LAST_ENTRY_MIN = 14 * 60 + 45;
+const LAST_ENTRY_MIN = 14 * 60 + 30; // late entries have little time to reach target 1 before the 15:15 square-off
+const LEGACY_LAST_ENTRY_MIN = 14 * 60 + 45;
+export const MAX_TARGET_VS_DAILY_RANGE = 0.8; // target 1 further than this share of the stock's usual daily range is unlikely to be reached
 
 /**
  * Points each part of the score can earn; they add up to 100 (news is a bonus on top).
@@ -35,6 +37,11 @@ function runGates(ctx, d, vwapOk, newsDelta, c, legacy) {
   g.push(gate('nifty', 'Market', ctx.niftyChangePct == null || d * ctx.niftyChangePct > -0.5, `Nifty 50 is moving against this trade (${ctx.niftyChangePct?.toFixed(2)}%)`));
   g.push(gate('stretch', 'Not stretched', ctx.vwapStretch == null || d * ctx.vwapStretch <= 2.5, `Price is ${Math.abs(ctx.vwapStretch ?? 0).toFixed(1)} ATR from VWAP, so chasing here is risky`));
   g.push(gate('rsi', 'RSI', ctx.rsi == null || !(d > 0 ? ctx.rsi > 78 : ctx.rsi < 22), `RSI ${ctx.rsi?.toFixed(0)} is stretched, so a pullback is likely`));
+  if (!legacy) {
+    const reach = ctx.month?.avgRangePct;
+    const targetPct = c.entry ? (Math.abs(c.target1 - c.entry) / c.entry) * 100 : null;
+    g.push(gate('reach', 'Target reachable', reach == null || targetPct == null || targetPct <= MAX_TARGET_VS_DAILY_RANGE * reach, `Target 1 is ${targetPct?.toFixed(1)}% away, but this stock usually moves only about ${reach?.toFixed(1)}% in a whole day`));
+  }
   g.push(gate('news', 'News', newsDelta > -10, 'Recent news points the other way'));
   return g;
 }
@@ -152,10 +159,10 @@ export function scoreCandidate(ctx, c, { legacy = false } = {}) {
   return { ...c, score: Math.max(0, Math.min(100, score)), checks, penalties, gates, blocked: gates.filter((g) => !g.pass).map((g) => g.text), news: ctx.news ?? null };
 }
 
-/** Only suggest entries between 09:30 and 14:45 IST. */
-function inEntryWindow(now) {
+/** Only suggest entries between 09:30 and 14:30 IST. */
+function inEntryWindow(now, legacy = false) {
   const { minutes } = istParts(now);
-  return minutes >= FIRST_ENTRY_MIN && minutes < LAST_ENTRY_MIN;
+  return minutes >= FIRST_ENTRY_MIN && minutes < (legacy ? LEGACY_LAST_ENTRY_MIN : LAST_ENTRY_MIN);
 }
 
 /**
@@ -165,7 +172,7 @@ function inEntryWindow(now) {
 export function evaluateStock(input, { now = new Date(), enforceWindows = false, legacy = false } = {}) {
   const ctx = buildContext(input);
   if (!ctx) return { ctx: null, candidates: [] };
-  if (enforceWindows && !inEntryWindow(now)) return { ctx, candidates: [] };
+  if (enforceWindows && !inEntryWindow(now, legacy)) return { ctx, candidates: [] };
   const candidates = SETUPS.flatMap((setup) => setup(ctx))
     .map((c) => scoreCandidate(ctx, c, { legacy }))
     .sort((a, b) => b.score - a.score);
