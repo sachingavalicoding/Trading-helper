@@ -12,8 +12,8 @@ const LAST_ENTRY_MIN = 14 * 60 + 45;
  * Change them here. LEGACY_WEIGHTS is the scorer from before ADX, EMA 50 and sector
  * strength were added, kept so the replay can compare old against new.
  */
-export const WEIGHTS = { setup: 30, vwap: 4, trend5: 5, trend15: 3, volume: 12, strength: 13, book: 2, rsi: 7, macd: 4, adx: 6, emaStack: 5, sector: 4, monthly: 5 };
-export const LEGACY_WEIGHTS = { setup: 30, vwap: 7, trend5: 7, trend15: 6, volume: 18, strength: 13, book: 6, rsi: 7, macd: 6, adx: 0, emaStack: 0, sector: 0, monthly: 0 };
+export const WEIGHTS = { setup: 26, vwap: 4, trend5: 4, trend15: 3, volume: 10, strength: 9, book: 2, rsi: 6, macd: 4, adx: 5, emaStack: 4, sector: 3, monthly: 4, candle: 4, niftyTrend: 3, supertrend: 3, obv: 2, squeeze: 2, cpr: 2 };
+export const LEGACY_WEIGHTS = { setup: 30, vwap: 7, trend5: 7, trend15: 6, volume: 18, strength: 13, book: 6, rsi: 7, macd: 6, adx: 0, emaStack: 0, sector: 0, monthly: 0, candle: 0, niftyTrend: 0, supertrend: 0, obv: 0, squeeze: 0, cpr: 0 };
 export const MIN_ADX = 15; // below this the stock is moving sideways: it earns no trend points, but is not blocked
 
 const STATUS_POINTS = { ENTRY: 30, WATCHING: 18, MISSED: 10 };
@@ -57,14 +57,14 @@ export function scoreCandidate(ctx, c, { legacy = false } = {}) {
   checks.push(check('volume', 'Volume', volPts, W.volume, rv == null ? 'Not enough history to compare volume yet' : `Volume is ${rv.toFixed(1)}x normal for this time of day`));
 
   const rs = ctx.relStrength == null ? null : d * ctx.relStrength;
-  const rsPts = rs == null ? 0 : rs >= 0.5 ? W.strength : rs >= 0.2 ? 8 : rs >= 0 ? 3 : 0;
+  const rsPts = rs == null ? 0 : Math.round(W.strength * (rs >= 0.5 ? 1 : rs >= 0.2 ? 8 / 13 : rs >= 0 ? 3 / 13 : 0));
   checks.push(check('strength', 'Vs Nifty 50', rsPts, W.strength, rs == null ? 'No Nifty 50 reading' : `${rs >= 0 ? 'Stronger' : 'Weaker'} than Nifty 50 by ${Math.abs(rs).toFixed(2)}%`));
 
   const bookOk = ctx.bookShare != null && (d > 0 ? ctx.bookShare > 0.6 : ctx.bookShare < 0.4);
   checks.push(check('book', 'Order book', bookOk ? W.book : 0, W.book, ctx.bookShare == null ? 'No order book' : `${Math.round(ctx.bookShare * 100)}% of pending quantity is on the buy side`));
 
   const rsiOk = ctx.rsi != null && (d > 0 ? ctx.rsi >= 50 && ctx.rsi <= 72 : ctx.rsi >= 28 && ctx.rsi <= 50);
-  checks.push(check('rsi', 'RSI', rsiOk ? 7 : 0, 7, ctx.rsi == null ? 'No RSI yet' : `RSI ${ctx.rsi.toFixed(0)}${rsiOk ? ' supports the move' : ' does not support the move'}`));
+  checks.push(check('rsi', 'RSI', rsiOk ? W.rsi : 0, W.rsi, ctx.rsi == null ? 'No RSI yet' : `RSI ${ctx.rsi.toFixed(0)}${rsiOk ? ' supports the move' : ' does not support the move'}`));
 
   const mh = ctx.macdHist;
   const macdOk = mh != null && d * mh.now > 0 && d * (mh.now - mh.prev) >= 0;
@@ -78,6 +78,33 @@ export function scoreCandidate(ctx, c, { legacy = false } = {}) {
   if (W.emaStack) {
     const st = ctx.emaStack;
     checks.push(check('emaStack', 'EMA 9/21/50', st != null && d * st > 0 ? W.emaStack : 0, W.emaStack, st == null ? 'Not enough bars for EMA 50 yet' : d * st > 0 ? 'EMA 9, 21 and 50 are lined up in this direction' : 'EMA 9, 21 and 50 are not lined up for this direction'));
+  }
+  if (W.candle) {
+    const ok = ctx.candleOk ? ctx.candleOk(d) : null;
+    checks.push(check('candle', 'Candle', ok ? W.candle : 0, W.candle, ok == null ? 'No completed bar yet' : ok ? 'The last 5-minute bar closed strongly in this direction' : 'The last 5-minute bar did not close strongly in this direction'));
+  }
+  if (W.niftyTrend) {
+    const m = ctx.marketState;
+    const trendOk = m?.niftyTrend != null && d * m.niftyTrend > 0;
+    const breadthOk = m?.breadthUp != null && (d > 0 ? m.breadthUp >= 0.55 : m.breadthUp <= 0.45);
+    checks.push(check('niftyTrend', 'Market', m == null ? 0 : trendOk && breadthOk ? W.niftyTrend : trendOk || breadthOk ? 1 : 0, W.niftyTrend, m == null ? 'No Nifty 50 trend reading' : `Nifty 50 trend ${trendOk ? 'agrees' : 'does not agree'}; ${m.breadthUp == null ? 'no breadth reading' : `${Math.round(m.breadthUp * 100)}% of the 50 stocks are up${breadthOk ? ', which agrees' : ''}`}`));
+  }
+  if (W.supertrend) {
+    const st = ctx.supertrend;
+    checks.push(check('supertrend', 'Supertrend', st && d * st.dir > 0 ? W.supertrend : 0, W.supertrend, st == null ? 'Not enough bars for Supertrend yet' : d * st.dir > 0 ? 'Supertrend points the same way' : 'Supertrend points the other way'));
+  }
+  if (W.obv) {
+    checks.push(check('obv', 'On-balance volume', ctx.obv != null && d * ctx.obv > 0 ? W.obv : 0, W.obv, ctx.obv == null ? 'Not enough bars for on-balance volume yet' : d * ctx.obv > 0 ? 'Volume has been flowing the same way over the last hour' : 'Volume has not been flowing the same way'));
+  }
+  if (W.squeeze) {
+    const q = ctx.squeeze;
+    const ok = q?.released && d * q.side > 0;
+    checks.push(check('squeeze', 'Squeeze', ok ? W.squeeze : 0, W.squeeze, q == null ? 'Not enough bars for the Bollinger squeeze' : ok ? 'A quiet Bollinger squeeze is breaking in this direction' : 'No squeeze breaking in this direction'));
+  }
+  if (W.cpr) {
+    const p = ctx.pivots;
+    const beyond = p != null && (d > 0 ? ctx.ltp > p.tc : ctx.ltp < p.bc);
+    checks.push(check('cpr', 'Pivot range', beyond ? W.cpr : 0, W.cpr, p == null ? 'No previous day for the central pivot range' : beyond ? `Price is ${d > 0 ? 'above' : 'below'} yesterday's central pivot range${p.widthPct < 0.3 ? ', a narrow one, which suggests a trending day' : ''}` : "Price is not past yesterday's central pivot range in this direction"));
   }
   if (W.monthly) {
     const m = ctx.month;

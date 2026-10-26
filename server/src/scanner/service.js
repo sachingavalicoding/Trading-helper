@@ -6,12 +6,19 @@ import { logger } from '../utils/logger.js';
 import { CandleStore } from './candleStore.js';
 import { evaluateStock, MIN_SCORE } from './evaluate.js';
 import { buildPlan } from './plan.js';
+import { resultR } from './stats.js';
+import { aggregateCandles } from '../market/providers/BaseProvider.js';
+import { ema, sessionVwap } from '../signals/indicators.js';
 
 const PLAN_AT_MIN = 9 * 60; // the morning plan goes out at 09:00 IST
 const IDEA_TTL_MS = 2 * 60 * 60 * 1000;
 const MAX_WATCHING = 6;
 const STATUS_ORDER = { ENTRY: 0, WATCHING: 1 };
 const MAX_REJECTED = 12;
+const SETUP_SAMPLE = 20; // the last 20 finished ideas of a setup...
+const SETUP_MIN_AVG_R = -0.25; // ...averaging worse than this switch the setup off
+const SETUP_WINDOW_MS = 3 * 24 * 60 * 60 * 1000; // only recent ideas count, so a switched-off setup comes back by itself
+const MARKET_STATE_MS = 60_000;
 const MAX_OPEN_IDEAS = 5; // more at once cannot all be watched, so the extra ones wait
 const MAX_IDEAS_PER_STOCK = 2; // per day: a stock that keeps failing is not worth another try
 const LATE_R = 0.5; // price already ran this far (in risk units) towards the target
@@ -41,6 +48,10 @@ export class ScannerService extends EventEmitter {
     this.perStockDay = null;
     this.daily = new Map(); // symbol -> about a month of daily candles
     this.dailyDay = null;
+    this.disabledSetups = new Map(); // setup -> why it is off
+    this.setupCheckedAt = 0;
+    this.marketStateAt = 0;
+    this.marketState = null;
     this.finished = []; // today's finished ideas, oldest first: { status, at }
     this.result = { items: [], rejected: [], scanned: 0, total: this.symbols.length, updatedAt: null };
     this.scanning = false;
@@ -89,6 +100,50 @@ export class ScannerService extends EventEmitter {
     } finally {
       this.dailyLoading = false;
     }
+  }
+
+  /** Switch off a setup whose last 20 finished ideas lost money on average; re-checked every 5 minutes. */
+  async refreshSetupHealth() {
+    if (Date.now() - this.setupCheckedAt < 5 * 60_000) return;
+    this.setupCheckedAt = Date.now();
+    const since = new Date(this.now().getTime() - SETUP_WINDOW_MS);
+    const done = await ScanIdea.find({ status: { $ne: 'OPEN' }, closedAt: { $gte: since } }, 'setup side entry stopLoss exitPrice closedAt').sort({ closedAt: -1 }).limit(400).lean();
+    const bySetup = new Map();
+    for (const i of done) bySetup.set(i.setup, [...(bySetup.get(i.setup) || []), i]);
+    const off = new Map();
+    for (const [setup, list] of bySetup) {
+      const rs = list.slice(0, SETUP_SAMPLE).map(resultR).filter((r) => r != null);
+      if (rs.length < SETUP_SAMPLE) continue;
+      const avg = rs.reduce((a, b) => a + b, 0) / rs.length;
+      if (avg < SETUP_MIN_AVG_R) off.set(setup, `${setup} is switched off: its last ${rs.length} ideas averaged ${avg.toFixed(2)}R`);
+    }
+    this.disabledSetups = off;
+  }
+
+  /** Nifty 50's own trend (VWAP and EMA 9/21 on 5-minute bars) and how many of the 50 stocks are up, read once a minute. */
+  async refreshMarketState() {
+    if (Date.now() - this.marketStateAt < MARKET_STATE_MS) return this.marketState;
+    this.marketStateAt = Date.now();
+    let niftyTrend = null;
+    try {
+      const c1 = await this.market.getCandles('NIFTY 50', '1m');
+      const tick = this.market.getTick('NIFTY 50');
+      const c5 = c1.length >= 40 ? aggregateCandles(c1, '5m') : [];
+      if (c5.length >= 22 && tick) {
+        const vwap = sessionVwap(c1);
+        const e9 = ema(c5, 9).at(-1)?.value;
+        const e21 = ema(c5, 21).at(-1)?.value;
+        const up = tick.ltp > (vwap ?? tick.ltp) && e9 > e21;
+        const down = tick.ltp < (vwap ?? tick.ltp) && e9 < e21;
+        niftyTrend = up ? 1 : down ? -1 : 0;
+      }
+    } catch (err) {
+      logger.warn(`Nifty 50 trend unavailable: ${err.message}`);
+    }
+    const moves = this.symbols.map((s) => this.market.getTick(s)?.changePct).filter((p) => p != null);
+    const breadthUp = moves.length >= 20 ? moves.filter((p) => p > 0).length / moves.length : null;
+    this.marketState = niftyTrend == null && breadthUp == null ? null : { niftyTrend, breadthUp };
+    return this.marketState;
   }
 
   /** Why new ideas are paused, or null. Stops come in streaks on a choppy day, so rest after one. */
@@ -271,6 +326,8 @@ export class ScannerService extends EventEmitter {
       const niftyChangePct = this.market.getTick('NIFTY 50')?.changePct ?? null;
       const newsBySymbol = await this.#newsSignals();
       const sectors = this.#sectorMoves();
+      const marketState = await this.refreshMarketState();
+      await this.refreshSetupHealth().catch((e) => logger.warn(`setup health check failed: ${e.message}`));
       if (this.dailyDay !== this.day && this.warm) this.loadDaily().catch((e) => logger.warn(`daily load failed: ${e.message}`));
       const entries = [];
       const watching = [];
@@ -290,12 +347,12 @@ export class ScannerService extends EventEmitter {
           for (const idea of open) entries.push(this.#ideaItem(idea, tick));
           continue;
         }
-        const { candidates } = evaluateStock({ symbol, tick, c1, niftyChangePct, sectorChangePct: sectors(symbol), daily: this.daily.get(symbol) ?? null, news: newsBySymbol[symbol] ?? null }, { now: this.now(), enforceWindows });
+        const { candidates } = evaluateStock({ symbol, tick, c1, niftyChangePct, sectorChangePct: sectors(symbol), daily: this.daily.get(symbol) ?? null, marketState, news: newsBySymbol[symbol] ?? null }, { now: this.now(), enforceWindows });
         const st = this.#stockToday(symbol);
         const strong = candidates.filter((c) => c.score >= MIN_SCORE);
         const openCount = [...this.open.values()].reduce((n, l) => n + l.length, 0);
         const stockBlock = paused ? paused : openCount >= MAX_OPEN_IDEAS ? `Already ${openCount} ideas open, so new ones wait` : st.stopped ? 'Already stopped out on this stock today' : st.count >= MAX_IDEAS_PER_STOCK ? `Already had ${st.count} ideas on this stock today` : null;
-        const ok = stockBlock ? null : strong.find((c) => c.status !== 'MISSED' && !c.blocked.length);
+        const ok = stockBlock ? null : strong.find((c) => c.status !== 'MISSED' && !c.blocked.length && !this.disabledSetups.has(c.setup));
         if (ok) {
           const item = { ...ok, symbol, ltp: tick.ltp, changePct: tick.changePct };
           if (ok.status === 'ENTRY') {
@@ -307,7 +364,7 @@ export class ScannerService extends EventEmitter {
         // The best idea was turned down: keep it so the screen can say why.
         const top = strong[0];
         if (top) {
-          const reasons = [...(stockBlock ? [stockBlock] : []), ...(top.status === 'MISSED' ? ['Price already ran past the entry zone. Do not chase it.'] : []), ...top.blocked];
+          const reasons = [...(stockBlock ? [stockBlock] : []), ...(this.disabledSetups.has(top.setup) ? [this.disabledSetups.get(top.setup)] : []), ...(top.status === 'MISSED' ? ['Price already ran past the entry zone. Do not chase it.'] : []), ...top.blocked];
           rejected.push({ symbol, side: top.side, setup: top.setup, score: top.score, status: top.status, entry: top.entry, stopLoss: top.stopLoss, target1: top.target1, trigger: top.trigger, ltp: tick.ltp, changePct: tick.changePct, reasons });
         }
       }

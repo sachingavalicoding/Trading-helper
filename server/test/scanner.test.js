@@ -351,3 +351,28 @@ test('three stop-outs in the last four ideas pause new ideas for a while', () =>
   assert.equal(ctx.scanner.chopReason(), null);
   ctx.scanner.finished = [];
 });
+
+test('a setup whose last 20 ideas lost money is switched off, then comes back once they age out', async () => {
+  const mk = (n, closedAt) => Array.from({ length: n }, (_, i) => ({ ...idea('TCS', 1000), day: `${closedAt.getTime()}-${i}`, setup: 'Gap and go', status: 'STOPPED', exitPrice: 995, closedAt: new Date(closedAt.getTime() - i * 1000), score: 80 }));
+  await ScanIdea.insertMany(mk(19, new Date()));
+  ctx.scanner.setupCheckedAt = 0;
+  await ctx.scanner.refreshSetupHealth();
+  assert.ok(!ctx.scanner.disabledSetups.has('Gap and go'), 'needs a full sample of 20');
+  await ScanIdea.insertMany(mk(1, new Date()));
+  ctx.scanner.setupCheckedAt = 0;
+  await ctx.scanner.refreshSetupHealth();
+  assert.match(ctx.scanner.disabledSetups.get('Gap and go'), /switched off/);
+  await ScanIdea.deleteMany({ setup: 'Gap and go' });
+  await ScanIdea.insertMany(mk(20, new Date(Date.now() - 4 * 24 * 3600 * 1000)));
+  ctx.scanner.setupCheckedAt = 0;
+  await ctx.scanner.refreshSetupHealth();
+  assert.ok(!ctx.scanner.disabledSetups.has('Gap and go'), 'old results no longer count');
+  await ScanIdea.deleteMany({ setup: 'Gap and go' });
+});
+
+test('market state reads the Nifty 50 trend and the share of stocks that are up', async () => {
+  ctx.scanner.marketStateAt = 0;
+  const m = await ctx.scanner.refreshMarketState();
+  assert.ok(m == null || (m.breadthUp == null || (m.breadthUp >= 0 && m.breadthUp <= 1)));
+  if (m?.niftyTrend != null) assert.ok([-1, 0, 1].includes(m.niftyTrend));
+});

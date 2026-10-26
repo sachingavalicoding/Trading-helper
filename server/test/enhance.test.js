@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { summarizeDaily } from '../src/scanner/daily.js';
-import { adx } from '../src/signals/indicators.js';
+import { adx, supertrend, obvChange, squeezeRelease } from '../src/signals/indicators.js';
+import { pivotsFrom, candleConfirms } from '../src/scanner/pivots.js';
 import { scoreCandidate, WEIGHTS, LEGACY_WEIGHTS, MIN_ADX } from '../src/scanner/evaluate.js';
 
 const bars = (n, close) => Array.from({ length: n }, (_, i) => {
@@ -22,7 +23,7 @@ test('score weights add up to 100, old and new', () => {
   assert.equal(total(LEGACY_WEIGHTS), 100);
 });
 
-const ctx = (over = {}) => ({ ltp: 101, vwap: 100, trend5: 1, trend15: 1, relVol: 2, relStrength: 0.6, bookShare: 0.7, rsi: 60, macdHist: { now: 1, prev: 0.5 }, niftyChangePct: 0.3, vwapStretch: 0.5, news: null, adx: 30, emaStack: 1, sectorStrength: 0.4, month: { trend: 1, sessions: 22 }, ...over });
+const ctx = (over = {}) => ({ ltp: 101, vwap: 100, trend5: 1, trend15: 1, relVol: 2, relStrength: 0.6, bookShare: 0.7, rsi: 60, macdHist: { now: 1, prev: 0.5 }, niftyChangePct: 0.3, vwapStretch: 0.5, news: null, adx: 30, emaStack: 1, sectorStrength: 0.4, month: { trend: 1, sessions: 22 }, supertrend: { dir: 1 }, obv: 500, squeeze: { released: true, side: 1 }, pivots: { tc: 100.5, bc: 99.5, widthPct: 0.2 }, candleOk: () => true, marketState: { niftyTrend: 1, breadthUp: 0.7 }, ...over });
 const cand = (over = {}) => ({ side: 'BUY', status: 'ENTRY', entry: 101, stopLoss: 100.4, setup: 'X', ...over });
 
 test('a clean trend, aligned EMAs and a backing sector earn full marks', () => {
@@ -83,4 +84,62 @@ test("today's unfinished daily candle is not counted as a finished session", () 
   const up = Array.from({ length: 20 }, (_, i) => dayBar(i, 100 + i));
   const today = Math.floor((up.at(-1).time + 19800) / 86400); // the 20th candle is today's, so only 19 are finished
   assert.equal(summarizeDaily(up, 120, today), null);
+});
+
+test('each new check earns points only when it agrees with the trade, and none when data is missing', () => {
+  const pts = (over, id, side = cand()) => scoreCandidate(ctx(over), side).checks.find((c) => c.id === id).points;
+  assert.equal(pts({}, 'supertrend'), WEIGHTS.supertrend);
+  assert.equal(pts({ supertrend: { dir: -1 } }, 'supertrend'), 0);
+  assert.equal(pts({ supertrend: null }, 'supertrend'), 0);
+  assert.equal(pts({ obv: -5 }, 'obv'), 0);
+  assert.equal(pts({ obv: null }, 'obv'), 0);
+  assert.equal(pts({ squeeze: { released: true, side: -1 } }, 'squeeze'), 0);
+  assert.equal(pts({ squeeze: { released: false, side: 1 } }, 'squeeze'), 0);
+  assert.equal(pts({ candleOk: () => false }, 'candle'), 0);
+  assert.equal(pts({ pivots: { tc: 102, bc: 101.5, widthPct: 0.2 } }, 'cpr'), 0); // price 101 is under the range
+  assert.equal(pts({ pivots: null }, 'cpr'), 0);
+  assert.equal(pts({ marketState: null }, 'niftyTrend'), 0);
+  assert.equal(pts({ marketState: { niftyTrend: 1, breadthUp: 0.3 } }, 'niftyTrend'), 1); // only one of the two agrees
+  assert.equal(pts({ marketState: { niftyTrend: -1, breadthUp: 0.3 } }, 'niftyTrend'), 0);
+});
+
+const bar = (o, h, l, c) => ({ open: o, high: h, low: l, close: c });
+
+test('candle confirmation wants a strong close or a rejection wick in the trade direction', () => {
+  assert.equal(candleConfirms(bar(100, 102, 99.9, 101.9), 1), true); // strong green
+  assert.equal(candleConfirms(bar(100, 100.3, 99.7, 100.05), 1), false); // indecision
+  assert.equal(candleConfirms(bar(100, 100.4, 98, 100.3), 1), true); // long lower wick, closed back up
+  assert.equal(candleConfirms(bar(100, 100.1, 98, 98.2), 1), false); // strong red is not a buy
+  assert.equal(candleConfirms(bar(100, 100.1, 98, 98.1), -1), true);
+  assert.equal(candleConfirms(null, 1), null);
+});
+
+test('pivots: central range and R1/S1 from yesterday, bad data gives none', () => {
+  const p = pivotsFrom({ high: 110, low: 90, close: 100 });
+  assert.equal(p.pivot, 100);
+  assert.equal(p.r1, 110);
+  assert.equal(p.s1, 90);
+  assert.ok(p.tc >= p.bc && p.widthPct < 0.1);
+  assert.equal(pivotsFrom({ high: 1, low: NaN, close: 1 }), null);
+});
+
+test('supertrend follows a steady move, flips on a reversal, and needs bars', () => {
+  assert.equal(supertrend(bars(60, (i) => 100 + i)).dir, 1);
+  assert.equal(supertrend(bars(60, (i) => 200 - i)).dir, -1);
+  assert.equal(supertrend(bars(60, (i) => (i < 40 ? 100 + i : 140 - (i - 40) * 4))).dir, -1);
+  assert.equal(supertrend(bars(5, (i) => i)), null);
+});
+
+test('on-balance volume rises when rising bars carry the volume', () => {
+  assert.ok(obvChange(bars(40, (i) => 100 + i)) > 0);
+  assert.ok(obvChange(bars(40, (i) => 100 - i)) < 0);
+  assert.equal(obvChange(bars(5, (i) => i)), null);
+});
+
+test('a Bollinger squeeze that starts to widen is a release; a steadily noisy chart is not', () => {
+  const quiet = (i) => 100 + (i % 2 ? 0.05 : -0.05);
+  const series = Array.from({ length: 70 }, (_, i) => (i < 62 ? quiet(i) : 100 + (i - 61) * 0.8));
+  assert.equal(squeezeRelease(bars(70, (i) => series[i])).released, true);
+  assert.equal(squeezeRelease(bars(70, (i) => 100 + 2 * Math.sin(i))).released, false);
+  assert.equal(squeezeRelease(bars(10, (i) => i)), null);
 });
