@@ -20,6 +20,7 @@ const tradeSchema = new mongoose.Schema(
     order: { type: mongoose.Schema.Types.ObjectId, ref: 'Order', required: true },
     position: { type: mongoose.Schema.Types.ObjectId, ref: 'Position' },
     symbol: { type: String, required: true },
+    segment: { type: String, enum: ['EQ', 'OPT'], default: 'EQ' },
     side: { type: String, enum: ['BUY', 'SELL'], required: true },
     role: { type: String },
     qty: { type: Number, required: true },

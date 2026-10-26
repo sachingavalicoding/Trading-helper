@@ -1,6 +1,7 @@
 import { buildContext } from './context.js';
 import { SETUPS } from './setups.js';
 import { istParts } from '../market/marketHours.js';
+import { roundToTick, round2 } from '../utils/money.js';
 
 export const MAX_STOP_PCT = 1.2; // a stop wider than this risks too much on one idea
 export const MIN_SCORE = 70; // only strong ideas are shown or alerted
@@ -8,6 +9,7 @@ const FIRST_ENTRY_MIN = 9 * 60 + 30; // opening range is only complete at 09:30
 const LAST_ENTRY_MIN = 14 * 60 + 30; // late entries have little time to reach target 1 before the 15:15 square-off
 const LEGACY_LAST_ENTRY_MIN = 14 * 60 + 45;
 export const MAX_TARGET_VS_DAILY_RANGE = 0.8; // target 1 further than this share of the stock's usual daily range is unlikely to be reached
+export const MIN_ADAPTED_RR = 1.2; // a target pulled in to fit a slow stock must still pay at least this many times the risk
 
 /**
  * Points each part of the score can earn; they add up to 100 (news is a bonus on top).
@@ -44,6 +46,32 @@ function runGates(ctx, d, vwapOk, newsDelta, c, legacy) {
   }
   g.push(gate('news', 'News', newsDelta > -10, 'Recent news points the other way'));
   return g;
+}
+
+/**
+ * A slow stock cannot reach a far target, but it can still pay a smaller one. Pull target 1 (and target 2 with it) in to
+ * the stock's usual reach instead of dropping the idea; keep the stop where the chart puts it. A smaller profit is fine,
+ * a loss is not, so if the shortened target no longer pays MIN_ADAPTED_RR times the risk the idea stays as it was and the
+ * "Target reachable" check blocks it.
+ */
+export function adaptTargets(ctx, c) {
+  const reach = ctx.month?.avgRangePct;
+  if (reach == null || !c.entry) return c;
+  const dist = Math.abs(c.target1 - c.entry);
+  const cap = (MAX_TARGET_VS_DAILY_RANGE * reach * c.entry) / 100;
+  if (!(dist > cap)) return c;
+  const risk = Math.abs(c.entry - c.stopLoss);
+  if (!(risk > 0) || cap / risk < MIN_ADAPTED_RR) return c;
+  const d = c.side === 'BUY' ? 1 : -1;
+  const scale = cap / dist;
+  return {
+    ...c,
+    target1: roundToTick(c.entry + d * cap),
+    target2: roundToTick(c.entry + d * Math.abs(c.target2 - c.entry) * scale),
+    riskReward: round2(cap / risk),
+    targetNote: `${c.targetNote}, pulled in to ${round2(MAX_TARGET_VS_DAILY_RANGE * reach)}% because this stock usually moves about ${round2(reach)}% a day`,
+    adapted: true,
+  };
 }
 
 /** Score one idea out of 100 and explain every part of the score. */
@@ -174,7 +202,7 @@ export function evaluateStock(input, { now = new Date(), enforceWindows = false,
   if (!ctx) return { ctx: null, candidates: [] };
   if (enforceWindows && !inEntryWindow(now, legacy)) return { ctx, candidates: [] };
   const candidates = SETUPS.flatMap((setup) => setup(ctx))
-    .map((c) => scoreCandidate(ctx, c, { legacy }))
+    .map((c) => scoreCandidate(ctx, legacy ? c : adaptTargets(ctx, c), { legacy }))
     .sort((a, b) => b.score - a.score);
   return { ctx, candidates };
 }

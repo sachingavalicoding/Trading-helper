@@ -137,10 +137,10 @@ test('past each target an auto trade is not sold: the stop jumps to just short o
   const stopAt = async () => (await Order.findOne({ user: s.user, symbol: 'ONGC', role: 'STOPLOSS', status: 'OPEN' }).lean()).triggerPrice;
   ctx.provider.setPrice('ONGC', i.target1 + 0.5);
   await settle();
-  assert.ok(Math.abs((await stopAt()) - (i.entry + 0.95 * (i.target1 - i.entry))) <= 0.06, 'stop just short of target 1');
+  assert.ok(Math.abs((await stopAt()) - (i.entry + 0.8 * (i.target1 - i.entry))) <= 0.06, 'stop just short of target 1');
   ctx.provider.setPrice('ONGC', i.target2 + 0.5);
   await settle();
-  assert.ok(Math.abs((await stopAt()) - (i.entry + 0.95 * (i.target2 - i.entry))) <= 0.06, 'stop just short of target 2');
+  assert.ok(Math.abs((await stopAt()) - (i.entry + 0.8 * (i.target2 - i.entry))) <= 0.06, 'stop just short of target 2');
   assert.equal((await Position.findOne({ user: s.user, symbol: 'ONGC' })).status, 'OPEN');
 });
 
@@ -216,7 +216,7 @@ test('the log fills in how a trade ended: stop, profit lock, target, manual exit
     await trader.consider(s, c);
     ctx.provider.setPrice('SBIN', c.target1 + 0.5);
     await settle();
-    ctx.provider.setPrice('SBIN', c.entry + 0.9 * (c.target1 - c.entry));
+    ctx.provider.setPrice('SBIN', c.entry + 0.75 * (c.target1 - c.entry));
     await settle();
     await new Promise((r) => setTimeout(r, 50));
     row = await outcomeOf('SBIN');

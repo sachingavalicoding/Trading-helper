@@ -8,6 +8,7 @@ import { createApp } from './app.js';
 import { SignalTracker } from './signals/tracker.js';
 import { ScannerService } from './scanner/service.js';
 import { AutoTrader } from './auto/autoTrader.js';
+import { OptionTrader } from './options/optionTrader.js';
 import { NewsService } from './news/service.js';
 import { attachSocket } from './socket/index.js';
 import { logger } from './utils/logger.js';
@@ -16,7 +17,7 @@ async function main() {
   assertEnv();
   await connectDb(env.mongoUri);
 
-  const market = new MarketDataService(createProvider(env), { holidays: env.nseHolidays });
+  const market = new MarketDataService(createProvider(env), { holidays: env.nseHolidays, expiryWeekday: env.niftyExpiryWeekday });
   const engine = new OrderEngine({ market, config: env });
   await engine.init();
   try {
@@ -38,8 +39,11 @@ async function main() {
   scanner.start();
   const autoTrader = new AutoTrader({ scanner, engine, config: env });
   autoTrader.start();
+  const optionTrader = new OptionTrader({ market, engine, config: env, scanner });
+  await optionTrader.init();
+  optionTrader.start();
 
-  const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader });
+  const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader });
   const server = http.createServer(app);
   const io = attachSocket(server, { market, engine, config: env, scanner });
 
@@ -53,6 +57,7 @@ async function main() {
     engine.stop();
     tracker.stop();
     autoTrader.stop();
+    optionTrader.stop();
     scanner.stop();
     news.stop();
     io.closeAll();

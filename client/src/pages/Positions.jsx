@@ -8,6 +8,7 @@ import { api } from '../lib/api.js';
 import { useTick, useLtps } from '../lib/tickStore.js';
 import { formatPrice, formatPnl, formatINR, formatTime, pnlClass } from '../lib/format.js';
 import { ExitsSheet } from '../components/ExitsSheet.jsx';
+import { DataTable, Stack } from '../components/DataTable.jsx';
 import { Card, Flash, Skeleton, Badge, EmptyState } from '../components/ui.jsx';
 
 function OpenRow({ p, onExit, onEdit, busy }) {
@@ -83,7 +84,7 @@ export default function Positions() {
   }
   const exitOne = (symbol) => run(() => api(`/positions/${encodeURIComponent(symbol)}/exit`, { method: 'POST' }));
   const exitAll = () => {
-    if (window.confirm('Exit all open positions at market and cancel pending orders?')) run(() => api('/positions/exit-all', { method: 'POST' }));
+    if (window.confirm('Exit all open share positions at market and cancel their pending orders?')) run(() => api('/positions/exit-all?segment=EQ', { method: 'POST' }));
   };
 
   return (
@@ -102,7 +103,7 @@ export default function Positions() {
       </Card>
 
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">Open positions ({positions.length})</h2>
+        <h2 className="text-sm font-semibold">Open share positions ({positions.length})</h2>
         {positions.length > 0 && (
           <button type="button" disabled={busy} onClick={exitAll} className="btn btn-outline-down btn-sm">
             Exit all
@@ -131,25 +132,30 @@ export default function Positions() {
       {closed?.positions?.length > 0 && (
         <>
           <h2 className="pt-2 text-sm font-semibold">Closed today ({closed.positions.length})</h2>
-          <Card>
-            <ul>
-              {closed.positions.map((p) => (
-                <li key={p._id} className="flex items-center justify-between border-b border-line px-3 py-3 last:border-0">
-                  <div>
-                    <div className="flex items-center gap-2 text-sm font-semibold">
-                      {p.symbol} <Badge tone={p.direction === 'LONG' ? 'up' : 'down'}>{p.direction === 'LONG' ? 'Long' : 'Short'}</Badge>
-                    </div>
-                    <div className="num text-[11px] text-muted">
-                      Buy {formatPrice(p.buyQty ? p.buyValue / p.buyQty : null)} · Sell {formatPrice(p.sellQty ? p.sellValue / p.sellQty : null)} · Qty {Math.max(p.buyQty, p.sellQty)} · {formatTime(p.closedAt)}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className={`num text-sm font-bold ${pnlClass(p.netPnl)}`}>{formatPnl(p.netPnl)}</div>
-                    <div className="num text-[11px] text-muted">charges {formatINR(p.charges)}</div>
-                  </div>
-                </li>
-              ))}
-            </ul>
+          <Card className="overflow-hidden">
+            <DataTable
+              columns={[
+                { key: 'when', header: 'Closed', render: (p) => formatTime(p.closedAt) },
+                {
+                  key: 'stock',
+                  header: 'Stock',
+                  render: (p) => (
+                    <Stack
+                      top={
+                        <span className="flex items-center gap-1.5 font-semibold">
+                          {p.symbol} <Badge tone={p.direction === 'LONG' ? 'up' : 'down'}>{p.direction === 'LONG' ? 'Long' : 'Short'}</Badge>
+                        </span>
+                      }
+                      sub={`Qty ${Math.max(p.buyQty, p.sellQty)}`}
+                    />
+                  ),
+                },
+                { key: 'px', header: 'Buy → Sell', align: 'right', render: (p) => `${formatPrice(p.buyQty ? p.buyValue / p.buyQty : null)} → ${formatPrice(p.sellQty ? p.sellValue / p.sellQty : null)}` },
+                { key: 'net', header: 'Net', align: 'right', render: (p) => <Stack top={<span className={`font-bold ${pnlClass(p.netPnl)}`}>{formatPnl(p.netPnl)}</span>} sub={`charges ${formatINR(p.charges)}`} /> },
+              ]}
+              rows={closed.positions}
+              footer={{ when: 'Day total', net: formatPnl(closedNet) }}
+            />
           </Card>
         </>
       )}

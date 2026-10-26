@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, LineChart, Briefcase, ListOrdered, UserRound, Radar, Sun, Moon } from 'lucide-react';
+import { LayoutDashboard, LineChart, Briefcase, ListOrdered, UserRound, Radar, Sun, Moon, CandlestickChart } from 'lucide-react';
 import { IndexStrip } from './IndexStrip.jsx';
 import { MarketStatus } from './MarketStatus.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
@@ -8,6 +8,7 @@ import { Disclaimer } from './ui.jsx';
 const NAV = [
   { to: '/', label: 'Watchlist', icon: LineChart, end: true },
   { to: '/scanner', label: 'Scanner', icon: Radar },
+  { to: '/options', label: 'Options', icon: CandlestickChart },
   { to: '/positions', label: 'Positions', icon: Briefcase },
   { to: '/orders', label: 'Orders', icon: ListOrdered },
   { to: '/dashboard', label: 'P&L', icon: LayoutDashboard },
@@ -70,7 +71,7 @@ export function Layout() {
 
         {/* Mobile bottom tab bar */}
         <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/90 backdrop-blur-xl md:hidden">
-          <div className="grid grid-cols-6">
+          <div className="grid grid-cols-7">
             {NAV.map(({ to, label, icon: Icon, end }) => (
               <NavLink
                 key={to}

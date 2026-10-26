@@ -35,6 +35,9 @@ export const env = {
   startingBalance: num(process.env.STARTING_BALANCE, 100000),
   misLeverage: num(process.env.MIS_LEVERAGE, 5),
   maxOrderQty: num(process.env.MAX_ORDER_QTY, 100000),
+  // Nifty options: contracts per lot (the live feed's own lot size wins when it lists one) and the weekly expiry weekday (2 = Tuesday).
+  niftyLotSize: num(process.env.NIFTY_LOT_SIZE, 65),
+  niftyExpiryWeekday: num(process.env.NIFTY_EXPIRY_WEEKDAY, 2),
 
   upstox: {
     accessToken: process.env.UPSTOX_ACCESS_TOKEN || '',

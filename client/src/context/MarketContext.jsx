@@ -80,9 +80,17 @@ export function MarketProvider({ children }) {
     return () => s?.emit('unsubscribe', { symbols: [symbol], depth: true });
   }, []);
 
+  // Prices for symbols outside the watchlist, e.g. the option contracts you hold.
+  const subscribeSymbols = useCallback((symbols) => {
+    const s = socketRef.current;
+    if (!symbols.length) return () => {};
+    s?.emit('subscribe', { symbols });
+    return () => s?.emit('unsubscribe', { symbols });
+  }, []);
+
   const value = useMemo(
-    () => ({ instruments, status, connected, ready, version, refresh, subscribeDepth }),
-    [instruments, status, connected, ready, version, refresh, subscribeDepth],
+    () => ({ instruments, status, connected, ready, version, refresh, subscribeDepth, subscribeSymbols }),
+    [instruments, status, connected, ready, version, refresh, subscribeDepth, subscribeSymbols],
   );
   return <MarketContext.Provider value={value}>{children}</MarketContext.Provider>;
 }

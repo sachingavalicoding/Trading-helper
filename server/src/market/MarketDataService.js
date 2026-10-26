@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { ALL_SYMBOLS, INDICES, NIFTY50 } from './instruments.js';
 import { getMarketStatus } from './marketHours.js';
 import { INTERVAL_SECONDS } from './providers/BaseProvider.js';
+import { UNDERLYING, atmStrike, chooseExpiry, weeklyExpiries } from '../options/symbols.js';
 
 const HISTORY_TTL_MS = 30000;
 
@@ -13,14 +14,16 @@ const DAILY_TTL_MS = 6 * 60 * 60 * 1000;
 const DAILY_DAYS = 45;
 
 export class MarketDataService extends EventEmitter {
-  constructor(provider, { holidays = [] } = {}) {
+  constructor(provider, { holidays = [], expiryWeekday } = {}) {
     super();
     this.setMaxListeners(50);
     this.provider = provider;
     this.holidays = holidays;
+    this.expiryWeekday = expiryWeekday;
     this.latest = new Map();
     this.historyCache = new Map();
     this.feedStatus = { connected: false, message: 'Not started' };
+    this.contracts = new Map(); // option symbol -> { symbol, strike, type, expiry, lotSize } for every contract picked so far
 
     provider.on('tick', (tick) => {
       this.latest.set(tick.symbol, tick);
@@ -67,6 +70,38 @@ export class MarketDataService extends EventEmitter {
         capabilities: this.provider.capabilities,
       },
     };
+  }
+
+  /** Lot size of an option contract this service has picked, or undefined for anything else. */
+  lotSize(symbol) {
+    return this.contracts.get(symbol)?.lotSize;
+  }
+
+  /**
+   * The at-the-money Nifty contract of `type` ('CE' or 'PE') for the expiry worth buying, started streaming so it has a price.
+   * Returns null when the feed lists no contracts or the Nifty has no price yet.
+   */
+  async pickOption({ type, now = new Date(), minDays = 1 }) {
+    const spot = this.getLtp(UNDERLYING);
+    if (!spot) return null;
+    const listed = await this.provider.getOptionExpiries();
+    const expiries = listed.length ? listed : weeklyExpiries(now, { holidays: this.holidays, weekday: this.expiryWeekday });
+    const expiry = chooseExpiry(expiries, now, { minDays });
+    if (!expiry) return null;
+    const atm = atmStrike(spot);
+    const pick = (await this.provider.getOptionContracts(expiry))
+      .filter((c) => c.type === type)
+      .sort((a, b) => Math.abs(a.strike - atm) - Math.abs(b.strike - atm))[0];
+    if (!pick) return null;
+    this.contracts.set(pick.symbol, pick);
+    await this.provider.subscribe([pick.symbol]);
+    return { ...pick, ltp: this.getLtp(pick.symbol), spot };
+  }
+
+  /** Start streaming a contract (e.g. one that is already held after a restart). */
+  async watchOption(symbol, contract = null) {
+    if (contract) this.contracts.set(symbol, contract);
+    await this.provider.subscribe([symbol]);
   }
 
   /** About `days` days of daily candles, cached for hours: the last month does not change while trading. */
