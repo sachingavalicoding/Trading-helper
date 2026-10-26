@@ -14,6 +14,7 @@ const LAST_ENTRY_MIN = 14 * 60 + 45;
  */
 export const WEIGHTS = { setup: 30, vwap: 5, trend5: 5, trend15: 4, volume: 14, strength: 13, book: 3, rsi: 7, macd: 4, adx: 6, emaStack: 5, sector: 4 };
 export const LEGACY_WEIGHTS = { setup: 30, vwap: 7, trend5: 7, trend15: 6, volume: 18, strength: 13, book: 6, rsi: 7, macd: 6, adx: 0, emaStack: 0, sector: 0 };
+export const MAX_DAY_MOVE_PCT = 3; // a stock already this far from yesterday's close in the trade's direction is being chased
 export const MIN_ADX = 15; // below this the stock is moving sideways and breakouts tend to fail
 
 const STATUS_POINTS = { ENTRY: 30, WATCHING: 18, MISSED: 10 };
@@ -36,6 +37,7 @@ function runGates(ctx, d, vwapOk, newsDelta, c, legacy) {
   g.push(gate('stretch', 'Not stretched', ctx.vwapStretch == null || d * ctx.vwapStretch <= 2.5, `Price is ${Math.abs(ctx.vwapStretch ?? 0).toFixed(1)} ATR from VWAP, so chasing here is risky`));
   g.push(gate('rsi', 'RSI', ctx.rsi == null || !(d > 0 ? ctx.rsi > 78 : ctx.rsi < 22), `RSI ${ctx.rsi?.toFixed(0)} is stretched, so a pullback is likely`));
   if (!legacy) g.push(gate('adx', 'Trending', ctx.adx == null || ctx.adx >= MIN_ADX, `The stock is moving sideways (ADX ${ctx.adx?.toFixed(0)}), so a breakout is likely to fail`));
+  if (!legacy) g.push(gate('daymove', 'Not chasing', ctx.changePct == null || d * ctx.changePct <= MAX_DAY_MOVE_PCT, `It has already moved ${Math.abs(ctx.changePct ?? 0).toFixed(1)}% today, so entering now means chasing`));
   g.push(gate('news', 'News', newsDelta > -10, 'Recent news points the other way'));
   return g;
 }

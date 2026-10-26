@@ -55,3 +55,13 @@ test('legacy scoring has no ADX gate and none of the new checks', () => {
   assert.ok(!r.blocked.length);
   assert.ok(!r.checks.some((c) => ['adx', 'emaStack', 'sector'].includes(c.id)));
 });
+
+test('a stock that already ran far in the trade direction is blocked as chasing, in either direction', () => {
+  const buy = scoreCandidate(ctx({ changePct: 7 }), cand());
+  assert.ok(buy.blocked.some((t) => /chasing/.test(t)));
+  const sell = scoreCandidate(ctx({ changePct: -7, ltp: 99, trend5: -1, trend15: -1 }), cand({ side: 'SELL' }));
+  assert.ok(sell.blocked.some((t) => /chasing/.test(t)));
+  assert.ok(!scoreCandidate(ctx({ changePct: 2 }), cand()).blocked.length);
+  assert.ok(!scoreCandidate(ctx({ changePct: -7 }), cand()).blocked.some((t) => /chasing/.test(t))); // a BUY after a fall is not chasing
+  assert.ok(!scoreCandidate(ctx({ changePct: 7 }), cand(), { legacy: true }).blocked.length);
+});

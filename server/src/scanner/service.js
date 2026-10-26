@@ -12,6 +12,7 @@ const IDEA_TTL_MS = 2 * 60 * 60 * 1000;
 const MAX_WATCHING = 6;
 const STATUS_ORDER = { ENTRY: 0, WATCHING: 1 };
 const MAX_REJECTED = 12;
+const MAX_OPEN_IDEAS = 5; // more at once cannot all be watched, so the extra ones wait
 const MAX_IDEAS_PER_STOCK = 2; // per day: a stock that keeps failing is not worth another try
 const LATE_R = 0.5; // price already ran this far (in risk units) towards the target
 const CHOP_WINDOW = 4; // of the last 4 finished ideas...
@@ -263,7 +264,8 @@ export class ScannerService extends EventEmitter {
         const { candidates } = evaluateStock({ symbol, tick, c1, niftyChangePct, sectorChangePct: sectors(symbol), news: newsBySymbol[symbol] ?? null }, { now: this.now(), enforceWindows });
         const st = this.#stockToday(symbol);
         const strong = candidates.filter((c) => c.score >= MIN_SCORE);
-        const stockBlock = paused ? paused : st.stopped ? 'Already stopped out on this stock today' : st.count >= MAX_IDEAS_PER_STOCK ? `Already had ${st.count} ideas on this stock today` : null;
+        const openCount = [...this.open.values()].reduce((n, l) => n + l.length, 0);
+        const stockBlock = paused ? paused : openCount >= MAX_OPEN_IDEAS ? `Already ${openCount} ideas open, so new ones wait` : st.stopped ? 'Already stopped out on this stock today' : st.count >= MAX_IDEAS_PER_STOCK ? `Already had ${st.count} ideas on this stock today` : null;
         const ok = stockBlock ? null : strong.find((c) => c.status !== 'MISSED' && !c.blocked.length);
         if (ok) {
           const item = { ...ok, symbol, ltp: tick.ltp, changePct: tick.changePct };

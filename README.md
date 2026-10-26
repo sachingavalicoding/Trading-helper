@@ -320,3 +320,7 @@ The score (out of 100) now also counts **ADX** trend strength, whether **EMA 9 /
 ## Auto trades run past target 1
 
 An auto trade is not sold at target 1. When price passes target 1 the stop moves up to target 1, and the trade runs on to target 2. The profit lock still applies and can hold the stop higher. If price falls back to the stop, the trade closes with at least the target-1 profit locked in, minus charges. If it never reaches target 1, the original stop applies. Manual trades are unchanged.
+
+## No chasing, and a cap on open ideas
+
+An idea is blocked when the stock has already moved more than 3% from yesterday's close in the trade's direction (a BUY on a stock up 7% today, a SELL on one down 7%). At most 5 ideas are open at once; extra ones wait under "Not worth entering" until one closes.
