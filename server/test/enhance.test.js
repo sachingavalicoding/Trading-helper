@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { summarizeDaily } from '../src/scanner/daily.js';
 import { adx, supertrend, obvChange, squeezeRelease } from '../src/signals/indicators.js';
 import { pivotsFrom, candleConfirms } from '../src/scanner/pivots.js';
-import { scoreCandidate, adaptTargets, WEIGHTS, LEGACY_WEIGHTS, MIN_ADX } from '../src/scanner/evaluate.js';
+import { followLive } from '../src/scanner/replay.js';
+import { targetTable } from '../src/scanner/backtest.js';
+import { scoreCandidate, adaptTargets, reachTargets, WEIGHTS, LEGACY_WEIGHTS, MIN_ADX } from '../src/scanner/evaluate.js';
 
 const bars = (n, close) => Array.from({ length: n }, (_, i) => {
   const c = close(i);
@@ -171,4 +173,109 @@ test('a far target is pulled in to a slow stock\'s usual reach instead of droppi
   const tight = cand({ entry: 100, stopLoss: 99.1, target1: 101.5, target2: 103 });
   assert.equal(adaptTargets(slow, tight), tight);
   assert.ok(scoreCandidate(slow, tight).blocked.some((t) => /usually moves only/.test(t)));
+});
+
+test('the sale target never sits further than 0.8 of the usual daily range from the entry, and target 2 sits between', () => {
+  const slow = ctx({ month: { trend: 1, sessions: 22, avgRangePct: 1 } });
+  const far = cand({ entry: 100, stopLoss: 99.6, target1: 100.6, target2: 101.8, riskReward: 1.5, targetNote: 'the day high' });
+  const r = reachTargets(slow, far);
+  assert.equal(r.target3, 100.8, '0.8 of a 1% day, not 103');
+  assert.equal(r.target2, 100.7);
+  assert.ok(r.target1 < r.target2 && r.target2 < r.target3);
+  assert.match(r.targetNote, /capped/);
+  assert.equal(far.target3, undefined, 'the input is not changed');
+
+  // a sale already inside the reach is left alone, and so is a stock with no history
+  const near = cand({ entry: 100, stopLoss: 99.8, target1: 100.3, target2: 100.5 });
+  assert.equal(reachTargets(slow, near).target3, 100.7);
+  assert.equal(reachTargets(slow, near).target2, 100.5);
+  assert.equal(reachTargets(ctx({ month: null }), far).target3, 103);
+  // a short sale mirrors it
+  const sell = cand({ side: 'SELL', entry: 100, stopLoss: 100.4, target1: 99.4, target2: 98.2 });
+  assert.equal(reachTargets(slow, sell).target3, 99.2);
+  // the sale stays at least half a risk past target 1, even if the day's reach is smaller than that
+  const tiny = ctx({ month: { trend: 1, sessions: 22, avgRangePct: 0.3 } });
+  const t = reachTargets(tiny, cand({ entry: 100, stopLoss: 99.6, target1: 100.2, target2: 100.4 }));
+  assert.equal(t.target3, 100.4);
+});
+
+const T0 = Date.UTC(2026, 9, 27, 4, 0) / 1000; // 09:30 IST
+const minute = (i, o, h, l, c) => ({ time: T0 + i * 60, open: o, high: h, low: l, close: c, volume: 1000 });
+const live = { side: 'BUY', entry: 100, stopLoss: 99, target1: 101.5, target2: 102.5, target3: 104 };
+
+test('live-style replay: the ladder locks a stop behind the best price, a hit stop above entry is a lock', () => {
+  const bars = [minute(0, 100, 100, 100, 100), minute(1, 100, 101.2, 100.9, 101), minute(2, 101, 101, 100.6, 100.7), minute(3, 100.7, 102, 100.5, 102)];
+  const r = followLive(bars, 0, live);
+  assert.equal(r.exit, 'LOCK');
+  assert.equal(r.status, 'LOCKED');
+  assert.equal(r.exitPrice, 100.7, '+1.2R keeps 0.7R');
+  assert.equal(r.bestR, 1.2);
+  assert.equal(r.runR, 2, 'it still ran to +2R before touching the original stop, whatever the exit did');
+});
+
+test('live-style replay: the original stop, the sale target and a stalled trade', () => {
+  assert.equal(followLive([minute(0, 100, 100, 100, 100), minute(1, 100, 100.2, 98.9, 99)], 0, live).exit, 'STOP');
+  assert.equal(followLive([minute(0, 100, 100, 100, 100), minute(1, 100, 104.1, 100, 104)], 0, live).exitPrice, 104);
+  const flat = [minute(0, 100, 100, 100, 100), ...Array.from({ length: 55 }, (_, i) => minute(i + 1, 99.9, 100.2, 99.7, 99.9))];
+  const t = followLive(flat, 0, live);
+  assert.equal(t.exit, 'TIME');
+  assert.equal(t.exitPrice, 99.9);
+  assert.ok((flat[flat.length - 1].time - flat[0].time) / 60 >= 45);
+});
+
+test('the target table shows which first target would have paid best', () => {
+  const t = targetTable([0, 0.6, 1.2, 2.5].map((runR) => ({ runR })));
+  const at = (k) => t.find((x) => x.target === k);
+  assert.equal(at(1).hitRate, 50);
+  assert.equal(at(1).expectancyR, 0);
+  assert.equal(at(0.5).hitRate, 75);
+  assert.equal(at(0.5).expectancyR, 0.13, '0.75 x 0.5R - 0.25 x 1R');
+});
+
+import { newsGap } from '../src/scanner/setups.js';
+import { entryWindow } from '../src/scanner/evaluate.js';
+
+const gapCtx = (over = {}) => {
+  const bar = (i, o, h, l, c) => ({ time: T0 + i * 300, open: o, high: h, low: l, close: c, volume: 1000 });
+  return ctx({
+    ltp: 103.6,
+    atr5: 0.5,
+    prevClose: 100,
+    gapPct: 2.5,
+    tick: { open: 102.5 },
+    today5: [bar(0, 102.5, 103, 102.3, 102.9), bar(1, 102.9, 103.4, 102.8, 103.3), bar(2, 103.3, 103.4, 103.3, 103.4)],
+    levels: [],
+    news: { label: 'BULLISH', title: 'Wins a large order', reaction: 'AGREES', movePct: 1 },
+    ...over,
+  });
+};
+
+test('a held gap on agreeing news that breaks the first bars\' high is a News gap, marked early', () => {
+  const [c] = newsGap(gapCtx());
+  assert.equal(c.setup, 'News gap');
+  assert.equal(c.side, 'BUY');
+  assert.equal(c.early, true);
+  assert.equal(c.status, 'ENTRY');
+  assert.ok(c.stopLoss < 102.3, 'the stop is below where the gap held');
+  assert.match(c.reasons[0], /opened up 2.5% on news/);
+});
+
+test('no News gap without agreeing news, a big enough gap, a held gap, or when the news is being sold', () => {
+  assert.deepEqual(newsGap(gapCtx({ news: null })), []);
+  assert.deepEqual(newsGap(gapCtx({ news: { label: 'BEARISH', title: 'x', reaction: 'AGREES' } })).filter((c) => c.side === 'BUY'), []);
+  assert.deepEqual(newsGap(gapCtx({ news: { label: 'BULLISH', title: 'x', reaction: 'FADING' } })), []);
+  assert.deepEqual(newsGap(gapCtx({ gapPct: 1 })), []);
+  const bar = (i, o, h, l, c) => ({ time: T0 + i * 300, open: o, high: h, low: l, close: c, volume: 1000 });
+  assert.deepEqual(newsGap(gapCtx({ today5: [bar(0, 102.5, 103, 100.4, 102.9), bar(1, 102.9, 103.4, 102.8, 103.3), bar(2, 103.3, 103.4, 103.3, 103.4)] })), [], 'gave back more than half of the gap');
+});
+
+test('before 09:20 nothing; 09:20 to 09:30 only the news-gap setup; then everything until 14:30', () => {
+  const at = (h, m) => new Date(Date.UTC(2026, 9, 27, h, m) - 5.5 * 3600000); // IST
+  assert.equal(entryWindow(at(9, 19)), 'closed');
+  assert.equal(entryWindow(at(9, 20)), 'early');
+  assert.equal(entryWindow(at(9, 29)), 'early');
+  assert.equal(entryWindow(at(9, 30)), 'open');
+  assert.equal(entryWindow(at(14, 29)), 'open');
+  assert.equal(entryWindow(at(14, 30)), 'closed');
+  assert.equal(entryWindow(at(9, 25), true), 'closed', 'the old rules keep their 09:30 start');
 });

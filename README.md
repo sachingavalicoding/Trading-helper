@@ -317,6 +317,8 @@ The score (out of 100) now also counts **ADX** trend strength, whether **EMA 9 /
 
 `npm run backtest -- --days 10 --holdout 3 --risk 1000 --slippage 0.05` replays the scanner on history with live Upstox data (after logging in). It sizes each trade to risk a fixed rupee amount, adds slippage and charges, and prints win rate, average win and loss, expectancy, profit factor and max drawdown for the old rules against the enhanced rules, once on the tuning period and once on the most recent unseen sessions. The scanner only sees candles up to each moment, so it cannot peek at the future. Replay has no order book or sector data, so it does not show the full effect of the new score. With few trades the numbers are noise, and a high score is never a promise of a win.
 
+The backtest now also replays the **live exits** (profit ladder, target steps, the reach-capped sale target, the 45-minute stall exit, 15:15 square-off) next to the old "sell at target 1" result. For the unseen period it prints the result by setup, hour and how trades ended, and a **first-target table**: for each multiple of the risk (0.5R to 3R), the share of ideas that ran that far before touching their stop, and the average result in risk units. The best first target is the multiple with the highest expectancy that still has a decent hit rate. Two switches test ideas on the same days without changing the live rules: `--stop-scale 0.8` (stops 20% tighter) or `1.3` (30% wider), and `--breakeven 0.6` (an extra rung that moves the stop to cost at +0.6R).
+
 ## Auto trades climb through the targets
 
 An auto trade is not sold at target 1 or 2. Past each of them the stop jumps to 80% of the way from entry to that target (room for a pullback), so the profit up to there is protected, and the trade is sold at a third target, as far beyond target 2 as target 2 is beyond target 1. The profit lock below can hold the stop higher. If price falls back to the stop the trade closes with that profit, minus charges. Manual trades are unchanged.
@@ -348,7 +350,7 @@ Account page > "Add paper money" tops up the virtual wallet (`POST /api/wallet/a
 ## Locks that survive charges
 
 - A profit lock or target-ladder stop never sits below cost plus 1.5x the round-trip charges, so a "locked profit" is still a gain after charges. If price is not yet far enough above that level, no lock stop is placed.
-- Auto trades size the profit lock from the money risked on that trade: it starts at 1x the risk and keeps 30% of it (then climbs by the lock ratio), so it works at any balance. Switch it off per user with `lockByRisk: false` on `PUT /api/auto` to keep the fixed rupee defaults.
+- Auto trades use a rupee profit ladder sized from the money risked on that trade (see "Share ladder and stalled trades"). Switch it off per user with `lockByRisk: false` on `PUT /api/auto` to keep the fixed rupee defaults.
 - Auto skips an idea whose profit at target 1 is under 3x its round-trip charges (the skip reason shows in the auto log).
 
 ## Slow stocks get smaller targets
@@ -371,3 +373,17 @@ A separate **Options** tab, paper money only. It buys Nifty 50 index calls (CE) 
 - **By hand.** The Signal tab shows both sides with their scores and reasons and a "Buy 1 lot" button that uses the same chart stop, ladder and lock.
 
 About 9 in 10 individual traders lose money in index options. This is a way to test the idea with paper money, not a promise. Real options orders are not built, and real auto orders would need broker and SEBI rules checked first.
+
+## Share ladder and stalled trades
+
+- **Risk in rupees.** `riskAmount` on `PUT /api/auto` (default ₹200, 0 = use the % setting) is the most one auto trade may lose if its stop is hit. Shares are sized from it, within the max-amount and margin limits.
+- **Profit ladder.** Sized from the money risked, so at ₹200 risk: once a trade is ₹200 up the stop keeps ₹100, at ₹500 it keeps ₹400, at ₹1,000 it keeps ₹800. Between rungs the stop follows (profit - kept) behind the best profit, so it only ever moves towards profit, and it never sits below cost plus 1.5x the charges. The lock is the stop; nothing else is closed. Charges at ₹1 lakh traded are about ₹70-80, so ₹100 kept is only a small net gain.
+- **Reachable sale target.** The sale target (`target3`) and target 2 are pulled in so nothing the plan aims for is further than 0.8 of the stock's usual daily range from the entry. No daily history means no cap.
+- **Stalled trades.** An auto trade that has been open 45 minutes, never got half a risk unit in its favour and is not in profit now is closed at market and logged as a time exit (`TIME`).
+- **Charges filter.** An auto trade is skipped when its round-trip charges would be more than 25% of the money it risks. Charges follow the money traded, so a very tight stop (under about 0.5% of the price) forces a big position whose charges eat the win. It shows in the auto log as a skip with the numbers.
+
+## News gap (earlier entries)
+
+Normal ideas start at 09:30, after the opening range is complete. The **News gap** setup may also start at **09:20**, once the first 5-minute bar has closed. It needs all of these: the stock opened at least 1.5% away from yesterday's close, fresh news that agrees with the direction (and is not being sold), more than half of the gap still held through the first bars, and price breaking the high (or low) of those bars. The stop goes just past where the gap held; targets and the sale follow the usual reach rules. It stays a News gap idea only for the first hour. It must still reach the minimum score and pass every gate, so most mornings it finds nothing.
+
+Nothing trades before 09:15: the NSE pre-open session (09:00-09:15) is an auction that sets the opening price, and the paper engine fills only while the market is open. The 09:00 morning plan already lists gap and news stocks to watch. Switch the setup off for auto trades with `earlyNews: false` on `PUT /api/auto` (a tick box under "Change limits" on the Scanner screen). The backtest has no news, so it cannot test this setup.

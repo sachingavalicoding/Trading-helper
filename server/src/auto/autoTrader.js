@@ -8,8 +8,13 @@ import { logger } from '../utils/logger.js';
 const round2 = (n) => Math.round(n * 100) / 100;
 
 const MIN_PROFIT_TO_CHARGES = 3; // skip a trade whose profit at target 1 is under this many times its round-trip charges
-const LOCK_AT_RISK = 1; // the profit lock starts once profit equals this multiple of the money risked...
-const LOCK_KEEP_OF_RISK = 0.3; // ...and then keeps this share of that risk
+// The profit ladder, as [profit, kept] in multiples of the money risked. At the ₹200 default risk this is
+// +₹200 keeps ₹100, +₹500 keeps ₹400, +₹1,000 keeps ₹800, and each rung then follows (profit - kept) behind the best profit.
+const LOCK_LADDER = [[1, 0.5], [2.5, 2], [5, 4]];
+const DEFAULT_RISK_AMOUNT = 200; // rupees one trade may lose when the user's settings do not say
+const MAX_CHARGES_OF_RISK = 0.25; // skip a trade whose round-trip charges are more than this share of the money it risks: its stop is too tight for its size
+const STALL_MINUTES = 45; // a trade that has gone nowhere for this long is closed: a sideways stock only ties up the money
+const STALL_PROGRESS_R = 0.5; // "gone nowhere" = never got this far (in risk units) in our favour
 
 /**
  * Paper auto-trader. When the scanner raises an idea, it places a VIRTUAL order for every user
@@ -51,7 +56,19 @@ export class AutoTrader {
       x.bestR = Math.max(x.bestR, r);
       x.worstR = Math.min(x.worstR, r);
       this.excursion.set(key, x);
+      if (!x.exiting && Date.now() - x.openedAt >= STALL_MINUTES * 60000 && x.bestR < STALL_PROGRESS_R && r <= 0) this.#stallExit(x);
     }
+  }
+
+  /** Close a trade that has sat for STALL_MINUTES without ever getting going, and is not in profit now. */
+  #stallExit(x) {
+    x.exiting = true;
+    x.timeExit = true;
+    this.engine.exitPosition(x.user, x.symbol).catch((e) => {
+      x.exiting = false;
+      x.timeExit = false;
+      logger.warn(`stall exit for ${x.symbol} failed: ${e.message}`);
+    });
   }
 
   /** Write one row of the auto log. Logging must never get in the way of trading. */
@@ -89,7 +106,7 @@ export class AutoTrader {
     const x = this.excursion.get(key);
     this.excursion.delete(key);
     const gross = pos.realizedPnl;
-    const exitReason = order.role === 'TARGET' ? 'TARGET' : order.role === 'STOPLOSS' ? (gross > 0 ? 'LOCK' : 'STOP') : order.role === 'SQUAREOFF' ? 'SQUARE_OFF' : 'MANUAL';
+    const exitReason = order.role === 'TARGET' ? 'TARGET' : order.role === 'STOPLOSS' ? (gross > 0 ? 'LOCK' : 'STOP') : order.role === 'SQUAREOFF' ? 'SQUARE_OFF' : x?.timeExit ? 'TIME' : 'MANUAL';
     const risk = Math.abs(log.entry - log.stopLoss);
     const dir = log.side === 'BUY' ? 1 : -1;
     const exitPrice = order.avgFillPrice;
@@ -139,7 +156,7 @@ export class AutoTrader {
       const { order } = result;
       const position = await Position.findOne({ user: settings.user, symbol: idea.symbol, status: 'OPEN' }, '_id').lean();
       const risk = Math.abs(idea.entry - idea.stopLoss);
-      this.excursion.set(`${settings.user}|${idea.symbol}`, { symbol: idea.symbol, entry: order.avgFillPrice ?? idea.entry, risk, dir: idea.side === 'BUY' ? 1 : -1, bestR: 0, worstR: 0 });
+      this.excursion.set(`${settings.user}|${idea.symbol}`, { user: settings.user, openedAt: Date.now(), symbol: idea.symbol, entry: order.avgFillPrice ?? idea.entry, risk, dir: idea.side === 'BUY' ? 1 : -1, bestR: 0, worstR: 0 });
       await this.#record(settings, idea, { ...base, decision: 'PLACED', status: 'OPEN', qty: order.qty, fillPrice: order.avgFillPrice, order: order._id, position: position?._id });
     }
     return result;
@@ -157,6 +174,7 @@ export class AutoTrader {
       seen.movedR = round2(movedR);
       if (movedR > 0.5 || movedR < -0.3) return { skipped: `price already moved ${movedR.toFixed(2)}R from the entry` };
     }
+    if (idea.setup === 'News gap' && settings.earlyNews === false) return { skipped: 'news gap trades are switched off' };
     if (idea.score < settings.minScore) return { skipped: `score ${idea.score} is below ${settings.minScore}` };
     if (await Position.findOne({ user: userId, symbol: idea.symbol, status: 'OPEN' })) return { skipped: 'already in this stock' };
 
@@ -168,6 +186,7 @@ export class AutoTrader {
     const size = sizePosition({
       capital: funds.balance,
       riskPct: settings.riskPct,
+      riskAmount: settings.riskAmount ?? DEFAULT_RISK_AMOUNT,
       entry: idea.entry,
       stopLoss: idea.stopLoss,
       available: funds.available,
@@ -180,6 +199,10 @@ export class AutoTrader {
     const qty = settings.maxShares > 0 ? Math.min(size.qty, settings.maxShares) : size.qty;
     const profitAtT1 = qty * Math.abs(idea.target1 - idea.entry);
     const charges = roundTripCharges({ qty, price: idea.entry });
+    const atRisk = qty * risk;
+    if (atRisk > 0 && charges > MAX_CHARGES_OF_RISK * atRisk) {
+      return { skipped: `charges (₹${charges}) are ${Math.round((charges / atRisk) * 100)}% of the ₹${round2(atRisk)} at risk, over the ${Math.round(MAX_CHARGES_OF_RISK * 100)}% limit; the stop is too tight for the size` };
+    }
     if (profitAtT1 < MIN_PROFIT_TO_CHARGES * charges) {
       return { skipped: `profit at target 1 (₹${round2(profitAtT1)}) is under ${MIN_PROFIT_TO_CHARGES}x the charges (₹${charges})` };
     }
@@ -190,7 +213,7 @@ export class AutoTrader {
       orderType: 'MARKET',
       qty,
       stopLoss: idea.stopLoss,
-      target: roundToTick(idea.target2 * 2 - idea.target1), // sells at a third target, as far past target 2 as 2 is past 1; targets 1 and 2 only lift the stop, see setSteps
+      target: idea.target3 ?? roundToTick(idea.target2 * 2 - idea.target1), // sells at a third target, kept within a usual day's reach by the scanner; targets 1 and 2 only lift the stop, see setSteps
       source: 'AUTO',
     });
     // A rejected order (market closed, not enough funds) opened nothing, so it must not be logged as a placed trade.
@@ -200,14 +223,13 @@ export class AutoTrader {
     return { order };
   }
 
-  /** Size the profit lock from the money risked on this trade, so it works at any balance (the rupee defaults would not at a small one). */
+  /** Size the profit ladder from the money risked on this trade, so it works at any balance (the rupee defaults would not at a small one). */
   async #lockByRisk(userId, order, idea) {
     const risk = order.qty * Math.abs(idea.entry - idea.stopLoss);
-    const lockTrigger = round2(risk * LOCK_AT_RISK);
-    const lockAmount = round2(risk * LOCK_KEEP_OF_RISK);
-    if (!(lockAmount > 0 && lockTrigger > lockAmount)) return;
+    const lockSteps = LOCK_LADDER.map(([at, keep]) => ({ at: round2(risk * at), keep: round2(risk * keep) }));
+    if (!lockSteps.every((s) => s.keep > 0 && s.at > s.keep)) return;
     try {
-      await this.engine.setExits(userId, idea.symbol, { lockTrigger, lockAmount });
+      await this.engine.setExits(userId, idea.symbol, { lockSteps });
     } catch (e) {
       logger.warn(`auto lock for ${idea.symbol} not set: ${e.message}`);
     }

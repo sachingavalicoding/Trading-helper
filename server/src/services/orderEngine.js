@@ -49,7 +49,7 @@ export class OrderEngine extends EventEmitter {
   async init() {
     const open = await Order.find({ status: 'OPEN' }).lean();
     for (const o of open) this.#addToBook(o);
-    for (const p of await Position.find({ status: 'OPEN', $or: [{ trailPct: { $ne: null } }, { lockTrigger: { $ne: null } }, { 'stepPrices.0': { $exists: true } }] }).lean()) this.#watchTrail(p);
+    for (const p of await Position.find({ status: 'OPEN', $or: [{ trailPct: { $ne: null } }, { lockTrigger: { $ne: null } }, { 'lockSteps.0': { $exists: true } }, { 'stepPrices.0': { $exists: true } }] }).lean()) this.#watchTrail(p);
     this.market.on('tick', this.onTick);
     logger.info(`Order engine ready, ${open.length} resting orders loaded`);
   }
@@ -174,7 +174,7 @@ export class OrderEngine extends EventEmitter {
 
   // ---------- internals (always called while holding the user's lock) ----------
 
-  async #setExits(userId, symbol, { stopLoss, target, trailPct, lockTrigger, lockAmount, lockRatio }) {
+  async #setExits(userId, symbol, { stopLoss, target, trailPct, lockTrigger, lockAmount, lockRatio, lockSteps }) {
     const pos = await Position.findOne({ user: userId, symbol, status: 'OPEN' });
     if (!pos) throw notFound('No open position in this stock');
     const ltp = this.market.getLtp(symbol);
@@ -188,6 +188,10 @@ export class OrderEngine extends EventEmitter {
       const a = lockAmount === undefined ? pos.lockAmount : lockAmount;
       if ((t == null) !== (a == null)) throw badRequest('Set both the profit trigger and the amount to lock, or clear both', 'INVALID_LOCK');
       if (t != null && !(a > 0 && t > a)) throw badRequest('The profit trigger must be larger than the amount you lock in', 'INVALID_LOCK');
+    }
+    if (lockSteps !== undefined) {
+      const ok = Array.isArray(lockSteps) && lockSteps.every((s, i) => s.keep > 0 && s.at > s.keep && (i === 0 || (s.at > lockSteps[i - 1].at && s.keep > lockSteps[i - 1].keep)));
+      if (!ok) throw badRequest('Each profit rung must lock less than it needs, and rungs must rise', 'INVALID_LOCK');
     }
     if (stopLoss != null && (long ? tick(stopLoss) >= ltp : tick(stopLoss) <= ltp)) {
       throw badRequest(long ? 'For a long position the stop-loss must be below the current price' : 'For a short position the stop-loss must be above the current price', 'INVALID_SL');
@@ -238,6 +242,11 @@ export class OrderEngine extends EventEmitter {
           await apply(undefined, 'STOPLOSS', start, (v) => ({ orderType: 'SL_M', triggerPrice: v }));
         }
       }
+    }
+    if (lockSteps !== undefined) {
+      pos.lockSteps = lockSteps.map(({ at, keep }) => ({ at, keep }));
+      await pos.save();
+      this.#watchTrail(pos);
     }
     if (lockTrigger !== undefined || lockAmount !== undefined) {
       if (lockTrigger !== undefined) pos.lockTrigger = lockTrigger;
@@ -291,7 +300,7 @@ export class OrderEngine extends EventEmitter {
 
   async #trailOne(posId, ltp, watchers) {
     const pos = await Position.findById(posId);
-    if (!pos || pos.status !== 'OPEN' || (pos.trailPct == null && pos.lockTrigger == null && !pos.stepPrices?.length)) {
+    if (!pos || pos.status !== 'OPEN' || (pos.trailPct == null && pos.lockTrigger == null && !pos.lockSteps?.length && !pos.stepPrices?.length)) {
       watchers.delete(posId);
       return;
     }
@@ -308,6 +317,12 @@ export class OrderEngine extends EventEmitter {
       // With a ratio the lock climbs by that share of every extra rupee; without one it trails the best profit.
       const locked = pos.lockRatio != null ? pos.lockAmount + pos.lockRatio * (profit - pos.lockTrigger) : Math.max(pos.lockAmount, profit - (pos.lockTrigger - pos.lockAmount));
       const per = locked / qty;
+      wants.push(lockStop(roundToTick(long ? pos.avgPrice + per : pos.avgPrice - per)));
+    }
+    // The rupee ladder: past each rung the stop keeps that rung's amount and then follows (at - keep) behind the best profit.
+    const rung = [...(pos.lockSteps || [])].reverse().find((s) => profit >= s.at);
+    if (rung) {
+      const per = Math.max(rung.keep, profit - (rung.at - rung.keep)) / qty;
       wants.push(lockStop(roundToTick(long ? pos.avgPrice + per : pos.avgPrice - per)));
     }
     for (const step of pos.stepPrices || []) {

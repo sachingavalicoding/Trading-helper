@@ -11,7 +11,8 @@ const FIELDS = [
   { key: 'maxTradeAmount', label: 'Max ₹ per trade', step: 1000, min: 1000, max: 100000000 },
   { key: 'minScore', label: 'Minimum score', step: 5, min: 60, max: 100 },
   { key: 'maxOpen', label: 'Max open trades', step: 1, min: 1, max: 10 },
-  { key: 'riskPct', label: 'Risk per trade (%)', step: 0.25, min: 0.25, max: 3 },
+  { key: 'riskAmount', label: 'Most one trade may lose (₹, 0 = use %)', step: 50, min: 0, max: 10000000 },
+  { key: 'riskPct', label: 'Risk per trade (%, used when ₹ is 0)', step: 0.25, min: 0.25, max: 3 },
   { key: 'dailyLossPct', label: 'Stop for the day after losing (%)', step: 0.5, min: 0.5, max: 10 },
 ];
 
@@ -80,6 +81,10 @@ export function AutoCard() {
               />
             </label>
           ))}
+          <label className="col-span-2 flex items-center justify-between gap-2 rounded-lg border border-line px-2 py-1.5 text-[11px] text-muted">
+            Also take news-gap trades from 09:20
+            <input type="checkbox" checked={s.earlyNews !== false} disabled={busy} onChange={(e) => save({ earlyNews: e.target.checked })} className="h-4 w-4 accent-[var(--color-accent)]" />
+          </label>
         </div>
       )}
       <AutoLog />
@@ -88,7 +93,7 @@ export function AutoCard() {
   );
 }
 
-const EXIT_LABEL = { STOP: 'Stopped', LOCK: 'Locked profit', TARGET: 'Target', MANUAL: 'Manual exit', SQUARE_OFF: 'Square-off' };
+const EXIT_LABEL = { STOP: 'Stopped', LOCK: 'Locked profit', TARGET: 'Target', MANUAL: 'Manual exit', SQUARE_OFF: 'Square-off', TIME: 'Time exit' };
 
 /** Every decision the auto-trader made today with its reason and result, to review in the evening. */
 function AutoLog() {

@@ -127,7 +127,7 @@ test('shares are sized from the risk and max amount unless a cap is set', async 
 
 test('past each target an auto trade is not sold: the stop jumps to just short of it, and the sale is at a third target', async () => {
   const fresh = await registerUser(app);
-  const s = settings({ user: fresh.user.id || fresh.user._id, maxOpen: 10, maxShares: 1 });
+  const s = settings({ user: fresh.user.id || fresh.user._id, maxOpen: 10, maxShares: 1, lockByRisk: false }); // the ladder would lift the stop too; this checks the target steps alone
   ctx.provider.setPrice('ONGC', 250);
   const i = idea('ONGC', 'BUY');
   const r = await trader.consider(s, i);
@@ -248,7 +248,7 @@ test('the day summary adds up exits and setups, groups skip reasons, and checks 
   assert.deepEqual(sum.skippedHindsight, { followed: 2, wouldHitTarget: 1, wouldStop: 1, unresolved: 0 });
 });
 
-test('the profit lock of an auto trade is sized from the money risked, and can be turned off', async () => {
+test('the profit ladder of an auto trade is sized from the money risked, and can be turned off', async () => {
   const a = await registerUser(app);
   const sa = settings({ user: a.user.id || a.user._id, maxOpen: 10 });
   ctx.provider.setPrice('SBIN', 800);
@@ -258,8 +258,7 @@ test('the profit lock of an auto trade is sized from the money risked, and can b
   assert.ok(r.order, r.skipped);
   const pos = await Position.findOne({ user: sa.user, symbol: 'SBIN', status: 'OPEN' }).lean();
   const risk = r.order.qty * Math.abs(i.entry - i.stopLoss);
-  assert.ok(Math.abs(pos.lockTrigger - risk) < 0.02, `trigger ${pos.lockTrigger} vs risk ${risk}`);
-  assert.ok(Math.abs(pos.lockAmount - risk * 0.3) < 0.02);
+  assert.deepEqual(pos.lockSteps.map((s) => [s.at, s.keep]), [[1, 0.5], [2.5, 2], [5, 4]].map(([at, keep]) => [Math.round(risk * at * 100) / 100, Math.round(risk * keep * 100) / 100]));
 
   const b = await registerUser(app);
   const sb = settings({ user: b.user.id || b.user._id, maxOpen: 10, lockByRisk: false });
@@ -283,4 +282,96 @@ test('skips a trade whose profit at target 1 would not cover its charges three t
   assert.match(r.skipped, /under 3x the charges/);
   const logged = await AutoLog.findOne({ user: s.user, symbol: 'ONGC' }).lean();
   assert.equal(logged.decision, 'SKIPPED');
+});
+
+test('the rupee ladder moves the stop up with the profit: +200 keeps 100, +500 keeps 400, +1,000 keeps 800', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  const s = settings({ user: uid, maxOpen: 10, riskAmount: 200, riskPct: 0.1 });
+  ctx.provider.setPrice('LT', 3500);
+  await settle();
+  const i = { ...idea('LT', 'BUY'), stopLoss: 3480, target1: 3600, target2: 3700, target3: 3800 };
+  const r = await trader.consider(s, i);
+  assert.ok(r.order, r.skipped);
+  assert.equal(r.order.qty, 10, '200 / 20 per share');
+  const stopAt = async () => (await Order.findOne({ user: uid, symbol: 'LT', role: 'STOPLOSS', status: 'OPEN' }).lean()).triggerPrice;
+  assert.equal((await Order.findOne({ user: uid, symbol: 'LT', role: 'TARGET', status: 'OPEN' }).lean()).price, 3800, 'sells at the scanner\'s third target');
+  const pos = await Position.findOne({ user: uid, symbol: 'LT', status: 'OPEN' }).lean();
+  assert.deepEqual(pos.lockSteps.map((x) => [x.at, x.keep]), [[200, 100], [500, 400], [1000, 800]]);
+
+  ctx.provider.setPrice('LT', 3510); // +100: nothing yet
+  await settle();
+  assert.equal(await stopAt(), 3480);
+  ctx.provider.setPrice('LT', 3521); // +210: keeps about 110 (never below cost + charges)
+  await settle();
+  const first = await stopAt();
+  assert.ok(first > 3510 && first < 3521, `stop ${first}`);
+  ctx.provider.setPrice('LT', 3560); // +600: follows 100 behind the best profit, so keeps 500
+  await settle();
+  assert.ok(Math.abs((await stopAt()) - 3550) <= 0.06, 'stop 10 per share behind');
+  ctx.provider.setPrice('LT', 3600); // +1,000: keeps 800
+  await settle();
+  assert.ok(Math.abs((await stopAt()) - 3580) <= 0.06);
+  ctx.provider.setPrice('LT', 3590); // a dip does not lower it
+  await settle();
+  assert.ok(Math.abs((await stopAt()) - 3580) <= 0.06);
+});
+
+test('a trade that has gone nowhere for 45 minutes is closed as a time exit, but a trade that got going is left', async () => {
+  trader.start();
+  try {
+    const fresh = await registerUser(app);
+    const uid = fresh.user.id || fresh.user._id;
+    const s = settings({ user: uid, maxOpen: 10, maxShares: 1 });
+    ctx.provider.setPrice('HDFCBANK', 1600);
+    ctx.provider.setPrice('ITC', 400);
+    await settle();
+    const a = idea('HDFCBANK', 'BUY');
+    const b = idea('ITC', 'BUY');
+    assert.ok((await trader.consider(s, a)).order);
+    assert.ok((await trader.consider(s, b)).order);
+    const old = (symbol) => {
+      const x = trader.excursion.get(`${uid}|${symbol}`);
+      x.openedAt = Date.now() - 50 * 60000;
+      return x;
+    };
+    old('HDFCBANK');
+    old('ITC').bestR = 0.8; // this one got going
+    ctx.provider.setPrice('HDFCBANK', a.entry - 0.5);
+    ctx.provider.setPrice('ITC', b.entry - 0.2);
+    await settle();
+    await new Promise((r) => setTimeout(r, 100));
+    const row = await AutoLog.findOne({ user: uid, symbol: 'HDFCBANK', decision: 'PLACED' }).lean();
+    assert.equal(row.status, 'CLOSED');
+    assert.equal(row.outcome.exitReason, 'TIME');
+    assert.equal((await Position.findOne({ user: uid, symbol: 'ITC' })).status, 'OPEN');
+  } finally {
+    trader.stop();
+  }
+});
+
+test('skips a trade whose charges would be over a quarter of the money it risks (a stop too tight for its size)', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  const s = settings({ user: uid, maxOpen: 10, riskAmount: 200, riskPct: 0.1 });
+  ctx.provider.setPrice('SBIN', 800);
+  await settle();
+  const ltp = ctx.provider.getLastTick('SBIN').ltp;
+  const tight = { ...idea('SBIN', 'BUY'), stopLoss: ltp - ltp * 0.002 }; // 0.2% stop: 250 shares, a big position
+  const r = await trader.consider(s, tight);
+  assert.match(r.skipped, /charges .* of the ₹.* at risk, over the 25% limit/);
+  const ok = await trader.consider(s, { ...idea('SBIN', 'BUY', 81), stopLoss: ltp - ltp * 0.006, target1: ltp + ltp * 0.012, target2: ltp + ltp * 0.02 });
+  assert.ok(ok.order, ok.skipped);
+});
+
+test('a news-gap idea is skipped when news-gap trades are switched off, and traded otherwise', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  ctx.provider.setPrice('TCS', 3000);
+  await settle();
+  const gap = { ...idea('TCS', 'BUY'), setup: 'News gap' };
+  const off = await trader.consider(settings({ user: uid, maxOpen: 10, maxShares: 1, earlyNews: false }), gap);
+  assert.match(off.skipped, /news gap trades are switched off/);
+  const on = await trader.consider(settings({ user: uid, maxOpen: 10, maxShares: 1 }), { ...gap, _id: `${gap._id}-b` });
+  assert.ok(on.order, on.skipped);
 });
