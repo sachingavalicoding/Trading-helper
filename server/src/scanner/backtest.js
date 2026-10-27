@@ -59,3 +59,17 @@ export function evaluateBy(ideas, keyOf, opts) {
   for (const i of ideas) groups.set(keyOf(i), [...(groups.get(keyOf(i)) || []), i]);
   return [...groups].map(([key, list]) => ({ key, ...evaluate(list, opts) })).sort((a, b) => String(a.key).localeCompare(String(b.key)));
 }
+
+/**
+ * Which first target would have paid best? For each multiple of the risk, the share of ideas that ran that far before
+ * touching their stop, and the average result in risk units if every idea were sold there or stopped
+ * (before charges and slippage, which only make the lower multiples look better than they are).
+ */
+export function targetTable(ideas, multiples = [0.5, 0.75, 1, 1.5, 2, 3]) {
+  const rated = ideas.filter((i) => i.runR != null);
+  return multiples.map((k) => {
+    const hit = rated.filter((i) => i.runR >= k).length;
+    const rate = rated.length ? hit / rated.length : null;
+    return { target: k, ideas: rated.length, hitRate: rate == null ? null : round(rate * 100, 0), expectancyR: rate == null ? null : round(rate * k - (1 - rate), 2) };
+  });
+}
