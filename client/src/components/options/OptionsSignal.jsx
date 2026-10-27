@@ -5,7 +5,7 @@ import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
 import { useMarket } from '../../context/MarketContext.jsx';
 import { useOrderBlock } from '../../lib/orderGate.js';
-import { formatPrice, formatINR } from '../../lib/format.js';
+import { formatPrice, formatINR, formatInt } from '../../lib/format.js';
 import { scoreTone, shortExpiry } from '../../lib/options.js';
 import { Badge, Card, Skeleton } from '../ui.jsx';
 
@@ -33,7 +33,37 @@ function ScoreBar({ score, minScore }) {
   );
 }
 
-function SideCard({ side, contract, best, minScore, busy, gate, onBuy }) {
+/** The plan the trader would place if you bought now: size, the stop and when it sells, the loss, the targets and the lock ladder. */
+function PlanPreview({ preview, type }) {
+  if (!preview) return null;
+  if (preview.skipped) return <p className="rounded-lg bg-surface-2 p-2 text-xs text-muted">Would not buy now: {preview.skipped}.</p>;
+  const p = preview.plan;
+  const rs = (v) => `₹${formatInt(v)}`;
+  const perLot = (price) => (price - p.premium) * p.lotSize;
+  const ladder = p.lockSteps.map((s) => `+${rs(s.at / p.lots)} keeps ${rs(s.keep / p.lots)}`).join(' · ');
+  const way = type === 'CE' ? 'at or below' : 'at or above';
+  return (
+    <div className="space-y-1 rounded-lg bg-surface-2 p-2 text-xs">
+      <div className="font-semibold text-fg">
+        If you buy now: {p.lots} lot{p.lots > 1 ? 's' : ''} at ₹{formatPrice(p.premium)} ({rs(p.lots * p.lotSize * p.premium)})
+      </div>
+      <p className="text-muted">
+        <b className="text-fg">Exit:</b> sells when a 1-minute Nifty candle closes {way} {formatPrice(p.stopSpot)} ({p.stopNote}). Backup premium stop ₹{formatPrice(p.stopLoss)} (−{p.lossPct}%).
+      </p>
+      <p className="num text-muted">
+        <b className="text-fg">Loss:</b> about {rs(p.maxLoss)} at the Nifty stop, at most {rs(p.worstCase)} if only the backup stop works.
+      </p>
+      <p className="num text-muted">
+        <b className="text-fg">Targets (per lot):</b> {rs(perLot(p.target1))} at ₹{formatPrice(p.target1)}, sale {rs(perLot(p.target3))} at ₹{formatPrice(p.target3)}. {p.targetNote ? `First target: ${p.targetNote}.` : ''}
+      </p>
+      <p className="num text-muted">
+        <b className="text-fg">Lock (per lot):</b> {ladder}, then the stop trails behind the best profit.
+      </p>
+    </div>
+  );
+}
+
+function SideCard({ side, contract, preview, best, minScore, busy, gate, onBuy }) {
   const [why, setWhy] = useState(false);
   const meta = SIDE[side.type];
   const Icon = meta.icon;
@@ -78,6 +108,7 @@ function SideCard({ side, contract, best, minScore, busy, gate, onBuy }) {
         <b className="text-fg">Chart stop:</b> Nifty {formatPrice(side.stop.price)} ({side.stop.note}).
         {side.levels.length > 0 && <> Next levels: {side.levels.map((l) => `${formatPrice(l.price)} ${l.kind}`).join(', ')}.</>}
       </p>
+      <PlanPreview preview={preview} type={side.type} />
       <button type="button" onClick={() => setWhy((v) => !v)} className="flex items-center gap-1 text-xs text-accent">
         {why ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />} Why this score
       </button>
@@ -95,8 +126,8 @@ function SideCard({ side, contract, best, minScore, busy, gate, onBuy }) {
           ))}
         </ul>
       )}
-      <button type="button" disabled={busy || !contract?.ltp || Boolean(gate)} onClick={() => onBuy(side.type, contract)} className={`btn btn-lg w-full ${meta.tone === 'up' ? 'btn-buy' : 'btn-sell'}`}>
-        {gate || `Buy 1 lot ${side.type} (paper)`}
+      <button type="button" disabled={busy || !contract?.ltp || Boolean(gate)} onClick={() => onBuy(side.type, contract, preview)} className={`btn btn-lg w-full ${meta.tone === 'up' ? 'btn-buy' : 'btn-sell'}`}>
+        {gate || `Buy ${preview?.plan?.lots ?? 1} lot${(preview?.plan?.lots ?? 1) > 1 ? 's' : ''} ${side.type} (paper)`}
       </button>
     </Card>
   );
@@ -114,12 +145,13 @@ export function OptionsSignal({ minScore, onBought }) {
     return () => clearInterval(t);
   }, [reload]);
 
-  async function buy(type, contract) {
-    const cost = formatINR(contract.lotCost);
-    if (!window.confirm(`Buy 1 lot of ${contract.label} for about ${cost} (paper money)? The stop comes from the Nifty chart.`)) return;
+  async function buy(type, contract, preview) {
+    const lots = preview?.plan?.lots ?? 1;
+    const cost = formatINR(contract.lotCost * lots);
+    if (!window.confirm(`Buy ${lots} lot${lots > 1 ? 's' : ''} of ${contract.label} for about ${cost} (paper money)? The stop comes from the Nifty chart.`)) return;
     setBusy(true);
     try {
-      const { plan } = await api('/options/buy', { method: 'POST', body: { type, lots: 1 } });
+      const { plan } = await api('/options/buy', { method: 'POST', body: { type, lots } });
       toast.success(`Bought ${plan.lots} lot ${plan.type}: stop ₹${formatPrice(plan.stopLoss)} (−${plan.lossPct}%), target 1 ₹${formatPrice(plan.target1)}`);
       refresh?.();
       onBought?.();
@@ -150,7 +182,7 @@ export function OptionsSignal({ minScore, onBought }) {
       </Card>
       <div className="grid gap-3 md:grid-cols-2">
         {['ce', 'pe'].map((k) => (
-          <SideCard key={k} side={data[k]} contract={data.contracts[k.toUpperCase()]} best={data.best === k.toUpperCase()} minScore={minScore} busy={busy} gate={blocked} onBuy={buy} />
+          <SideCard key={k} side={data[k]} contract={data.contracts[k.toUpperCase()]} preview={data.preview?.[k.toUpperCase()]} best={data.best === k.toUpperCase()} minScore={minScore} busy={busy} gate={blocked} onBuy={buy} />
         ))}
       </div>
     </div>

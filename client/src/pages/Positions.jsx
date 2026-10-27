@@ -40,7 +40,7 @@ function OpenRow({ p, onExit, onEdit, busy }) {
       <div className="num mt-2 text-[11px] text-muted">
         SL {p.stopLoss != null ? formatPrice(p.stopLoss) : 'none'} · Target {p.target != null ? formatPrice(p.target) : 'none'}
         {p.trailPct ? ` · trailing ${p.trailPct}%` : ''}
-        {p.lockTrigger ? ` · lock ₹${p.lockAmount} at ₹${p.lockTrigger}` : ''}
+        {p.lockSteps?.length ? ` · lock ₹${Math.round(p.lockSteps[0].keep)} at ₹${Math.round(p.lockSteps[0].at)}, ${p.lockSteps.length} rungs` : p.lockTrigger ? ` · lock ₹${p.lockAmount} at ₹${p.lockTrigger}` : ''}
       </div>
       <div className="mt-2 flex justify-end gap-2">
         <button type="button" onClick={() => onEdit(p)} className="btn btn-secondary btn-sm">

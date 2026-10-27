@@ -3,6 +3,7 @@ import { getFunds } from '../services/walletService.js';
 import { roundTripCharges } from '../services/charges.js';
 import { sizePosition } from '../scanner/sizing.js';
 import { LADDER } from '../scanner/replay.js';
+import { effectiveLadder } from '../utils/ladder.js';
 import { logger } from '../utils/logger.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -203,14 +204,14 @@ export class AutoTrader {
     });
     // A rejected order (market closed, not enough funds) opened nothing, so it must not be logged as a placed trade.
     if (order.status !== 'FILLED') return { skipped: order.rejectReason || `order was ${String(order.status).toLowerCase()}` };
-    if (settings.lockByRisk !== false) await this.#climbingStop(userId, order, idea);
+    if (settings.lockByRisk !== false) await this.#climbingStop(userId, order, idea, settings);
     return { order };
   }
 
   /** Set the climbing stop from the money put in, so it works at any balance and share price. */
-  async #climbingStop(userId, order, idea) {
+  async #climbingStop(userId, order, idea, settings) {
     const value = (order.avgFillPrice ?? idea.entry) * order.qty;
-    const lockSteps = LADDER.map(([at, keep]) => ({ at: round2((value * at) / 100), keep: round2((value * keep) / 100) }));
+    const lockSteps = effectiveLadder(settings.lockLadder, LADDER).map(([at, keep]) => ({ at: round2((value * at) / 100), keep: round2((value * keep) / 100) }));
     if (!lockSteps.every((s) => s.keep > 0 && s.at > s.keep)) return;
     try {
       await this.engine.setExits(userId, idea.symbol, { lockSteps });

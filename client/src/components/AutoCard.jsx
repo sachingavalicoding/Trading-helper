@@ -5,6 +5,7 @@ import { api } from '../lib/api.js';
 import { useApi } from '../lib/useApi.js';
 import { formatPrice, pnlClass } from '../lib/format.js';
 import { Badge, Card, Skeleton } from './ui.jsx';
+import { LockLadderEditor } from './LockLadderEditor.jsx';
 
 const FIELDS = [
   { key: 'maxShares', label: 'Max shares per trade (0 = auto)', step: 1, min: 0, max: 100000 },
@@ -85,6 +86,15 @@ export function AutoCard() {
             Also take news-gap trades from 09:20
             <input type="checkbox" checked={s.earlyNews !== false} disabled={busy} onChange={(e) => save({ earlyNews: e.target.checked })} className="h-4 w-4 accent-[var(--color-accent)]" />
           </label>
+          <LockLadderEditor
+            title="Profit lock ladder (shares)"
+            hint="Shares have no sale target. When the profit reaches a rung (in % of the money put in), the stop moves up to keep the second number, then trails behind the best profit by the difference."
+            unit="percent"
+            rows={s.lockLadder}
+            defaults={data.defaultLockLadder}
+            busy={busy}
+            onSave={(rows) => save({ lockLadder: rows })}
+          />
         </div>
       )}
       <AutoLog />

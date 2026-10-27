@@ -42,7 +42,7 @@ function OpenRow({ p, onExit, onEdit, busy }) {
         <span>Ladder {p.stepPrices?.length ? p.stepPrices.map(formatPrice).join(' → ') : 'none'}</span>
         <span>
           {p.trailPct ? `Trail ${p.trailPct}%` : 'No trail'}
-          {p.lockTrigger ? ` · lock ₹${Math.round(p.lockAmount)} at ₹${Math.round(p.lockTrigger)}` : ''}
+          {p.lockSteps?.length ? ` · lock ₹${Math.round(p.lockSteps[0].keep)} at ₹${Math.round(p.lockSteps[0].at)}` : p.lockTrigger ? ` · lock ₹${Math.round(p.lockAmount)} at ₹${Math.round(p.lockTrigger)}` : ''}
         </span>
       </div>
       <div className="mt-2 flex justify-end gap-2">

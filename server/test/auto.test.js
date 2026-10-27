@@ -287,6 +287,27 @@ test('the climbing stop of an auto trade is sized from the money put in, and can
   assert.equal(pos2.lockTrigger, 1000, 'the fixed rupee default stays');
 });
 
+test('your own lock ladder replaces the built-in one, and is checked before it is saved', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  const got = (await request(app).get('/api/auto').set(fresh.auth).expect(200)).body;
+  assert.deepEqual(got.settings.lockLadder, got.defaultLockLadder);
+  assert.deepEqual(got.defaultLockLadder.map((x) => [x.at, x.keep]), [[0.3, 0.15], [0.45, 0.32], [0.6, 0.52], [1, 0.9]]);
+  await request(app).put('/api/auto').set(fresh.auth).send({ lockLadder: [{ at: 0.2, keep: 0.3 }] }).expect(400);
+  await request(app).put('/api/auto').set(fresh.auth).send({ lockLadder: [{ at: 0.4, keep: 0.2 }, { at: 0.3, keep: 0.25 }] }).expect(400);
+  const saved = (await request(app).put('/api/auto').set(fresh.auth).send({ lockLadder: [{ at: 0.5, keep: 0.25 }, { at: 1, keep: 0.8 }] }).expect(200)).body;
+  assert.deepEqual(saved.settings.lockLadder, [{ at: 0.5, keep: 0.25 }, { at: 1, keep: 0.8 }]);
+
+  const s = { ...(await AutoSettings.findOne({ user: uid }).lean()), enabled: true, maxOpen: 10 };
+  ctx.provider.setPrice('INFY', 1500);
+  await settle();
+  const r = await trader.consider(s, idea('INFY', 'BUY'));
+  assert.ok(r.order, r.skipped);
+  const pos = await Position.findOne({ user: uid, symbol: 'INFY', status: 'OPEN' }).lean();
+  const value = r.order.avgFillPrice * r.order.qty;
+  assert.deepEqual(pos.lockSteps.map((x) => [x.at, x.keep]), [[0.5, 0.25], [1, 0.8]].map(([at, keep]) => [Math.round(value * at) / 100, Math.round(value * keep) / 100]));
+});
+
 test('skips a trade whose profit at target 1 would not cover its charges three times over', async () => {
   const c = await registerUser(app);
   const s = settings({ user: c.user.id || c.user._id, maxOpen: 10, maxShares: 1 });
