@@ -14,12 +14,13 @@ const DAILY_TTL_MS = 6 * 60 * 60 * 1000;
 const DAILY_DAYS = 45;
 
 export class MarketDataService extends EventEmitter {
-  constructor(provider, { holidays = [], expiryWeekday } = {}) {
+  constructor(provider, { holidays = [], expiryWeekday, enforceHours = false } = {}) {
     super();
     this.setMaxListeners(50);
     this.provider = provider;
     this.holidays = holidays;
     this.expiryWeekday = expiryWeekday;
+    this.enforceHours = enforceHours; // tells the app whether the order engine refuses orders outside market hours
     this.latest = new Map();
     this.historyCache = new Map();
     this.feedStatus = { connected: false, message: 'Not started' };
@@ -61,7 +62,7 @@ export class MarketDataService extends EventEmitter {
 
   status(now = new Date()) {
     return {
-      market: getMarketStatus(now, this.holidays),
+      market: { ...getMarketStatus(now, this.holidays), enforced: this.enforceHours },
       feed: {
         provider: this.provider.name,
         simulated: this.provider.isSimulated,

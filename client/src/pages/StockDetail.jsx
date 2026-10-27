@@ -6,6 +6,7 @@ import { useMarket } from '../context/MarketContext.jsx';
 import { useTick } from '../lib/tickStore.js';
 import { useApi } from '../lib/useApi.js';
 import { useDeliberateTap } from '../lib/useDeliberateTap.js';
+import { useOrderBlock } from '../lib/orderGate.js';
 import { api } from '../lib/api.js';
 import { formatPrice, formatPct, formatPnl, formatQtyCompact, pnlClass } from '../lib/format.js';
 import { CandleChart } from '../components/CandleChart.jsx';
@@ -31,6 +32,7 @@ export default function StockDetail() {
   const tick = useTick(symbol);
   const [sheet, setSheet] = useState(null); // { side, plan? }
   const [exitsFor, setExitsFor] = useState(null);
+  const blocked = useOrderBlock();
   // Only a deliberate tap opens the order sheet, never a chart drag that ends on the button.
   const buyTap = useDeliberateTap(() => setSheet({ side: 'BUY' }));
   const sellTap = useDeliberateTap(() => setSheet({ side: 'SELL' }));
@@ -155,11 +157,12 @@ export default function StockDetail() {
 
       {/* Sticky Buy/Sell bar: sits above the bottom tab bar on phones */}
       <div className="fixed inset-x-0 bottom-[calc(57px+env(safe-area-inset-bottom))] z-30 border-t border-line bg-surface/95 px-4 py-1.5 backdrop-blur md:static md:border-0 md:bg-transparent md:p-0">
+        {blocked && <p className="mb-1 text-center text-[11px] font-medium text-warn">{blocked}</p>}
         <div className="mx-auto grid max-w-5xl grid-cols-2 gap-3">
-          <button type="button" {...buyTap} disabled={!tick} className="btn btn-buy btn-lg">
+          <button type="button" {...buyTap} disabled={!tick || Boolean(blocked)} className="btn btn-buy btn-lg">
             BUY
           </button>
-          <button type="button" {...sellTap} disabled={!tick} className="btn btn-sell btn-lg">
+          <button type="button" {...sellTap} disabled={!tick || Boolean(blocked)} className="btn btn-sell btn-lg">
             SELL
           </button>
         </div>

@@ -66,6 +66,7 @@ export function Badge({ tone = 'muted', children, className = '' }) {
     down: 'bg-down-soft text-down',
     warn: 'bg-warn/15 text-warn',
     accent: 'bg-accent-soft text-accent',
+    hot: 'bg-accent2-soft text-accent2',
     muted: 'bg-surface-2 text-muted',
   };
   return <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tones[tone]} ${className}`}>{children}</span>;

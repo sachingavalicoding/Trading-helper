@@ -165,6 +165,8 @@ Then register it in `providers/index.js`. Nothing else in the app talks to the b
 | GET | `/positions?status=OPEN\|CLOSED\|ALL&day=YYYY-MM-DD` | |
 | POST | `/positions/:symbol/exit`, `/positions/exit-all` | |
 | GET | `/trades`, `/dashboard` | |
+| GET | `/news/feed?hours=48&limit=150&symbol=&label=` | every headline (market and Nifty 50), each with its stock and source link |
+| GET | `/review/day?day=`, `/review/stock/:symbol?day=`, `/review/techniques?days=30` | calls against results, one stock's day, which techniques paid |
 
 ---
 
@@ -391,3 +393,34 @@ Nothing trades before 09:15: the NSE pre-open session (09:00-09:15) is an auctio
 ## Options bought by hand
 
 The 15:00 cut-off and the 30-minute stall exit apply to the option trader's own trades only. An option you buy by hand (the Buy button on the Options tab) keeps its chart stop, targets, profit ladder, lock and trailing stop, but is not closed by those clock rules; the 15:15 square-off is its only time limit. Before this, a hand-bought option was sold within seconds whenever it was bought after 15:00.
+
+## Look and menu
+
+The app is black with electric blue as the main colour and orange as the highlight. Green and red are kept for up and down only. The light theme is still there (Account, Theme).
+
+The bottom menu has six items: **Stocks, Scanner, Options, News, Trades, Account**. P&L, Orders and Review are buttons on the Account screen (Orders is also a button on Trades).
+
+**Buy buttons switch off when an order cannot be placed.** Outside 09:15-15:15 IST, on weekends and on holidays every Buy and Sell button (stocks, scanner ideas, Options) is greyed out and says why ("Market opens at 09:15", "No new trades after the 15:15 square-off"). It follows the server's own rule, and is off in practice mode (the simulated feed with `ENFORCE_MARKET_HOURS=false`). The check re-runs every 15 seconds, so a button turns off at 15:15 without a reload.
+
+## Stocks grid
+
+The home screen is a sortable grid of all 50 stocks: price, change, where the price sits in today's range (the orange dot), distance from VWAP, gap at the open, volume and a news badge. Tap a header to sort. Filters: gainers, losers, strong (above VWAP and the open, near the day's high), stocks in the news. Tap a row to open the full data (open, prev close, VWAP, gap, volume, news and the way to the chart) and to buy or sell. Rows update live; their order re-sorts every 3 seconds so they do not jump under your finger.
+
+## News tab
+
+Every headline for the Nifty and its 50 stocks, newest first. Each shows the stock (with its live move), a good, bad or neutral tag with the reason, whether the price agrees, and its source, and opens the article when tapped. Filter by good, bad or Nifty, or pick one stock.
+
+## Options chart
+
+The Options tab opens with the Nifty 50 candle chart (1, 5 and 15 minutes, with the usual indicators) and dashed lines at the chart stops a Call (CE) and a Put (PE) would use. Tap the header to fold it away.
+
+## Review: calls against results
+
+`Account, Review` (or the Review button on the News tab). It looks back at what was said and what the price did, for any day:
+
+- **Stocks.** Every stock that had a morning news call (the net tag of headlines out in the 24 hours before the 09:15 open) or a scanner idea. For each: open to close, how far it ran for you (open to high for a buy, open to low for a sell) and the deepest dip against you, and Hit, Miss or Flat (flat = ended within 0.15% of the open). Tap a stock for its 5-minute chart with the headlines, ideas and your trades marked on it, and what each headline was followed by.
+- **Options.** The Nifty's day with the chart, what a Call or a Put bought at the open would have seen on the index (best, dip, close), and each option decision you or the auto trader made, with whether the Nifty went that way.
+- **Techniques.** Scanner ideas by technique family (Breakout, Trend follow, Level retest, News gap) and by setup, in risk units; which chart checks made a difference (RSI, VWAP, volume ... average result with the check against without it); how stocks followed each kind of news (results, order wins, brokerage calls ...); your own trades by setup and exit in rupees; and ideas by hour. A short list of plain-English takeaways sits on top, and rows with too few samples are left out of them.
+
+Nothing is predicted here: headline tags never change after they are stored and a scanner idea is frozen when raised, so a past day is rebuilt exactly as it was. Daily candles come from the broker, minute candles only for the last few sessions, so older days have no chart. A few days of results are noise; the Techniques tab is meant for a month.
+
