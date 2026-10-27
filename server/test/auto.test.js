@@ -245,6 +245,41 @@ test('the log fills in how a trade ended: stop, profit lock, manual exit', async
   }
 });
 
+test('how far an open trade has run is saved, so a restart does not lose it', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  const s = settings({ user: uid, maxOpen: 10, maxShares: 1, lockByRisk: false });
+  ctx.provider.setPrice('TCS', 3000);
+  await settle();
+  const i = idea('TCS', 'BUY');
+  const r = await trader.consider(s, i);
+  assert.ok(r.order, r.skipped);
+  const x = trader.excursion.get(`${uid}|TCS`);
+  x.bestR = 1.4;
+  x.worstR = -0.2;
+  x.savedAt = 0; // due for a save on the next tick
+  trader.start();
+  try {
+    ctx.provider.setPrice('TCS', i.entry + 0.01);
+    await settle();
+    await new Promise((res) => setTimeout(res, 100));
+  } finally {
+    trader.stop();
+  }
+  const row = await AutoLog.findOne({ user: uid, symbol: 'TCS', decision: 'PLACED' }).lean();
+  assert.equal(row.excursion.bestR, 1.4);
+  assert.equal(row.excursion.worstR, -0.2);
+  trader.excursion.clear(); // a restart
+  await trader.init();
+  const back = trader.excursion.get(`${uid}|TCS`);
+  assert.equal(back.bestR, 1.4);
+  assert.equal(back.worstR, -0.2);
+  assert.equal(back.dir, 1);
+  await request(app).post('/api/positions/TCS/exit').set(fresh.auth).expect(200);
+  await new Promise((res) => setTimeout(res, 100));
+  trader.excursion.clear();
+});
+
 test('the day summary adds up exits and setups, groups skip reasons, and checks skips in hindsight', () => {
   const closed = (setup, exitReason, netPnl, extra = {}) => ({ decision: 'PLACED', status: 'CLOSED', setup, score: 82, outcome: { exitReason, netPnl, grossPnl: netPnl + 10, charges: 10, resultR: netPnl > 0 ? 1 : -1, minutesHeld: 30, ...extra } });
   const skipped = (reason, idea) => ({ decision: 'SKIPPED', status: 'SKIPPED', reason, idea });

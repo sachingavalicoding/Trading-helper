@@ -10,12 +10,20 @@ const clock = (d) => (d ? new Date(d).toLocaleTimeString('en-GB', { timeZone: 'A
 const signed = (n, suffix = '') => (n == null ? '-' : `${n > 0 ? '+' : ''}${round(n)}${suffix}`);
 const cut = (s, n) => (String(s || '').length > n ? `${String(s).slice(0, n - 1)}…` : String(s || ''));
 const MAX_ROWS = 60;
+const istMinutes = (d) => {
+  const [h, m] = new Date(d).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }).split(':').map(Number);
+  return h * 60 + m;
+};
+/** A row stamped outside 09:15-15:30 IST was raised or placed with the market shut (a test on the simulated feed, or a late hand order). */
+const afterHours = (d) => (d && (istMinutes(d) < 9 * 60 + 15 || istMinutes(d) > 15 * 60 + 30) ? ' [market shut]' : '');
+const exitName = (reason) => (reason === 'MANUAL' ? 'MANUAL (sold by hand)' : reason);
+const riskText = (a) => (a.riskAmount > 0 ? `₹${a.riskAmount}` : a.riskAmount === 0 ? `${a.riskPct}% of capital` : '₹200 (default)');
 
 const ladderText = (rows, unit) => rows.map((r) => `+${r.at}${unit} keeps ${r.keep}${unit}`).join(', ');
 
 function rules({ auto, options }) {
   const lines = [];
-  if (auto) lines.push(`- Auto shares: ${auto.enabled ? 'ON' : 'off'}, min score ${auto.minScore}, max ${auto.maxOpen} open, risk ₹${auto.riskAmount} a trade, stop for the day after -${auto.dailyLossPct}%, max ₹${auto.maxTradeAmount} a trade, no sale target; lock ladder (% of money): ${ladderText(auto.lockLadder, '%')}.`);
+  if (auto) lines.push(`- Auto shares: ${auto.enabled ? 'ON' : 'off'}, min score ${auto.minScore}, max ${auto.maxOpen} open, risk ${riskText(auto)} a trade, stop for the day after -${auto.dailyLossPct}%, max ₹${auto.maxTradeAmount} a trade, no sale target; lock ladder (% of money): ${ladderText(auto.lockLadder, '%')}.`);
   if (options) lines.push(`- Auto options: ${options.enabled ? 'ON' : 'off'}, min score ${options.minScore}, budget ₹${options.budget}, max loss ${options.maxLossPct}% of it, max ${options.maxLots} lots, ${options.maxTrades} trades a day, trail ${options.trailPct}% of premium; lock ladder (₹ per lot): ${ladderText(options.lockLadder, '')}.`);
   return lines;
 }
@@ -27,7 +35,7 @@ function ideaLines(ideas) {
   if (!ideas.length) return [head, 'None raised.'];
   const lines = ideas.slice(0, MAX_ROWS).map((i) => {
     const r = resultR(i);
-    return `- ${clock(i.createdAt)} ${i.symbol} ${i.side} ${i.setup} score ${i.score}: entry ${i.entry}, SL ${i.stopLoss}, T1 ${i.target1} -> ${i.status}${i.exitPrice != null ? ` at ${i.exitPrice}` : ''}${r != null ? ` (${signed(r, 'R')})` : ''}, best ${signed(i.bestR, 'R')}, worst ${signed(i.worstR, 'R')}`;
+    return `- ${clock(i.createdAt)}${afterHours(i.createdAt)} ${i.symbol} ${i.side} ${i.setup} score ${i.score}: entry ${i.entry}, SL ${i.stopLoss}, T1 ${i.target1} -> ${i.status}${i.exitPrice != null ? ` at ${i.exitPrice}` : ''}${r != null ? ` (${signed(r, 'R')})` : ''}, best ${signed(i.bestR, 'R')}, worst ${signed(i.worstR, 'R')}`;
   });
   if (ideas.length > MAX_ROWS) lines.push(`(${ideas.length - MAX_ROWS} more not shown)`);
   const s = summarizeIdeas(ideas.map((i) => ({ ...i, openedAt: i.createdAt })));
@@ -45,10 +53,16 @@ function tradeLines(title, entries, { options = false } = {}) {
     const o = e.outcome;
     const what = options ? `${e.detail?.label || e.symbol}${e.detail?.manual ? ' (by hand)' : ''}, ${e.detail?.lots ?? '?'} lot` : `${e.symbol} ${e.side} qty ${e.qty}`;
     lines.push(
-      `- ${clock(e.decidedAt)} ${what} ${e.setup || ''} score ${e.score ?? '-'}: bought at ${e.fillPrice ?? e.entry}, stop ${e.stopLoss}${o ? ` -> ${o.exitReason} at ${o.exitPrice}, net ${inr(o.netPnl)} (${signed(o.resultR, 'R')}), best ${signed(o.bestR, 'R')}, worst ${signed(o.worstR, 'R')}, held ${o.minutesHeld} min` : ' -> still open'}`,
+      `- ${clock(e.decidedAt)}${afterHours(e.decidedAt)} ${what} ${e.setup || ''} score ${e.score ?? '-'}: bought at ${e.fillPrice ?? e.entry}, stop ${e.stopLoss}${o ? ` -> ${exitName(o.exitReason)} at ${o.exitPrice}, net ${inr(o.netPnl)} (${signed(o.resultR, 'R')}), best ${signed(o.bestR, 'R')}, worst ${signed(o.worstR, 'R')}, held ${o.minutesHeld} min` : ' -> still open'}`,
     );
   }
-  if (sum.byExit.length) lines.push(`Exits: ${sum.byExit.map((g) => `${g.key} ${g.trades} (net ${inr(g.netPnl)})`).join('; ')}`);
+  if (sum.byExit.length) lines.push(`Exits: ${sum.byExit.map((g) => `${exitName(g.key)} ${g.trades} (net ${inr(g.netPnl)})`).join('; ')}`);
+  if (options) {
+    const split = (rows) => summarizeLog(rows);
+    const byHand = entries.filter((e) => e.detail?.manual);
+    const auto = entries.filter((e) => !e.detail?.manual);
+    if (byHand.length) lines.push(`Auto: ${split(auto).placed} trades, net ${inr(split(auto).netPnl)}. By hand: ${split(byHand).placed} trades, net ${inr(split(byHand).netPnl)}.`);
+  }
   if (sum.gaveBack) lines.push(`${sum.gaveBack} trade(s) were up half the risk or more and still ended as a loss.`);
   if (sum.skipReasons.length) lines.push(`Skipped ${sum.skipped}: ${sum.skipReasons.slice(0, 8).map((r) => `${r.count}x ${cut(r.example, 90)}`).join('; ')}`);
   return lines;

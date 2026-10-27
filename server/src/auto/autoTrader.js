@@ -12,6 +12,7 @@ const MIN_PROFIT_TO_CHARGES = 3; // skip a trade whose profit at target 1 is und
 // There is no sale target. The stop climbs with the profit along the ladder in scanner/replay.js, as [profit, kept] in percent
 // of the money put in: on ₹1 lakh, +₹300 keeps ₹150, +₹450 keeps ₹320, +₹600 keeps ₹520, +₹1,000 keeps ₹900, and past each rung
 // the stop follows (profit - kept) behind the best profit. A trade ends at its stop or at the 15:15 square-off.
+const EXCURSION_SAVE_MS = 20000; // how often a changed best/worst is written to the log of an open trade
 const DEFAULT_RISK_AMOUNT = 200; // rupees one trade may lose when the user's settings do not say
 const MAX_CHARGES_OF_RISK = 0.25; // skip a trade whose round-trip charges are more than this share of the money it risks: its stop is too tight for its size
 
@@ -36,6 +37,24 @@ export class AutoTrader {
     };
   }
 
+  /** Pick up trades that were open when the server last stopped, so how far they ran is not lost. */
+  async init() {
+    for (const log of await AutoLog.find({ status: 'OPEN', decision: 'PLACED', segment: { $ne: 'OPT' } }).lean()) {
+      const entry = log.fillPrice ?? log.entry;
+      this.excursion.set(`${log.user}|${log.symbol}`, {
+        user: log.user,
+        openedAt: new Date(log.decidedAt).getTime(),
+        symbol: log.symbol,
+        entry,
+        risk: Math.abs(entry - log.stopLoss),
+        dir: log.side === 'BUY' ? 1 : -1,
+        bestR: log.excursion?.bestR ?? 0,
+        worstR: log.excursion?.worstR ?? 0,
+        savedAt: Date.now(),
+      });
+    }
+  }
+
   start() {
     this.scanner.on('entry', this.onEntry);
     this.engine.market.on('tick', this.onTick);
@@ -55,7 +74,13 @@ export class AutoTrader {
       x.bestR = Math.max(x.bestR, r);
       x.worstR = Math.min(x.worstR, r);
       this.excursion.set(key, x);
+      if (Date.now() - (x.savedAt ?? x.openedAt) >= EXCURSION_SAVE_MS) this.#saveExcursion(x);
     }
+  }
+
+  #saveExcursion(x) {
+    x.savedAt = Date.now();
+    AutoLog.updateOne({ user: x.user, symbol: x.symbol, status: 'OPEN', segment: { $ne: 'OPT' } }, { excursion: { bestR: round2(x.bestR), worstR: round2(x.worstR) } }).catch((e) => logger.warn(`excursion save for ${x.symbol} failed: ${e.message}`));
   }
 
   /** Write one row of the auto log. Logging must never get in the way of trading. */
@@ -105,8 +130,8 @@ export class AutoTrader {
       netPnl: round2(gross - pos.charges),
       resultR: risk ? round2((dir * (exitPrice - (log.fillPrice ?? log.entry))) / risk) : null,
       minutesHeld: Math.round(((pos.closedAt || new Date()) - pos.openedAt) / 60000),
-      bestR: x ? round2(x.bestR) : null,
-      worstR: x ? round2(x.worstR) : null,
+      bestR: x ? round2(x.bestR) : (log.excursion?.bestR ?? null),
+      worstR: x ? round2(x.worstR) : (log.excursion?.worstR ?? null),
       closedAt: pos.closedAt,
     };
     await AutoLog.updateOne({ _id: log._id, status: 'OPEN' }, { status: 'CLOSED', outcome });
