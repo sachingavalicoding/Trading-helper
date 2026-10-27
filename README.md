@@ -390,6 +390,10 @@ Normal ideas start at 09:30, after the opening range is complete. The **News gap
 
 Nothing trades before 09:15: the NSE pre-open session (09:00-09:15) is an auction that sets the opening price, and the paper engine fills only while the market is open. The 09:00 morning plan already lists gap and news stocks to watch. Switch the setup off for auto trades with `earlyNews: false` on `PUT /api/auto` (a tick box under "Change limits" on the Scanner screen). The backtest has no news, so it cannot test this setup.
 
+## Options bought by hand
+
+The 15:00 cut-off and the 30-minute stall exit apply to the option trader's own trades only. An option you buy by hand (the Buy button on the Options tab) keeps its chart stop, targets, profit ladder, lock and trailing stop, but is not closed by those clock rules; the 15:15 square-off is its only time limit. Before this, a hand-bought option was sold within seconds whenever it was bought after 15:00.
+
 ## Look and menu
 
 The app is black with electric blue as the main colour and orange as the highlight. Green and red are kept for up and down only. The light theme is still there (Account, Theme).

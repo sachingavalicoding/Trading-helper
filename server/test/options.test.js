@@ -501,3 +501,33 @@ test('no option target is further than the index can reach in a usual day, so th
   const noHistory = planTrade({ ...base, market: { ...mk(), avgRangePct: null } }).plan;
   assert.ok(noHistory.target3 <= 230 * 1.4, 'without daily history the reach is a few ATRs, not unlimited');
 });
+
+test('an option bought by hand is not closed by the 15:00 cut-off or the stall rule, but the auto trader\'s own trades still are', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  ctx.provider.setPrice('NIFTY 50', 25000);
+  await settle();
+  await OptionSettings.create({ user: uid, enabled: false });
+  const hand = new OptionTrader({ market: ctx.market, engine: ctx.engine, config: ctx.config });
+  hand.read = async () => {
+    const rd = callRead(25000);
+    return { ...rd, ce: rd.best }; // the side the Buy button uses
+  };
+  const r = await hand.enterManually(uid, 'CE', 1);
+  assert.ok(r.order, r.skipped);
+  const row = await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'PLACED' }).lean();
+  assert.equal(row.detail.manual, true);
+
+  // 15:05 IST, and then 40 minutes of going nowhere: neither closes a hand-bought trade
+  const late = new OptionTrader({ market: ctx.market, engine: ctx.engine, config: ctx.config, now: () => new Date(Date.UTC(2026, 9, 26, 9, 35)) });
+  await late.init();
+  late.start();
+  try {
+    await late.manage(uid);
+    await sleep(100);
+    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'OPEN');
+  } finally {
+    late.stop();
+  }
+  await ctx.engine.exitPosition(uid, r.plan.symbol);
+});
