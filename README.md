@@ -423,3 +423,6 @@ The Options tab opens with the Nifty 50 candle chart (1, 5 and 15 minutes, with 
 
 Nothing is predicted here: headline tags never change after they are stored and a scanner idea is frozen when raised, so a past day is rebuilt exactly as it was. Daily candles come from the broker, minute candles only for the last few sessions, so older days have no chart. A few days of results are noise; the Techniques tab is meant for a month.
 
+## Day report
+
+The Scanner tab has a **Day report** card. Tap **Copy report** (pick another day with the date field) to copy one text block of the day: the rules in force (including both lock ladders), every scanner idea and how it ended, the auto share trades and option trades with their exits, why trades were skipped, the morning news calls against what the stocks did, and the scanner's track record. Paste it into the chat to review a day. It contains prices, rules and results only. The same text is at `GET /api/report/day?day=2026-10-27`.
