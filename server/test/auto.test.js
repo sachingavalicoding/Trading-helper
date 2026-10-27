@@ -51,7 +51,7 @@ test('auto trading is off by default and can be switched on', async () => {
   await request(app).put('/api/auto').set(user.auth).send({ enabled: false }).expect(200);
 });
 
-test('places a tagged paper order with its stop and target, and skips weak ideas', async () => {
+test('places a tagged paper order with its stop and no sale target, and skips weak ideas', async () => {
   const s = settings();
   const weak = await trader.consider(s, idea('TCS', 'BUY', 65));
   assert.match(weak.skipped, /below/);
@@ -60,7 +60,7 @@ test('places a tagged paper order with its stop and target, and skips weak ideas
   assert.equal(r.order.status, 'FILLED');
   assert.equal(r.order.source, 'AUTO');
   const legs = await Order.find({ symbol: 'TCS', role: { $in: ['STOPLOSS', 'TARGET'] } }).lean();
-  assert.equal(legs.length, 2);
+  assert.deepEqual(legs.map((l) => l.role), ['STOPLOSS'], 'a stop, and no sale target');
   assert.ok(legs.every((l) => l.source === 'AUTO'));
   assert.equal((await trader.todaySummary(s.user)).open, 1);
 });
@@ -125,23 +125,40 @@ test('shares are sized from the risk and max amount unless a cap is set', async 
   assert.equal(r2.order.qty, 1);
 });
 
-test('past each target an auto trade is not sold: the stop jumps to just short of it, and the sale is at a third target', async () => {
+test('an auto trade has no sale target: the stop climbs with the profit and the trade keeps running', async () => {
   const fresh = await registerUser(app);
-  const s = settings({ user: fresh.user.id || fresh.user._id, maxOpen: 10, maxShares: 1, lockByRisk: false }); // the ladder would lift the stop too; this checks the target steps alone
-  ctx.provider.setPrice('ONGC', 250);
-  const i = idea('ONGC', 'BUY');
+  const uid = fresh.user.id || fresh.user._id;
+  const s = settings({ user: uid, maxOpen: 10, riskAmount: 1000, riskPct: 1 });
+  ctx.provider.setPrice('LT', 3500);
+  await settle();
+  const i = { ...idea('LT', 'BUY'), stopLoss: 3480 };
   const r = await trader.consider(s, i);
   assert.ok(r.order, r.skipped);
-  const target = await Order.findOne({ user: s.user, symbol: 'ONGC', role: 'TARGET', status: 'OPEN' }).lean();
-  assert.ok(Math.abs(target.price - (i.target2 * 2 - i.target1)) <= 0.06, 'sells at a third target, not 1 or 2');
-  const stopAt = async () => (await Order.findOne({ user: s.user, symbol: 'ONGC', role: 'STOPLOSS', status: 'OPEN' }).lean()).triggerPrice;
-  ctx.provider.setPrice('ONGC', i.target1 + 0.5);
+  assert.equal(r.order.qty, 50, '1000 / 20 per share');
+  assert.equal(await Order.countDocuments({ user: uid, symbol: 'LT', role: 'TARGET', status: 'OPEN' }), 0, 'nothing is sold at a target');
+  const stopAt = async () => (await Order.findOne({ user: uid, symbol: 'LT', role: 'STOPLOSS', status: 'OPEN' }).lean()).triggerPrice;
+  const pos = await Position.findOne({ user: uid, symbol: 'LT', status: 'OPEN' }).lean();
+  assert.deepEqual(pos.lockSteps.map((x) => [x.at, x.keep]), [[525, 262.5], [787.5, 560], [1050, 910], [1750, 1575]], 'percent of the 1,75,000 put in');
+
+  ctx.provider.setPrice('LT', 3505); // +250: below the first rung, the stop stays
   await settle();
-  assert.ok(Math.abs((await stopAt()) - (i.entry + 0.8 * (i.target1 - i.entry))) <= 0.06, 'stop just short of target 1');
-  ctx.provider.setPrice('ONGC', i.target2 + 0.5);
+  assert.equal(await stopAt(), 3480);
+  ctx.provider.setPrice('LT', 3515); // +750: keeps the rung 262.5 or trails 262.5 behind, so 487.5
   await settle();
-  assert.ok(Math.abs((await stopAt()) - (i.entry + 0.8 * (i.target2 - i.entry))) <= 0.06, 'stop just short of target 2');
-  assert.equal((await Position.findOne({ user: s.user, symbol: 'ONGC' })).status, 'OPEN');
+  assert.ok(Math.abs((await stopAt()) - 3509.75) <= 0.06, `stop ${await stopAt()}`);
+  ctx.provider.setPrice('LT', 3522); // +1,100: past the third rung, trails 140 behind
+  await settle();
+  assert.ok(Math.abs((await stopAt()) - 3519.2) <= 0.06);
+  ctx.provider.setPrice('LT', 3520); // a dip does not lower it, and the trade is still open
+  await settle();
+  assert.ok(Math.abs((await stopAt()) - 3519.2) <= 0.06);
+  assert.equal((await Position.findOne({ user: uid, symbol: 'LT' })).status, 'OPEN');
+  ctx.provider.setPrice('LT', 3519); // falls to the raised stop: the profit is kept
+  await settle();
+  await new Promise((r) => setTimeout(r, 50));
+  const closed = await Position.findOne({ user: uid, symbol: 'LT' }).lean();
+  assert.equal(closed.status, 'CLOSED');
+  assert.ok(closed.realizedPnl > 900);
 });
 
 test('the auto log records every decision, placed or skipped, with the numbers behind it', async () => {
@@ -173,7 +190,7 @@ test('the auto log records every decision, placed or skipped, with the numbers b
   await request(app).get('/api/auto/log?day=nope').set(fresh.auth).expect(400);
 });
 
-test('the log fills in how a trade ended: stop, profit lock, target, manual exit', async () => {
+test('the log fills in how a trade ended: stop, profit lock, manual exit', async () => {
   trader.start();
   try {
     const fresh = await registerUser(app);
@@ -209,14 +226,14 @@ test('the log fills in how a trade ended: stop, profit lock, target, manual exit
     row = await outcomeOf('ITC');
     assert.equal(row.outcome.exitReason, 'MANUAL');
 
-    // the stop jumps past target 1, then price falls back and the raised stop is hit: a lock
+    // the stop climbs past +0.6%, then price falls back and the raised stop is hit: a lock
     ctx.provider.setPrice('SBIN', 800);
     await settle();
     const c = idea('SBIN', 'BUY');
-    await trader.consider(s, c);
-    ctx.provider.setPrice('SBIN', c.target1 + 0.5);
+    await trader.consider(settings({ user: uid, maxOpen: 10 }), c);
+    ctx.provider.setPrice('SBIN', c.entry * 1.007);
     await settle();
-    ctx.provider.setPrice('SBIN', c.entry + 0.75 * (c.target1 - c.entry));
+    ctx.provider.setPrice('SBIN', c.entry * 1.004);
     await settle();
     await new Promise((r) => setTimeout(r, 50));
     row = await outcomeOf('SBIN');
@@ -248,7 +265,7 @@ test('the day summary adds up exits and setups, groups skip reasons, and checks 
   assert.deepEqual(sum.skippedHindsight, { followed: 2, wouldHitTarget: 1, wouldStop: 1, unresolved: 0 });
 });
 
-test('the profit ladder of an auto trade is sized from the money risked, and can be turned off', async () => {
+test('the climbing stop of an auto trade is sized from the money put in, and can be turned off', async () => {
   const a = await registerUser(app);
   const sa = settings({ user: a.user.id || a.user._id, maxOpen: 10 });
   ctx.provider.setPrice('SBIN', 800);
@@ -257,8 +274,8 @@ test('the profit ladder of an auto trade is sized from the money risked, and can
   const r = await trader.consider(sa, i);
   assert.ok(r.order, r.skipped);
   const pos = await Position.findOne({ user: sa.user, symbol: 'SBIN', status: 'OPEN' }).lean();
-  const risk = r.order.qty * Math.abs(i.entry - i.stopLoss);
-  assert.deepEqual(pos.lockSteps.map((s) => [s.at, s.keep]), [[1, 0.5], [2.5, 2], [5, 4]].map(([at, keep]) => [Math.round(risk * at * 100) / 100, Math.round(risk * keep * 100) / 100]));
+  const value = r.order.avgFillPrice * r.order.qty;
+  assert.deepEqual(pos.lockSteps.map((s) => [s.at, s.keep]), [[0.3, 0.15], [0.45, 0.32], [0.6, 0.52], [1, 0.9]].map(([at, keep]) => [Math.round(value * at) / 100, Math.round(value * keep) / 100]));
 
   const b = await registerUser(app);
   const sb = settings({ user: b.user.id || b.user._id, maxOpen: 10, lockByRisk: false });
@@ -268,6 +285,27 @@ test('the profit ladder of an auto trade is sized from the money risked, and can
   assert.ok(r2.order, r2.skipped);
   const pos2 = await Position.findOne({ user: sb.user, symbol: 'ITC', status: 'OPEN' }).lean();
   assert.equal(pos2.lockTrigger, 1000, 'the fixed rupee default stays');
+});
+
+test('your own lock ladder replaces the built-in one, and is checked before it is saved', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  const got = (await request(app).get('/api/auto').set(fresh.auth).expect(200)).body;
+  assert.deepEqual(got.settings.lockLadder, got.defaultLockLadder);
+  assert.deepEqual(got.defaultLockLadder.map((x) => [x.at, x.keep]), [[0.3, 0.15], [0.45, 0.32], [0.6, 0.52], [1, 0.9]]);
+  await request(app).put('/api/auto').set(fresh.auth).send({ lockLadder: [{ at: 0.2, keep: 0.3 }] }).expect(400);
+  await request(app).put('/api/auto').set(fresh.auth).send({ lockLadder: [{ at: 0.4, keep: 0.2 }, { at: 0.3, keep: 0.25 }] }).expect(400);
+  const saved = (await request(app).put('/api/auto').set(fresh.auth).send({ lockLadder: [{ at: 0.5, keep: 0.25 }, { at: 1, keep: 0.8 }] }).expect(200)).body;
+  assert.deepEqual(saved.settings.lockLadder, [{ at: 0.5, keep: 0.25 }, { at: 1, keep: 0.8 }]);
+
+  const s = { ...(await AutoSettings.findOne({ user: uid }).lean()), enabled: true, maxOpen: 10 };
+  ctx.provider.setPrice('INFY', 1500);
+  await settle();
+  const r = await trader.consider(s, idea('INFY', 'BUY'));
+  assert.ok(r.order, r.skipped);
+  const pos = await Position.findOne({ user: uid, symbol: 'INFY', status: 'OPEN' }).lean();
+  const value = r.order.avgFillPrice * r.order.qty;
+  assert.deepEqual(pos.lockSteps.map((x) => [x.at, x.keep]), [[0.5, 0.25], [1, 0.8]].map(([at, keep]) => [Math.round(value * at) / 100, Math.round(value * keep) / 100]));
 });
 
 test('skips a trade whose profit at target 1 would not cover its charges three times over', async () => {
@@ -282,72 +320,6 @@ test('skips a trade whose profit at target 1 would not cover its charges three t
   assert.match(r.skipped, /under 3x the charges/);
   const logged = await AutoLog.findOne({ user: s.user, symbol: 'ONGC' }).lean();
   assert.equal(logged.decision, 'SKIPPED');
-});
-
-test('the rupee ladder moves the stop up with the profit: +200 keeps 100, +500 keeps 400, +1,000 keeps 800', async () => {
-  const fresh = await registerUser(app);
-  const uid = fresh.user.id || fresh.user._id;
-  const s = settings({ user: uid, maxOpen: 10, riskAmount: 200, riskPct: 0.1 });
-  ctx.provider.setPrice('LT', 3500);
-  await settle();
-  const i = { ...idea('LT', 'BUY'), stopLoss: 3480, target1: 3600, target2: 3700, target3: 3800 };
-  const r = await trader.consider(s, i);
-  assert.ok(r.order, r.skipped);
-  assert.equal(r.order.qty, 10, '200 / 20 per share');
-  const stopAt = async () => (await Order.findOne({ user: uid, symbol: 'LT', role: 'STOPLOSS', status: 'OPEN' }).lean()).triggerPrice;
-  assert.equal((await Order.findOne({ user: uid, symbol: 'LT', role: 'TARGET', status: 'OPEN' }).lean()).price, 3800, 'sells at the scanner\'s third target');
-  const pos = await Position.findOne({ user: uid, symbol: 'LT', status: 'OPEN' }).lean();
-  assert.deepEqual(pos.lockSteps.map((x) => [x.at, x.keep]), [[200, 100], [500, 400], [1000, 800]]);
-
-  ctx.provider.setPrice('LT', 3510); // +100: nothing yet
-  await settle();
-  assert.equal(await stopAt(), 3480);
-  ctx.provider.setPrice('LT', 3521); // +210: keeps about 110 (never below cost + charges)
-  await settle();
-  const first = await stopAt();
-  assert.ok(first > 3510 && first < 3521, `stop ${first}`);
-  ctx.provider.setPrice('LT', 3560); // +600: follows 100 behind the best profit, so keeps 500
-  await settle();
-  assert.ok(Math.abs((await stopAt()) - 3550) <= 0.06, 'stop 10 per share behind');
-  ctx.provider.setPrice('LT', 3600); // +1,000: keeps 800
-  await settle();
-  assert.ok(Math.abs((await stopAt()) - 3580) <= 0.06);
-  ctx.provider.setPrice('LT', 3590); // a dip does not lower it
-  await settle();
-  assert.ok(Math.abs((await stopAt()) - 3580) <= 0.06);
-});
-
-test('a trade that has gone nowhere for 45 minutes is closed as a time exit, but a trade that got going is left', async () => {
-  trader.start();
-  try {
-    const fresh = await registerUser(app);
-    const uid = fresh.user.id || fresh.user._id;
-    const s = settings({ user: uid, maxOpen: 10, maxShares: 1 });
-    ctx.provider.setPrice('HDFCBANK', 1600);
-    ctx.provider.setPrice('ITC', 400);
-    await settle();
-    const a = idea('HDFCBANK', 'BUY');
-    const b = idea('ITC', 'BUY');
-    assert.ok((await trader.consider(s, a)).order);
-    assert.ok((await trader.consider(s, b)).order);
-    const old = (symbol) => {
-      const x = trader.excursion.get(`${uid}|${symbol}`);
-      x.openedAt = Date.now() - 50 * 60000;
-      return x;
-    };
-    old('HDFCBANK');
-    old('ITC').bestR = 0.8; // this one got going
-    ctx.provider.setPrice('HDFCBANK', a.entry - 0.5);
-    ctx.provider.setPrice('ITC', b.entry - 0.2);
-    await settle();
-    await new Promise((r) => setTimeout(r, 100));
-    const row = await AutoLog.findOne({ user: uid, symbol: 'HDFCBANK', decision: 'PLACED' }).lean();
-    assert.equal(row.status, 'CLOSED');
-    assert.equal(row.outcome.exitReason, 'TIME');
-    assert.equal((await Position.findOne({ user: uid, symbol: 'ITC' })).status, 'OPEN');
-  } finally {
-    trader.stop();
-  }
 });
 
 test('skips a trade whose charges would be over a quarter of the money it risks (a stop too tight for its size)', async () => {

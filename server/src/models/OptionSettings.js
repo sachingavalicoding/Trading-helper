@@ -13,8 +13,7 @@ const optionSettingsSchema = new mongoose.Schema(
     maxLossPct: { type: Number, default: 7, min: 1, max: 20 }, // % of the budget one trade may lose if its stop is hit
     dailyLossPct: { type: Number, default: 10, min: 2, max: 30 }, // stop opening trades after losing this % of the budget today
     trailPct: { type: Number, default: 25, min: 0, max: 60 }, // stop follows the best premium at this % distance; 0 = off
-    lockAtAmount: { type: Number, default: 700, min: 100, max: 1_000_000 }, // once a trade is up this many rupees per lot, the profit lock starts...
-    lockKeepAmount: { type: Number, default: 400, min: 0, max: 1_000_000 }, // ...keeps this many rupees per lot, then follows (lockAt - lockKeep) behind the best profit
+    lockLadder: { type: [{ _id: false, at: Number, keep: Number }], default: [] }, // own rungs, in rupees per lot: at +`at` the stop keeps `keep`, then follows (at - keep) behind the best profit; empty = the built-in ladder
   },
   { timestamps: true },
 );

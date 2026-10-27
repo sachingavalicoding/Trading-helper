@@ -167,7 +167,7 @@ test('the stop sits at a chart level at least 0.8 ATR away, and a level that is 
 
 // ---------- planning the trade ----------
 
-const settingsDoc = (over = {}) => ({ budget: 30000, maxLossPct: 7, maxLots: 2, trailPct: 25, lockAtAmount: 700, lockKeepAmount: 400, ...over });
+const settingsDoc = (over = {}) => ({ budget: 30000, maxLossPct: 7, maxLots: 2, trailPct: 25, ...over });
 const mk = (spot = 25000) => ({ spot, atr5: 25, avgRangePct: 1.1, dayRangePct: 0.3 });
 const sideRead = (spot, stop, levels = []) => ({ d: 1, type: 'CE', stop: { price: stop, note: 'below the last swing low' }, levels });
 const contract = { symbol: optionSymbol({ expiry: '2026-11-03', strike: 25000, type: 'CE' }), strike: 25000, type: 'CE', expiry: '2026-11-03', lotSize: 65 };
@@ -183,10 +183,21 @@ test('the premium stop is the premium at the chart stop, the targets ladder up, 
   assert.ok(p.riskReward >= 1.2);
   assert.ok(p.maxLoss <= 30000 * 0.07 + 0.5, `loss ${p.maxLoss}`);
   assert.equal(p.qty, p.lots * 65);
-  assert.ok(p.lockTrigger > p.lockAmount && p.trailPct === 25);
-  assert.equal(p.lockTrigger, p.lots * 700);
-  assert.equal(p.lockAmount, p.lots * 400);
-  assert.equal(p.lockRatio, 1);
+  assert.equal(p.trailPct, 25);
+  assert.deepEqual(p.lockSteps, [[700, 400], [1000, 700], [1500, 1200], [2500, 2200]].map(([at, keep]) => ({ at: p.lots * at, keep: p.lots * keep })));
+  const own = planTrade({ read: sideRead(25000, 24960, [{ kind: 'prev day high', price: 25110 }]), market: mk(), contract, premium, settings: settingsDoc({ lockLadder: [{ at: 500, keep: 250 }, { at: 900, keep: 700 }] }), available: 100000, now: MON });
+  assert.deepEqual(own.plan.lockSteps, [{ at: own.plan.lots * 500, keep: own.plan.lots * 250 }, { at: own.plan.lots * 900, keep: own.plan.lots * 700 }], 'the ladder you set is used instead');
+});
+
+test('size follows the loss at the chart stop, not the wider backup premium stop; targets aim at about 1,500 and 2,500 a lot', () => {
+  const near = planTrade({ read: sideRead(25000, 24985, [{ kind: 'prev day high', price: 25110 }]), market: mk(), contract, premium: 200, settings: settingsDoc(), available: 100000, now: MON });
+  assert.ok(near.plan, near.skipped);
+  const p = near.plan;
+  assert.equal(p.lots, 2, 'a stop 15 points away loses about 650 a lot, so two lots fit the 2,100 limit');
+  assert.ok(p.maxLoss <= 2100 && p.worstCase > p.maxLoss && p.worstCase <= 2100 * 1.5, `chart-stop loss ${p.maxLoss}, backup ${p.worstCase}`);
+  const perLot = (price) => (price - 200) * 65;
+  assert.ok(perLot(p.target1) >= 1400 && perLot(p.target1) <= 1700, `target 1 ${perLot(p.target1)} a lot`);
+  assert.ok(perLot(p.target3) >= 2300 && perLot(p.target3) <= 2500, `sale ${perLot(p.target3)} a lot`);
 });
 
 test('a stop that would cost too much premium, a level with no room, an expensive premium and a big lot are all refused', () => {
@@ -308,10 +319,10 @@ test('a trailing stop on an option may be much wider than on a share', async () 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // A call setup built on the real chart reading, with the pieces the decision depends on set by hand.
-function callRead(spotNow) {
+function callRead(spotNow, stopGap = 40) {
   const up = drift(330);
   const read = readNifty({ c1: up, tick: { symbol: 'NIFTY 50', ltp: spotNow }, breadthUp: 0.7 });
-  const side = { ...read.ce, blocked: [], score: 84, trigger: { kind: 'Breakout', level: spotNow - 5, note: 'closed above the last hour\'s high' }, stop: { price: spotNow - 40, note: 'below the last swing low', ok: true }, levels: [{ kind: 'prev day high', price: spotNow + 110 }] };
+  const side = { ...read.ce, blocked: [], score: 84, trigger: { kind: 'Breakout', level: spotNow - 5, note: 'closed above the last hour\'s high' }, stop: { price: spotNow - stopGap, note: 'below the last swing low', ok: true }, levels: [{ kind: 'prev day high', price: spotNow + 110 }] };
   return { ...read, ready: true, best: side, lead: side };
 }
 
@@ -330,9 +341,8 @@ test('the trader buys a call with the chart stop, the ladder, the lock and a tra
   const pos = await Position.findOne({ user: uid, symbol: sym, status: 'OPEN' });
   assert.equal(pos.segment, 'OPT');
   assert.deepEqual(pos.stepPrices, [r.plan.target1, r.plan.target2]);
-  assert.ok(pos.lockTrigger > pos.lockAmount && pos.lockAmount > 0);
-  assert.equal(pos.lockTrigger, r.plan.lots * 700);
-  assert.equal(pos.lockRatio, 1);
+  assert.deepEqual(pos.lockSteps.map((x) => [x.at, x.keep]), r.plan.lockSteps.map((x) => [x.at, x.keep]));
+  assert.equal(pos.lockSteps[0].at, r.plan.lots * 700);
   assert.equal(pos.trailPct, 25);
   const sl = await Order.findOne({ user: uid, symbol: sym, role: 'STOPLOSS', status: 'OPEN' });
   assert.equal(sl.triggerPrice, r.plan.stopLoss);
@@ -357,21 +367,39 @@ test('the trader buys a call with the chart stop, the ladder, the lock and a tra
   await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
 });
 
-test('when the index crosses the chart stop the trade is closed at once, and the log says STOP', async () => {
+test('when a 1-minute candle of the index closes beyond the chart stop the trade is closed, and the log says STOP', async () => {
   const fresh = await registerUser(app);
   const uid = fresh.user.id || fresh.user._id;
   ctx.provider.setPrice('NIFTY 50', 25000);
   await settle();
   const s = (await OptionSettings.create({ user: uid, enabled: true })).toObject();
+  const realNow = optionTrader.now;
+  let clock = Date.now();
+  optionTrader.now = () => new Date(clock);
   optionTrader.start();
+  const minuteLater = async (price) => {
+    clock += 60_000;
+    ctx.provider.setPrice('NIFTY 50', price);
+    await settle();
+  };
   try {
-    const r = await optionTrader.consider(s, callRead(25000));
+    const r = await optionTrader.consider(s, callRead(25000, 20));
     assert.ok(r.order, r.skipped);
-    ctx.provider.setPrice('NIFTY 50', 24990); // above the 24960 stop: still open
+    ctx.provider.setPrice('NIFTY 50', 24995); // above the 24980 stop: still open
     await settle();
-    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'OPEN');
-    ctx.provider.setPrice('NIFTY 50', 24955);
+    ctx.provider.setPrice('NIFTY 50', 24978); // a wick through the stop inside one minute...
     await settle();
+    await sleep(50);
+    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'OPEN', 'a tick through the level is not a close');
+    ctx.provider.setPrice('NIFTY 50', 24995); // ...that comes back before the minute ends
+    await settle();
+    await minuteLater(24995);
+    await sleep(50);
+    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'OPEN', 'the candle closed above the stop');
+    ctx.provider.setPrice('NIFTY 50', 24978); // this minute ends below it
+    await settle();
+    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'OPEN', 'not closed until the candle closes');
+    await minuteLater(24978);
     await sleep(100);
     const pos = await Position.findOne({ user: uid, symbol: r.plan.symbol });
     assert.equal(pos.status, 'CLOSED');
@@ -385,6 +413,7 @@ test('when the index crosses the chart stop the trade is closed at once, and the
     assert.match(next.skipped, /cooling off/);
   } finally {
     optionTrader.stop();
+    optionTrader.now = realNow;
     ctx.provider.setPrice('NIFTY 50', 25000);
   }
 });
@@ -456,13 +485,21 @@ test('the options API: settings, the chart read, the log, and a manual buy', asy
   assert.equal(on.settings.enabled, true);
   assert.equal(on.settings.trailPct, 30);
   await api().put('/api/options').set(fresh.auth).send({ minScore: 10 }).expect(400);
-  await api().put('/api/options').set(fresh.auth).send({ lockAtAmount: 300, lockKeepAmount: 500 }).expect(400);
+  await api().put('/api/options').set(fresh.auth).send({ lockLadder: [{ at: 300, keep: 500 }] }).expect(400);
+  await api().put('/api/options').set(fresh.auth).send({ lockLadder: [{ at: 500, keep: 250 }, { at: 400, keep: 300 }] }).expect(400);
+  assert.deepEqual(off.defaultLockLadder.map((x) => [x.at, x.keep]), [[700, 400], [1000, 700], [1500, 1200], [2500, 2200]]);
+  assert.deepEqual(off.settings.lockLadder, off.defaultLockLadder);
+  const mine = (await api().put('/api/options').set(fresh.auth).send({ lockLadder: [{ at: 600, keep: 300 }, { at: 1200, keep: 900 }] }).expect(200)).body;
+  assert.deepEqual(mine.settings.lockLadder, [{ at: 600, keep: 300 }, { at: 1200, keep: 900 }]);
+  const reset = (await api().put('/api/options').set(fresh.auth).send({ lockLadder: [] }).expect(200)).body;
+  assert.deepEqual(reset.settings.lockLadder, reset.defaultLockLadder, 'an empty list goes back to the built-in ladder');
   await api().put('/api/options').set(fresh.auth).send({ enabled: false }).expect(200);
 
   const read = (await api().get('/api/options/read').set(fresh.auth).expect(200)).body;
   assert.equal(read.ready, true);
   assert.ok(read.ce.score >= 0 && read.pe.checks.length > 10);
   assert.ok(read.contracts.CE.ltp > 0 && read.contracts.PE.lotSize === 65);
+  for (const t of ['CE', 'PE']) assert.ok(read.preview[t].plan ? read.preview[t].plan.lockSteps.length > 0 && read.preview[t].plan.stopLoss > 0 : read.preview[t].skipped, 'every side shows its plan or why there is none');
 
   const bought = await api().post('/api/options/buy').set(fresh.auth).send({ type: 'CE', lots: 1 });
   assert.ok([201, 400].includes(bought.status), `status ${bought.status}`);

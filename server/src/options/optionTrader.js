@@ -79,6 +79,24 @@ export class OptionTrader {
     this.open.set(`${userId}|${symbol}`, { user: String(userId), symbol, ...info });
   }
 
+  /** What one lot (or the lots the settings allow) of each side would be, shown before you buy: the same plan the trader would place. */
+  async preview(userId, read, contracts) {
+    const settings = (await OptionSettings.findOne({ user: userId }).lean()) || new OptionSettings({ user: userId }).toObject();
+    const [today, funds] = await Promise.all([this.todaySummary(userId), getFunds(userId, this.config.startingBalance)]);
+    const out = {};
+    for (const type of ['CE', 'PE']) {
+      const contract = contracts[type];
+      const side = read[type.toLowerCase()];
+      if (!contract?.ltp || !side) {
+        out[type] = { skipped: 'no live premium for the contract' };
+        continue;
+      }
+      const planned = planTrade({ read: side, market: read.market, contract, premium: contract.ltp, settings, available: funds.available, spentBudget: today.spent, now: this.now() });
+      out[type] = planned.skipped ? { skipped: planned.skipped } : { plan: planned.plan };
+    }
+    return out;
+  }
+
   /** The Nifty chart read, both sides, as of now. */
   async read() {
     const [c1, daily] = await Promise.all([this.market.getCandles(UNDERLYING, '1m'), this.market.getDaily(UNDERLYING).catch(() => [])]);
@@ -207,7 +225,7 @@ export class OptionTrader {
     if (order.status !== 'FILLED') return stop(order.rejectReason || `order was ${String(order.status).toLowerCase()}`);
     await this.engine.setSteps(userId, plan.symbol, [plan.target1, plan.target2]);
     try {
-      await this.engine.setExits(userId, plan.symbol, { ...(plan.lockTrigger ? { lockTrigger: plan.lockTrigger, lockAmount: plan.lockAmount, lockRatio: plan.lockRatio } : {}), ...(plan.trailPct ? { trailPct: plan.trailPct } : {}) });
+      await this.engine.setExits(userId, plan.symbol, { ...(plan.lockSteps.length ? { lockSteps: plan.lockSteps } : {}), ...(plan.trailPct ? { trailPct: plan.trailPct } : {}) });
     } catch (e) {
       logger.warn(`options lock for ${plan.symbol} not set: ${e.message}`);
     }
@@ -276,6 +294,7 @@ export class OptionTrader {
   }
 
   #onTick({ symbol, ltp }) {
+    if (symbol === UNDERLYING) this.#indexMinute(ltp);
     if (!this.open.size) return;
     for (const w of this.open.values()) {
       if (symbol === w.symbol && w.risk) {
@@ -283,11 +302,23 @@ export class OptionTrader {
         w.bestR = Math.max(w.bestR, r);
         w.worstR = Math.min(w.worstR, r);
       }
-      // The chart said the idea is wrong when the index crosses the stop level, even if the premium has not fallen that far yet.
-      if (symbol === UNDERLYING && w.stopSpot != null && (w.type === 'CE' ? ltp <= w.stopSpot : ltp >= w.stopSpot)) {
-        this.#exit(w.user, w.symbol, 'STOP').catch(() => {});
+    }
+  }
+
+  /**
+   * The chart says the idea is wrong when a 1-minute candle of the index CLOSES beyond the stop level, even if the premium has not
+   * fallen that far yet. One tick through the level (a wick) does not count: that is how a good trade gets shaken out. The premium
+   * stop in the order engine stays as the backup for a fast move.
+   */
+  #indexMinute(ltp) {
+    const minute = Math.floor(this.now().getTime() / 60000);
+    if (this.bar && this.bar.minute !== minute) {
+      const close = this.bar.last;
+      for (const w of this.open.values()) {
+        if (w.stopSpot != null && (w.type === 'CE' ? close <= w.stopSpot : close >= w.stopSpot)) this.#exit(w.user, w.symbol, 'STOP').catch(() => {});
       }
     }
+    this.bar = { minute, last: ltp };
   }
 
   /**

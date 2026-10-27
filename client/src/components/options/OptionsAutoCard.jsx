@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { formatPrice, pnlClass } from '../../lib/format.js';
 import { Badge, Card } from '../ui.jsx';
+import { LockLadderEditor } from '../LockLadderEditor.jsx';
 
 const FIELDS = [
   { key: 'budget', label: 'Money set aside for options (₹)', step: 1000, min: 5000, max: 100000000 },
@@ -13,8 +14,6 @@ const FIELDS = [
   { key: 'dailyLossPct', label: 'Stop for the day after losing (%)', step: 1, min: 2, max: 30 },
   { key: 'minScore', label: 'Minimum score', step: 5, min: 60, max: 100 },
   { key: 'trailPct', label: 'Trailing stop (% of premium, 0 = off)', step: 5, min: 0, max: 60 },
-  { key: 'lockAtAmount', label: 'Start the profit lock at a profit of (₹ per lot)', step: 50, min: 100, max: 1000000 },
-  { key: 'lockKeepAmount', label: 'Profit the lock keeps then (₹ per lot)', step: 50, min: 0, max: 1000000 },
 ];
 
 /** Switch for the paper options trader and its limits. Paper money only. */
@@ -60,7 +59,7 @@ export function OptionsAutoCard({ data, reload }) {
         </button>
       </div>
       <p className="text-[11px] leading-snug text-muted">
-        Buys one Nifty at-the-money call or put when the chart is clear. The stop is the premium at the chart's invalidation level, the stop climbs to 80% of the way to each target, a profit lock and a trailing stop follow, and everything is closed by 15:00.
+        Buys one Nifty at-the-money call or put when the chart is clear. The stop is the premium at the chart's invalidation level, the stop climbs to 80% of the way to each target, a profit lock ladder and a trailing stop follow, and everything is closed by 15:00.
       </p>
       <button type="button" onClick={() => setOpen((o) => !o)} className="text-xs text-accent">
         {open ? 'Hide limits' : 'Change limits'}
@@ -82,6 +81,15 @@ export function OptionsAutoCard({ data, reload }) {
               />
             </label>
           ))}
+          <LockLadderEditor
+            title="Profit lock ladder (options)"
+            hint="When the profit reaches a rung (₹ per lot, so two lots lock twice as much), the stop moves up to keep the second number, then trails behind the best profit by the difference."
+            unit="rupee"
+            rows={s.lockLadder}
+            defaults={data.defaultLockLadder}
+            busy={busy}
+            onSave={(rows) => save({ lockLadder: rows })}
+          />
         </div>
       )}
       <p className="text-[11px] leading-snug text-muted">{data.disclaimer}</p>
