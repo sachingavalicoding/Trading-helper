@@ -104,11 +104,16 @@ export default function Positions() {
 
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold">Open share positions ({positions.length})</h2>
-        {positions.length > 0 && (
-          <button type="button" disabled={busy} onClick={exitAll} className="btn btn-outline-down btn-sm">
-            Exit all
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <Link to="/orders" className="btn btn-secondary btn-sm">
+            All orders
+          </Link>
+          {positions.length > 0 && (
+            <button type="button" disabled={busy} onClick={exitAll} className="btn btn-outline-down btn-sm">
+              Exit all
+            </button>
+          )}
+        </div>
       </div>
       <Card>
         {loading ? (

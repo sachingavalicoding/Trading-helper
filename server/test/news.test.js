@@ -143,6 +143,18 @@ test('service stores tagged headlines once and serves them with a market-reactio
   assert.equal(sum.body.signals.INFY.reaction, 'AGREES');
   assert.equal(sum.body.signals.TCS, undefined);
 
+  // The News tab list: every symbol's headlines together, each carrying its stock and a link to the source
+  const all = await request(ctx.app).get('/api/news/feed?hours=24').set(auth).expect(200);
+  assert.equal(all.body.items.length, 2);
+  assert.equal(all.body.items[0].symbol, 'INFY');
+  assert.equal(all.body.items[0].name, 'Infosys');
+  assert.match(all.body.items[0].url, /^https:\/\/n\.test\//);
+  assert.equal(all.body.items.find((i) => i.category === 'ORDER_WIN').reaction.state, 'AGREES');
+  const bad = await request(ctx.app).get('/api/news/feed?label=BEARISH').set(auth).expect(200);
+  assert.equal(bad.body.items.length, 0);
+  await request(ctx.app).get('/api/news/feed?symbol=TCS').set(auth).expect(200);
+  await request(ctx.app).get('/api/news/feed?symbol=NOPE').set(auth).expect(400);
+
   await request(ctx.app).get('/api/news?symbol=NOTASTOCK').set(auth).expect(400);
   await request(ctx.app).get('/api/news').expect(401);
 });

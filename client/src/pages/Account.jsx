@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { LogOut, RotateCcw, Sun, Moon, Wallet } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ChevronRight, LayoutDashboard, ListOrdered, LogOut, RotateCcw, ScanSearch, Sun, Moon, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
@@ -140,6 +141,22 @@ export default function Account() {
           <Row label="Realised P&L since reset" value={formatPnl(f?.realizedPnl)} className={pnlClass(f?.realizedPnl)} />
         </div>
       </Card>
+
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          { to: '/dashboard', label: 'P&L', hint: 'Profit and loss', icon: LayoutDashboard },
+          { to: '/orders', label: 'Orders', hint: 'Every order', icon: ListOrdered },
+          { to: '/review', label: 'Review', hint: 'Calls vs results', icon: ScanSearch },
+        ].map(({ to, label, hint, icon: Icon }) => (
+          <Link key={to} to={to} className="card-shadow flex flex-col items-start gap-1 rounded-2xl border border-line bg-surface p-3 transition-colors hover:border-accent2">
+            <Icon className="h-5 w-5 text-accent2" />
+            <span className="flex w-full items-center justify-between text-sm font-semibold">
+              {label} <ChevronRight className="h-4 w-4 text-muted" />
+            </span>
+            <span className="text-[11px] text-muted">{hint}</span>
+          </Link>
+        ))}
+      </div>
 
       <ProfitLockDefaults />
 

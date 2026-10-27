@@ -3,51 +3,58 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* Theme tokens. Dark is the default; `html.light` switches to the light palette.
-   Graphite surfaces, one indigo accent, and market colours that stay readable on both themes. */
+   True-black surfaces, electric blue as the main accent and orange as the highlight.
+   Green and red stay reserved for up and down so a price is never mistaken for a button. */
 :root,
 .dark {
-  --bg: #090b0f;
-  --surface: #11141a;
-  --surface-2: #181c24;
-  --surface-3: #202530;
-  --border: #242a35;
-  --text: #e9ecf2;
-  --muted: #8c94a4;
+  --bg: #000000;
+  --surface: #0a0c10;
+  --surface-2: #12151b;
+  --surface-3: #1b1f28;
+  --border: #1f2430;
+  --text: #f1f3f8;
+  --muted: #8f97a8;
   --up: #1fcf8c;
   --up-soft: rgba(31, 207, 140, 0.13);
   --on-up: #02150d;
   --down: #ff5f6f;
   --down-soft: rgba(255, 95, 111, 0.13);
   --on-down: #1a0408;
-  --accent: #6b83ff;
-  --accent-soft: rgba(107, 131, 255, 0.14);
+  --accent: #2f8cff;
+  --accent-soft: rgba(47, 140, 255, 0.16);
   --on-accent: #ffffff;
-  --warn: #f2b13d;
-  --ring: rgba(107, 131, 255, 0.45);
-  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+  --accent2: #ff8a1f;
+  --accent2-soft: rgba(255, 138, 31, 0.16);
+  --on-accent2: #1c0e00;
+  --warn: #ffb020;
+  --ring: rgba(47, 140, 255, 0.5);
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.8);
   color-scheme: dark;
 }
 
 .light {
-  --bg: #f4f5f8;
+  --bg: #f3f5f9;
   --surface: #ffffff;
-  --surface-2: #eef0f5;
-  --surface-3: #e4e8ef;
-  --border: #e0e4ec;
-  --text: #11151d;
-  --muted: #5b6475;
+  --surface-2: #eef1f6;
+  --surface-3: #e3e8f0;
+  --border: #dde3ed;
+  --text: #0c1119;
+  --muted: #576175;
   --up: #0a8f5f;
   --up-soft: rgba(10, 143, 95, 0.1);
   --on-up: #ffffff;
   --down: #d93a4d;
   --down-soft: rgba(217, 58, 77, 0.09);
   --on-down: #ffffff;
-  --accent: #4259e0;
-  --accent-soft: rgba(66, 89, 224, 0.1);
+  --accent: #1a6fe0;
+  --accent-soft: rgba(26, 111, 224, 0.1);
   --on-accent: #ffffff;
+  --accent2: #e8710a;
+  --accent2-soft: rgba(232, 113, 10, 0.12);
+  --on-accent2: #ffffff;
   --warn: #b97a0a;
-  --ring: rgba(66, 89, 224, 0.35);
-  --shadow: 0 1px 2px rgba(17, 21, 29, 0.05), 0 8px 24px -14px rgba(17, 21, 29, 0.18);
+  --ring: rgba(26, 111, 224, 0.35);
+  --shadow: 0 1px 2px rgba(12, 17, 25, 0.05), 0 8px 24px -14px rgba(12, 17, 25, 0.18);
   color-scheme: light;
 }
 
@@ -68,6 +75,9 @@
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
   --color-on-accent: var(--on-accent);
+  --color-accent2: var(--accent2);
+  --color-accent2-soft: var(--accent2-soft);
+  --color-on-accent2: var(--on-accent2);
   --color-warn: var(--warn);
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
@@ -84,7 +94,7 @@ body {
 body {
   font-feature-settings: 'tnum' 1, 'cv11' 1, 'ss03' 1; /* tabular numbers so prices don't jiggle */
   -webkit-font-smoothing: antialiased;
-  background-image: radial-gradient(900px 420px at 50% -120px, var(--accent-soft), transparent 70%);
+  background-image: radial-gradient(700px 360px at 8% -140px, var(--accent-soft), transparent 70%), radial-gradient(600px 320px at 100% -160px, var(--accent2-soft), transparent 70%);
   background-repeat: no-repeat;
 }
 
@@ -120,7 +130,9 @@ body {
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn-lg { padding: 0.85rem 1.25rem; font-size: 1rem; border-radius: 0.8rem; }
 .btn-sm { padding: 0.4rem 0.7rem; font-size: 0.75rem; border-radius: 0.5rem; }
-.btn-primary { background: var(--accent); color: var(--on-accent); }
+.btn-primary { background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 78%, #7a5cff)); color: var(--on-accent); }
+.btn-accent2 { background: var(--accent2); color: var(--on-accent2); }
+.btn-accent2:hover:not(:disabled) { filter: brightness(1.08); }
 .btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
 .btn-buy { background: var(--up); color: var(--on-up); }
 .btn-buy:hover:not(:disabled) { filter: brightness(1.08); }
@@ -149,6 +161,15 @@ body {
 }
 .chip:hover { color: var(--text); }
 .chip[aria-pressed='true'], .chip.is-on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+/* Table-like grid used for stock insights and reviews */
+.grid-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+.grid-table th { position: sticky; top: 0; background: var(--surface); color: var(--muted); font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; text-align: right; padding: 0.55rem 0.5rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.grid-table th:first-child, .grid-table td:first-child { text-align: left; }
+.grid-table td { padding: 0.6rem 0.5rem; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.grid-table tbody tr { cursor: pointer; transition: background-color 0.12s; }
+.grid-table tbody tr:hover, .grid-table tbody tr:focus-visible { background: var(--surface-2); }
+.grid-table tbody tr:last-child td { border-bottom: 0; }
 
 /* Text fields */
 .field {

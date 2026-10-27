@@ -7,6 +7,7 @@ import { OptionsAutoCard } from '../components/options/OptionsAutoCard.jsx';
 import { OptionsPositions } from '../components/options/OptionsPositions.jsx';
 import { OptionsHistory } from '../components/options/OptionsHistory.jsx';
 import { OptionsLog } from '../components/options/OptionsLog.jsx';
+import { NiftyChart } from '../components/options/NiftyChart.jsx';
 import { Card, Segmented, Skeleton } from '../components/ui.jsx';
 
 const TABS = [
@@ -38,6 +39,7 @@ export default function Options() {
           <div className="num text-lg font-bold">{today ? formatINR(today.spent) : '—'}</div>
         </div>
       </Card>
+      <NiftyChart />
       <Segmented className="w-full" value={tab} onChange={setTab} options={TABS} />
       {tab === 'signal' && (
         <div className="space-y-3">

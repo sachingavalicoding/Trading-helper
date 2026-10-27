@@ -12,6 +12,7 @@ import { TIME_WINDOWS, passesFilter } from '../lib/scanFilter.js';
 import { Movers } from '../components/Movers.jsx';
 import { MorningPlan } from '../components/MorningPlan.jsx';
 import { ScannerRecord } from '../components/ScannerRecord.jsx';
+import { useOrderBlock } from '../lib/orderGate.js';
 import { alertsOn, alertsSupported, setAlerts } from '../lib/alerts.js';
 import { NewsLine, NewsCard } from '../components/NewsCard.jsx';
 import { Badge, Card, EmptyState, Segmented, Skeleton } from '../components/ui.jsx';
@@ -87,7 +88,7 @@ function Calibration({ score, calibration }) {
   );
 }
 
-function IdeaCard({ idea, onBuy, calibration }) {
+function IdeaCard({ idea, onBuy, calibration, blocked }) {
   const tick = useTick(idea.symbol);
   const [why, setWhy] = useState(false);
   const isBuy = idea.side === 'BUY';
@@ -170,11 +171,11 @@ function IdeaCard({ idea, onBuy, calibration }) {
       {entering && idea.canEnter !== false && (
         <button
           type="button"
-          disabled={idea.size.qty < 1}
+          disabled={idea.size.qty < 1 || Boolean(blocked)}
           onClick={() => onBuy(idea)}
           className={`btn btn-lg w-full ${isBuy ? 'btn-buy' : 'btn-sell'}`}
         >
-          {isBuy ? 'Buy' : 'Sell'} {idea.size.qty} with stop loss and target 1
+          {blocked ? blocked : `${isBuy ? 'Buy' : 'Sell'} ${idea.size.qty} with stop loss and target 1`}
         </button>
       )}
 
@@ -245,6 +246,7 @@ export default function Scanner() {
     else toast(on ? 'Alerts on. You get a phone notification when this tab is in the background.' : 'Alerts off');
   }
   const [sheet, setSheet] = useState(null);
+  const blocked = useOrderBlock();
   const [params, setParams] = useSearchParams();
   const openSymbol = params.get('open');
   const tries = useRef(0);
@@ -392,14 +394,14 @@ export default function Scanner() {
                 </EmptyState>
               </Card>
             ) : (
-              entries.map((i) => <IdeaCard key={i.ideaId || `${i.symbol}-${i.setup}`} idea={i} onBuy={setSheet} calibration={data.calibration} />)
+              entries.map((i) => <IdeaCard key={i.ideaId || `${i.symbol}-${i.setup}`} idea={i} onBuy={setSheet} calibration={data.calibration} blocked={blocked} />)
             )}
           </Section>
 
           {watching.length > 0 && (
             <Section title="Watching" hint="setup forming, no entry yet">
               {watching.map((i) => (
-                <IdeaCard key={`${i.symbol}-${i.setup}-${i.side}`} idea={i} onBuy={setSheet} calibration={data.calibration} />
+                <IdeaCard key={`${i.symbol}-${i.setup}-${i.side}`} idea={i} onBuy={setSheet} calibration={data.calibration} blocked={blocked} />
               ))}
             </Section>
           )}

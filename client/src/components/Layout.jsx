@@ -1,17 +1,16 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, LineChart, Briefcase, ListOrdered, UserRound, Radar, Sun, Moon, CandlestickChart } from 'lucide-react';
+import { LineChart, Briefcase, UserRound, Radar, Sun, Moon, CandlestickChart, Newspaper } from 'lucide-react';
 import { IndexStrip } from './IndexStrip.jsx';
 import { MarketStatus } from './MarketStatus.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { Disclaimer } from './ui.jsx';
 
 const NAV = [
-  { to: '/', label: 'Watchlist', icon: LineChart, end: true },
+  { to: '/', label: 'Stocks', icon: LineChart, end: true },
   { to: '/scanner', label: 'Scanner', icon: Radar },
   { to: '/options', label: 'Options', icon: CandlestickChart },
-  { to: '/positions', label: 'Positions', icon: Briefcase },
-  { to: '/orders', label: 'Orders', icon: ListOrdered },
-  { to: '/dashboard', label: 'P&L', icon: LayoutDashboard },
+  { to: '/news', label: 'News', icon: Newspaper },
+  { to: '/positions', label: 'Trades', icon: Briefcase },
   { to: '/account', label: 'Account', icon: UserRound },
 ];
 
@@ -20,7 +19,9 @@ function Brand({ className = '', small = false }) {
     <div className={`flex items-center gap-2.5 whitespace-nowrap ${className}`}>
       <img src="/icon.svg" alt="" className={small ? 'h-7 w-7' : 'h-9 w-9'} />
       <div className="leading-tight">
-        <div className={`font-bold tracking-tight ${small ? 'text-[15px]' : 'text-base'}`}>Nifty Paper</div>
+        <div className={`font-bold tracking-tight ${small ? 'text-[15px]' : 'text-base'}`}>
+          Nifty <span className="text-accent2">Paper</span>
+        </div>
         {!small && <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted">Practice desk</div>}
       </div>
     </div>
@@ -40,7 +41,7 @@ export function Layout() {
               key={to}
               to={to}
               end={end}
-              className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${isActive ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-surface-2 hover:text-fg'}`}
+              className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${isActive ? 'bg-accent-soft text-accent shadow-[inset_3px_0_0_var(--accent2)]' : 'text-muted hover:bg-surface-2 hover:text-fg'}`}
             >
               <Icon className="h-[18px] w-[18px]" strokeWidth={2} /> {label}
             </NavLink>
@@ -71,7 +72,7 @@ export function Layout() {
 
         {/* Mobile bottom tab bar */}
         <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/90 backdrop-blur-xl md:hidden">
-          <div className="grid grid-cols-7">
+          <div className="grid grid-cols-6">
             {NAV.map(({ to, label, icon: Icon, end }) => (
               <NavLink
                 key={to}
@@ -81,7 +82,7 @@ export function Layout() {
               >
                 {({ isActive }) => (
                   <>
-                    {isActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-accent" />}
+                    {isActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-accent2" />}
                     <Icon className="h-5 w-5" strokeWidth={isActive ? 2.4 : 1.9} />
                     {label}
                   </>

@@ -16,6 +16,8 @@ const Positions = lazy(() => import('./pages/Positions.jsx'));
 const Orders = lazy(() => import('./pages/Orders.jsx'));
 const Dashboard = lazy(() => import('./pages/Dashboard.jsx'));
 const Account = lazy(() => import('./pages/Account.jsx'));
+const News = lazy(() => import('./pages/News.jsx'));
+const Review = lazy(() => import('./pages/Review.jsx'));
 
 function Protected() {
   const { user, token, loading } = useAuth();
@@ -56,6 +58,8 @@ export default function App() {
                 <Route path="scanner" element={<Scanner />} />
                 <Route path="stock/:symbol" element={<StockDetail />} />
                 <Route path="options" element={<Options />} />
+                <Route path="news" element={<News />} />
+                <Route path="review" element={<Review />} />
                 <Route path="positions" element={<Positions />} />
                 <Route path="orders" element={<Orders />} />
                 <Route path="dashboard" element={<Dashboard />} />
