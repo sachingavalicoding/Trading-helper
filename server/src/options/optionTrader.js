@@ -206,7 +206,7 @@ export class OptionTrader {
     if (order.status !== 'FILLED') return stop(order.rejectReason || `order was ${String(order.status).toLowerCase()}`);
     await this.engine.setSteps(userId, plan.symbol, [plan.target1, plan.target2]);
     try {
-      await this.engine.setExits(userId, plan.symbol, { ...(plan.lockTrigger ? { lockTrigger: plan.lockTrigger, lockAmount: plan.lockAmount } : {}), ...(plan.trailPct ? { trailPct: plan.trailPct } : {}) });
+      await this.engine.setExits(userId, plan.symbol, { ...(plan.lockTrigger ? { lockTrigger: plan.lockTrigger, lockAmount: plan.lockAmount, lockRatio: plan.lockRatio } : {}), ...(plan.trailPct ? { trailPct: plan.trailPct } : {}) });
     } catch (e) {
       logger.warn(`options lock for ${plan.symbol} not set: ${e.message}`);
     }

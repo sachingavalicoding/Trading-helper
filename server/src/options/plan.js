@@ -24,7 +24,7 @@ const WAIT_MS = 20 * 60000; // reprice about 20 minutes ahead: the stop is usual
  * @param market      the shared indicator set (readMarket) for the day's range numbers
  * @param contract    { symbol, strike, type, expiry, lotSize }
  * @param premium     live premium of the contract (₹ per unit)
- * @param settings    OptionSettings (budget, maxLossPct, maxLots, trailPct, lockAtPct, lockKeepPct)
+ * @param settings    OptionSettings (budget, maxLossPct, maxLots, trailPct, lockAtAmount, lockKeepAmount)
  * @param available   rupees free in the paper wallet
  * @param spentBudget premium money already tied up in open option trades
  * @returns {{ plan } | { skipped: string }}
@@ -95,8 +95,9 @@ export function planTrade({ read, market: m, contract, premium, settings, availa
   const charges = roundTripCharges({ qty, price: premium, segment: 'OPT' });
   if (profit1 < MIN_PROFIT_TO_CHARGES * charges) return { skipped: `profit at target 1 (₹${round2(profit1)}) is under ${MIN_PROFIT_TO_CHARGES}x the charges (₹${charges})` };
 
-  const lockTrigger = round2((qty * premium * settings.lockAtPct) / 100);
-  const lockAmount = round2((qty * premium * settings.lockKeepPct) / 100);
+  // The lock is in rupees per lot, so it starts at a profit that really happens on one lot and grows with the lots held.
+  const lockTrigger = round2(lots * settings.lockAtAmount);
+  const lockAmount = round2(lots * settings.lockKeepAmount);
   return {
     plan: {
       symbol: contract.symbol,
@@ -122,6 +123,7 @@ export function planTrade({ read, market: m, contract, premium, settings, availa
       riskReward: round2((target1 - premium) / risk),
       lockTrigger: lockTrigger > lockAmount && lockAmount > 0 ? lockTrigger : null,
       lockAmount: lockTrigger > lockAmount && lockAmount > 0 ? lockAmount : null,
+      lockRatio: 1, // past the trigger every extra rupee of profit is locked too: the stop trails (trigger - kept) behind the best profit
       trailPct: settings.trailPct > 0 ? settings.trailPct : null,
       charges,
     },

@@ -20,11 +20,11 @@ const patch = z
     maxLossPct: z.coerce.number().min(1).max(20),
     dailyLossPct: z.coerce.number().min(2).max(30),
     trailPct: z.coerce.number().min(0).max(60),
-    lockAtPct: z.coerce.number().min(5).max(200),
-    lockKeepPct: z.coerce.number().min(0).max(100),
+    lockAtAmount: z.coerce.number().min(100).max(1_000_000),
+    lockKeepAmount: z.coerce.number().min(0).max(1_000_000),
   })
   .partial()
-  .refine((d) => d.lockAtPct == null || d.lockKeepPct == null || d.lockAtPct > d.lockKeepPct, { message: 'The profit that starts the lock must be larger than the profit it keeps', path: ['lockKeepPct'] });
+  .refine((d) => d.lockAtAmount == null || d.lockKeepAmount == null || d.lockAtAmount > d.lockKeepAmount, { message: 'The profit that starts the lock must be larger than the profit it keeps', path: ['lockKeepAmount'] });
 
 const buySchema = z.object({ type: z.enum(['CE', 'PE']), lots: z.coerce.number().int().min(1).max(20).default(1) });
 const dayOf = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -36,8 +36,8 @@ export function optionRoutes({ optionTrader }) {
   const router = Router();
   const view = async (userId, doc) => {
     const s = doc || new OptionSettings({ user: userId });
-    const { enabled, minScore, maxLots, maxOpen, maxTrades, budget, maxLossPct, dailyLossPct, trailPct, lockAtPct, lockKeepPct } = s;
-    return { settings: { enabled, minScore, maxLots, maxOpen, maxTrades, budget, maxLossPct, dailyLossPct, trailPct, lockAtPct, lockKeepPct }, today: await optionTrader.todaySummary(userId), weights: OPTION_WEIGHTS, disclaimer: OPTIONS_DISCLAIMER };
+    const { enabled, minScore, maxLots, maxOpen, maxTrades, budget, maxLossPct, dailyLossPct, trailPct, lockAtAmount, lockKeepAmount } = s;
+    return { settings: { enabled, minScore, maxLots, maxOpen, maxTrades, budget, maxLossPct, dailyLossPct, trailPct, lockAtAmount, lockKeepAmount }, today: await optionTrader.todaySummary(userId), weights: OPTION_WEIGHTS, disclaimer: OPTIONS_DISCLAIMER };
   };
 
   router.get('/', async (req, res) => {
