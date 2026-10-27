@@ -6,6 +6,7 @@ import { useTick } from '../lib/tickStore.js';
 import { estimateCharges, MIS_LEVERAGE } from '../lib/charges.js';
 import { formatINR, formatPrice, formatPct, pnlClass } from '../lib/format.js';
 import { useMarket } from '../context/MarketContext.jsx';
+import { useOrderBlock } from '../lib/orderGate.js';
 import { Segmented, Flash } from './ui.jsx';
 
 const roundTick = (p) => Math.round(p / 0.05) * 0.05;
@@ -19,6 +20,7 @@ const fix2 = (p) => Number(roundTick(p).toFixed(2));
 export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initialQty, onClose }) {
   const tick = useTick(symbol);
   const { refresh } = useMarket();
+  const blocked = useOrderBlock();
   const [side, setSide] = useState(initialSide);
   const [orderType, setOrderType] = useState('MARKET');
   const [qty, setQty] = useState(initialQty >= 1 ? initialQty : 1);
@@ -81,7 +83,7 @@ export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initial
     return null;
   })();
 
-  const canSubmit = ltp && qty >= 1 && Number.isInteger(qty) && (orderType === 'MARKET' || Number(price) > 0) && !bracketError && !submitting;
+  const canSubmit = !blocked && ltp && qty >= 1 && Number.isInteger(qty) && (orderType === 'MARKET' || Number(price) > 0) && !bracketError && !submitting;
 
   async function submit(e) {
     e.preventDefault();
@@ -267,8 +269,9 @@ export function OrderSheet({ symbol, name, side: initialSide, plan, qty: initial
 
         {/* Confirm stays in thumb reach even when the sheet scrolls */}
         <div className="sticky bottom-0 border-t border-line bg-surface px-4 pt-3 pb-4">
+          {blocked && <p className="mb-2 rounded-lg bg-warn/10 px-3 py-2 text-center text-xs font-medium text-warn">{blocked}. Orders open again when the market does.</p>}
           <button type="submit" disabled={!canSubmit} className={`btn btn-lg w-full !py-4 ${accent}`}>
-            {submitting ? 'Placing…' : `${side} ${qty || ''} ${symbol}${orderType === 'LIMIT' && price ? ` @ ₹${price}` : ''}`}
+            {blocked ? 'Orders are closed' : submitting ? 'Placing…' : `${side} ${qty || ''} ${symbol}${orderType === 'LIMIT' && price ? ` @ ₹${price}` : ''}`}
           </button>
         </div>
       </form>

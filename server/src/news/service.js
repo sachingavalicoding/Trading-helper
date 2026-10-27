@@ -139,6 +139,27 @@ export class NewsService {
     return this.#decorate(docs, symbol);
   }
 
+  /**
+   * Every recent headline about the market and the Nifty 50 in one list, newest first, each with the stock it is about.
+   * `symbol` and `label` narrow it; the cap keeps the page light.
+   */
+  async feed({ hours = 48, limit = 150, symbol = null, label = null } = {}) {
+    const since = new Date(this.now().getTime() - hours * 3600_000);
+    const q = { publishedAt: { $gte: since, $lte: this.now() } };
+    if (symbol) q.symbol = symbol;
+    if (label) q.label = label;
+    const docs = await NewsItem.find(q).sort({ publishedAt: -1 }).limit(limit).lean();
+    const bySymbol = new Map();
+    for (const d of docs) bySymbol.set(d.symbol, [...(bySymbol.get(d.symbol) || []), d]);
+    const decorated = new Map();
+    for (const [sym, list] of bySymbol) for (const item of this.#decorate(list, sym)) decorated.set(item.id, item);
+    const stocks = new Map(NIFTY50.map((s) => [s.symbol, s]));
+    return docs.map((d) => {
+      const stock = stocks.get(d.symbol);
+      return { ...decorated.get(String(d._id)), symbol: d.symbol, name: stock?.name ?? 'Nifty 50 and the market', sector: stock?.sector ?? 'Market' };
+    });
+  }
+
   /** One verdict per stock from the last 24 hours (see `summarise`), for every Nifty 50 stock with news. */
   async signals() {
     const since = new Date(this.now().getTime() - FRESH_MS);
@@ -164,5 +185,5 @@ export function summarise(items) {
   const label = net >= 1 ? 'BULLISH' : net <= -1 ? 'BEARISH' : null;
   if (!label) return null;
   const lead = items.filter((i) => i.label === label).sort((a, b) => Math.abs(b.sentiment) - Math.abs(a.sentiment))[0];
-  return { label, net, count: items.length, title: lead.title, source: lead.source, publishedAt: lead.publishedAt, reaction: lead.reaction?.state ?? null, movePct: lead.reaction?.movePct ?? null };
+  return { label, net, count: items.length, title: lead.title, url: lead.url, source: lead.source, publishedAt: lead.publishedAt, reaction: lead.reaction?.state ?? null, movePct: lead.reaction?.movePct ?? null };
 }

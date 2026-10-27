@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
 import { useMarket } from '../../context/MarketContext.jsx';
+import { useOrderBlock } from '../../lib/orderGate.js';
 import { formatPrice, formatINR } from '../../lib/format.js';
 import { scoreTone, shortExpiry } from '../../lib/options.js';
 import { Badge, Card, Skeleton } from '../ui.jsx';
@@ -32,7 +33,7 @@ function ScoreBar({ score, minScore }) {
   );
 }
 
-function SideCard({ side, contract, best, minScore, busy, onBuy }) {
+function SideCard({ side, contract, best, minScore, busy, gate, onBuy }) {
   const [why, setWhy] = useState(false);
   const meta = SIDE[side.type];
   const Icon = meta.icon;
@@ -94,8 +95,8 @@ function SideCard({ side, contract, best, minScore, busy, onBuy }) {
           ))}
         </ul>
       )}
-      <button type="button" disabled={busy || !contract?.ltp} onClick={() => onBuy(side.type, contract)} className={`btn btn-lg w-full ${meta.tone === 'up' ? 'btn-buy' : 'btn-sell'}`}>
-        Buy 1 lot {side.type} (paper)
+      <button type="button" disabled={busy || !contract?.ltp || Boolean(gate)} onClick={() => onBuy(side.type, contract)} className={`btn btn-lg w-full ${meta.tone === 'up' ? 'btn-buy' : 'btn-sell'}`}>
+        {gate || `Buy 1 lot ${side.type} (paper)`}
       </button>
     </Card>
   );
@@ -106,6 +107,7 @@ export function OptionsSignal({ minScore, onBought }) {
   const { data, reload } = useApi('/options/read', []);
   const { refresh } = useMarket();
   const [busy, setBusy] = useState(false);
+  const blocked = useOrderBlock();
 
   useEffect(() => {
     const t = setInterval(reload, 15000);
@@ -148,7 +150,7 @@ export function OptionsSignal({ minScore, onBought }) {
       </Card>
       <div className="grid gap-3 md:grid-cols-2">
         {['ce', 'pe'].map((k) => (
-          <SideCard key={k} side={data[k]} contract={data.contracts[k.toUpperCase()]} best={data.best === k.toUpperCase()} minScore={minScore} busy={busy} onBuy={buy} />
+          <SideCard key={k} side={data[k]} contract={data.contracts[k.toUpperCase()]} best={data.best === k.toUpperCase()} minScore={minScore} busy={busy} gate={blocked} onBuy={buy} />
         ))}
       </div>
     </div>
