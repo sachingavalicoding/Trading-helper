@@ -13,8 +13,8 @@ const FIELDS = [
   { key: 'dailyLossPct', label: 'Stop for the day after losing (%)', step: 1, min: 2, max: 30 },
   { key: 'minScore', label: 'Minimum score', step: 5, min: 60, max: 100 },
   { key: 'trailPct', label: 'Trailing stop (% of premium, 0 = off)', step: 5, min: 0, max: 60 },
-  { key: 'lockAtPct', label: 'Start the profit lock when premium is up (%)', step: 5, min: 5, max: 200 },
-  { key: 'lockKeepPct', label: 'Profit the lock keeps (% of premium)', step: 1, min: 0, max: 100 },
+  { key: 'lockAtAmount', label: 'Start the profit lock at a profit of (₹ per lot)', step: 50, min: 100, max: 1000000 },
+  { key: 'lockKeepAmount', label: 'Profit the lock keeps then (₹ per lot)', step: 50, min: 0, max: 1000000 },
 ];
 
 /** Switch for the paper options trader and its limits. Paper money only. */

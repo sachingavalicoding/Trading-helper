@@ -167,7 +167,7 @@ test('the stop sits at a chart level at least 0.8 ATR away, and a level that is 
 
 // ---------- planning the trade ----------
 
-const settingsDoc = (over = {}) => ({ budget: 30000, maxLossPct: 7, maxLots: 2, trailPct: 25, lockAtPct: 25, lockKeepPct: 5, ...over });
+const settingsDoc = (over = {}) => ({ budget: 30000, maxLossPct: 7, maxLots: 2, trailPct: 25, lockAtAmount: 700, lockKeepAmount: 400, ...over });
 const mk = (spot = 25000) => ({ spot, atr5: 25, avgRangePct: 1.1, dayRangePct: 0.3 });
 const sideRead = (spot, stop, levels = []) => ({ d: 1, type: 'CE', stop: { price: stop, note: 'below the last swing low' }, levels });
 const contract = { symbol: optionSymbol({ expiry: '2026-11-03', strike: 25000, type: 'CE' }), strike: 25000, type: 'CE', expiry: '2026-11-03', lotSize: 65 };
@@ -184,7 +184,9 @@ test('the premium stop is the premium at the chart stop, the targets ladder up, 
   assert.ok(p.maxLoss <= 30000 * 0.07 + 0.5, `loss ${p.maxLoss}`);
   assert.equal(p.qty, p.lots * 65);
   assert.ok(p.lockTrigger > p.lockAmount && p.trailPct === 25);
-  assert.ok(Math.abs(p.lockTrigger - p.qty * premium * 0.25) < 1);
+  assert.equal(p.lockTrigger, p.lots * 700);
+  assert.equal(p.lockAmount, p.lots * 400);
+  assert.equal(p.lockRatio, 1);
 });
 
 test('a stop that would cost too much premium, a level with no room, an expensive premium and a big lot are all refused', () => {
@@ -329,6 +331,8 @@ test('the trader buys a call with the chart stop, the ladder, the lock and a tra
   assert.equal(pos.segment, 'OPT');
   assert.deepEqual(pos.stepPrices, [r.plan.target1, r.plan.target2]);
   assert.ok(pos.lockTrigger > pos.lockAmount && pos.lockAmount > 0);
+  assert.equal(pos.lockTrigger, r.plan.lots * 700);
+  assert.equal(pos.lockRatio, 1);
   assert.equal(pos.trailPct, 25);
   const sl = await Order.findOne({ user: uid, symbol: sym, role: 'STOPLOSS', status: 'OPEN' });
   assert.equal(sl.triggerPrice, r.plan.stopLoss);
@@ -452,7 +456,7 @@ test('the options API: settings, the chart read, the log, and a manual buy', asy
   assert.equal(on.settings.enabled, true);
   assert.equal(on.settings.trailPct, 30);
   await api().put('/api/options').set(fresh.auth).send({ minScore: 10 }).expect(400);
-  await api().put('/api/options').set(fresh.auth).send({ lockAtPct: 10, lockKeepPct: 20 }).expect(400);
+  await api().put('/api/options').set(fresh.auth).send({ lockAtAmount: 300, lockKeepAmount: 500 }).expect(400);
   await api().put('/api/options').set(fresh.auth).send({ enabled: false }).expect(200);
 
   const read = (await api().get('/api/options/read').set(fresh.auth).expect(200)).body;

@@ -174,7 +174,7 @@ export class OrderEngine extends EventEmitter {
 
   // ---------- internals (always called while holding the user's lock) ----------
 
-  async #setExits(userId, symbol, { stopLoss, target, trailPct, lockTrigger, lockAmount }) {
+  async #setExits(userId, symbol, { stopLoss, target, trailPct, lockTrigger, lockAmount, lockRatio }) {
     const pos = await Position.findOne({ user: userId, symbol, status: 'OPEN' });
     if (!pos) throw notFound('No open position in this stock');
     const ltp = this.market.getLtp(symbol);
@@ -242,6 +242,7 @@ export class OrderEngine extends EventEmitter {
     if (lockTrigger !== undefined || lockAmount !== undefined) {
       if (lockTrigger !== undefined) pos.lockTrigger = lockTrigger;
       if (lockAmount !== undefined) pos.lockAmount = lockAmount;
+      if (lockRatio !== undefined) pos.lockRatio = lockRatio;
       await pos.save();
       if (pos.lockTrigger != null) this.#watchTrail(pos);
     }
