@@ -134,7 +134,9 @@ export function replayStock({ symbol, c1, nifty = null, days = 3, legacy = false
     // stopScale makes the stop tighter (under 1) or wider (over 1) than the scanner's own, to see what the chart-based stop is worth.
     const stopLoss = stopScale === 1 ? top.stopLoss : roundToTick(top.entry - (top.side === 'BUY' ? 1 : -1) * Math.abs(top.entry - top.stopLoss) * stopScale);
     const idea = { symbol, setup: top.setup, side: top.side, score: top.score, entry: top.entry, stopLoss, target1: top.target1, target2: top.target2, target3: top.target3, openedAt: now.toISOString() };
-    ideas.push({ ...idea, ...(exits === 'live' ? followLive(c1, i, idea, ladder) : follow(c1, i, idea)) });
+    // 'both' scans once and ends each idea both ways (sell at target 1, and the live exits under `live`), which halves a long run.
+    if (exits === 'both') ideas.push({ ...idea, ...follow(c1, i, idea), live: followLive(c1, i, idea, ladder) });
+    else ideas.push({ ...idea, ...(exits === 'live' ? followLive(c1, i, idea, ladder) : follow(c1, i, idea)) });
   }
   return ideas;
 }
