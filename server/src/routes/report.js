@@ -23,7 +23,7 @@ export function reportRoutes({ engine, market, review }) {
       AutoLog.find({ user: req.userId, day, segment: 'OPT' }).sort({ decidedAt: 1 }).lean(),
       AutoSettings.findOne({ user: req.userId }).lean(),
       OptionSettings.findOne({ user: req.userId }).lean(),
-      ScanIdea.find({ status: { $ne: 'OPEN' } }, 'setup side status entry stopLoss exitPrice score createdAt').lean(),
+      ScanIdea.find({ status: { $ne: 'OPEN' } }, 'setup side status entry stopLoss exitPrice score createdAt card.entryContext').lean(),
     ]);
     const auto = autoDoc || new AutoSettings({ user: req.userId }).toObject();
     const opt = optDoc || new OptionSettings({ user: req.userId }).toObject();
@@ -41,7 +41,7 @@ export function reportRoutes({ engine, market, review }) {
       eqLog,
       optLog,
       review: reviewDay,
-      track: summarizeIdeas(finished.map((i) => ({ ...i, openedAt: i.createdAt }))),
+      track: summarizeIdeas(finished.map((i) => ({ ...i, openedAt: i.createdAt, movedPct: i.card?.entryContext?.dayPct ?? null }))),
     });
     res.json({ day, text });
   });

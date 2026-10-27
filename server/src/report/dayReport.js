@@ -35,10 +35,17 @@ function ideaLines(ideas) {
   if (!ideas.length) return [head, 'None raised.'];
   const lines = ideas.slice(0, MAX_ROWS).map((i) => {
     const r = resultR(i);
-    return `- ${clock(i.createdAt)}${afterHours(i.createdAt)} ${i.symbol} ${i.side} ${i.setup} score ${i.score}: entry ${i.entry}, SL ${i.stopLoss}, T1 ${i.target1} -> ${i.status}${i.exitPrice != null ? ` at ${i.exitPrice}` : ''}${r != null ? ` (${signed(r, 'R')})` : ''}, best ${signed(i.bestR, 'R')}, worst ${signed(i.worstR, 'R')}`;
+    const m = i.card?.entryContext;
+    const moved = m ? ` [already ${signed(m.dayPct, '%')} on the day, ${signed(m.vwapAtr)} ATR from VWAP]` : '';
+    return `- ${clock(i.createdAt)}${afterHours(i.createdAt)} ${i.symbol} ${i.side} ${i.setup} score ${i.score}${moved}: entry ${i.entry}, SL ${i.stopLoss}, T1 ${i.target1} -> ${i.status}${i.exitPrice != null ? ` at ${i.exitPrice}` : ''}${r != null ? ` (${signed(r, 'R')})` : ''}, best ${signed(i.bestR, 'R')}, worst ${signed(i.worstR, 'R')}`;
   });
   if (ideas.length > MAX_ROWS) lines.push(`(${ideas.length - MAX_ROWS} more not shown)`);
   const s = summarizeIdeas(ideas.map((i) => ({ ...i, openedAt: i.createdAt })));
+  const withMove = done.filter((i) => i.card?.entryContext?.dayPct != null);
+  if (withMove.length) {
+    const sm = summarizeIdeas(withMove.map((i) => ({ ...i, openedAt: i.createdAt, movedPct: i.card.entryContext.dayPct })));
+    lines.push(`By how far it had already moved when raised: ${sm.byMove.map((g) => `${g.key} ${g.count} (${g.wins} reached T1, avg ${signed(g.avgR, 'R')})`).join('; ')}`);
+  }
   if (done.length) lines.push(`By setup today: ${s.bySetup.map((g) => `${g.key} ${g.count} (${g.wins} won, avg ${signed(g.avgR, 'R')})`).join('; ')}`);
   return [head, ...lines];
 }
@@ -86,7 +93,7 @@ export function buildDayReport({ day, generatedAt, market, settings = {}, ideas 
   out.push(...tradeLines('Auto and manual option trades', optLog, { options: true }), '');
   out.push(...newsLines(review), '');
   if (track?.overall?.count) {
-    out.push(`## Scanner track record (all finished ideas)`, `${track.overall.count} ideas, ${track.overall.winRate}% reached target 1, avg ${signed(track.overall.avgR, 'R')}. By setup: ${track.bySetup.slice(0, 8).map((g) => `${g.key} ${g.count} (${g.winRate}%, ${signed(g.avgR, 'R')})`).join('; ')}`, '');
+    out.push(`## Scanner track record (all finished ideas)`, `${track.overall.count} ideas, ${track.overall.winRate}% reached target 1, avg ${signed(track.overall.avgR, 'R')}. By setup: ${track.bySetup.slice(0, 8).map((g) => `${g.key} ${g.count} (${g.winRate}%, ${signed(g.avgR, 'R')})`).join('; ')}${track.byMove?.length ? `. By how far it had already moved when raised: ${track.byMove.map((g) => `${g.key} ${g.count} (${g.winRate}%, ${signed(g.avgR, 'R')})`).join('; ')}` : ''}`, '');
   }
   return out.join('\n').trimEnd() + '\n';
 }

@@ -210,7 +210,14 @@ export function scoreCandidate(ctx, c, { legacy = false } = {}) {
     penalties.push(`Price is ${Math.abs(ctx.vwapStretch).toFixed(1)} ATR from VWAP, so chasing here is risky`);
   }
   const gates = runGates(ctx, d, vwapOk, newsDelta, c, legacy);
-  return { ...c, score: Math.max(0, Math.min(100, score)), checks, penalties, gates, blocked: gates.filter((g) => !g.pass).map((g) => g.text), news: ctx.news ?? null };
+  // How far the stock had already gone when this was raised, in the trade's own direction (positive = already moved with it), kept so a day can be reviewed for chasing.
+  const open = ctx.tick?.open;
+  const entryContext = {
+    dayPct: ctx.changePct == null ? null : Math.round(d * ctx.changePct * 100) / 100,
+    fromOpenPct: open && ctx.ltp ? Math.round(d * ((ctx.ltp - open) / open) * 10000) / 100 : null,
+    vwapAtr: ctx.vwapStretch == null ? null : Math.round(d * ctx.vwapStretch * 100) / 100,
+  };
+  return { ...c, score: Math.max(0, Math.min(100, score)), checks, penalties, gates, blocked: gates.filter((g) => !g.pass).map((g) => g.text), news: ctx.news ?? null, entryContext };
 }
 
 /** Only suggest entries between 09:30 and 14:30 IST. */
