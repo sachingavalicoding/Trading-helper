@@ -51,6 +51,7 @@ export class OptionTrader {
         entry: log.fillPrice ?? log.entry,
         risk: Math.abs((log.fillPrice ?? log.entry) - log.stopLoss),
         openedAt: log.decidedAt,
+        manual: Boolean(log.detail?.manual),
         bestR: log.detail?.bestR ?? 0,
         worstR: log.detail?.worstR ?? 0,
       });
@@ -231,7 +232,7 @@ export class OptionTrader {
 
     const position = await Position.findOne({ user: userId, symbol: plan.symbol, status: 'OPEN' }, '_id').lean();
     const fill = order.avgFillPrice ?? plan.premium;
-    this.#watch(userId, plan.symbol, { type: plan.type, stopSpot: plan.stopSpot, entry: fill, risk: Math.max(fill - plan.stopLoss, 0.05), openedAt: this.now(), bestR: 0, worstR: 0 });
+    this.#watch(userId, plan.symbol, { type: plan.type, stopSpot: plan.stopSpot, entry: fill, risk: Math.max(fill - plan.stopLoss, 0.05), openedAt: this.now(), manual, bestR: 0, worstR: 0 });
     await this.#record(settings, {
       symbol: plan.symbol,
       side: 'BUY',
@@ -320,10 +321,14 @@ export class OptionTrader {
     this.bar = { minute, last: ltp };
   }
 
-  /** Time exits for one user's open option trades: the 15:00 cut-off, and trades that have stalled. */
+  /**
+   * Time exits for one user's open option trades: the 15:00 cut-off, and trades that have stalled.
+   * A trade you bought by hand is never closed by these clock rules: it keeps its stop, targets, ladder and lock,
+   * and the 15:15 square-off is the only time limit. Closing it a few seconds after you bought it was a surprise.
+   */
   async manage(userId) {
     const { minutes } = istParts(this.now());
-    for (const w of [...this.open.values()].filter((x) => x.user === String(userId))) {
+    for (const w of [...this.open.values()].filter((x) => x.user === String(userId) && !x.manual)) {
       const held = (this.now() - new Date(w.openedAt)) / 60000;
       if (minutes >= EXIT_MINUTE) await this.#exit(w.user, w.symbol, 'TIME');
       else if (held >= STALL_MINUTES && w.bestR < STALL_PROGRESS_R && (this.market.getLtp(w.symbol) ?? w.entry) <= w.entry) await this.#exit(w.user, w.symbol, 'TIME');
