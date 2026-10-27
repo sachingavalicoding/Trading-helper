@@ -81,6 +81,10 @@ export function AutoCard() {
               />
             </label>
           ))}
+          <label className="col-span-2 flex items-center justify-between gap-2 rounded-lg border border-line px-2 py-1.5 text-[11px] text-muted">
+            Also take news-gap trades from 09:20
+            <input type="checkbox" checked={s.earlyNews !== false} disabled={busy} onChange={(e) => save({ earlyNews: e.target.checked })} className="h-4 w-4 accent-[var(--color-accent)]" />
+          </label>
         </div>
       )}
       <AutoLog />

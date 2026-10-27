@@ -12,6 +12,7 @@ const MIN_PROFIT_TO_CHARGES = 3; // skip a trade whose profit at target 1 is und
 // +₹200 keeps ₹100, +₹500 keeps ₹400, +₹1,000 keeps ₹800, and each rung then follows (profit - kept) behind the best profit.
 const LOCK_LADDER = [[1, 0.5], [2.5, 2], [5, 4]];
 const DEFAULT_RISK_AMOUNT = 200; // rupees one trade may lose when the user's settings do not say
+const MAX_CHARGES_OF_RISK = 0.25; // skip a trade whose round-trip charges are more than this share of the money it risks: its stop is too tight for its size
 const STALL_MINUTES = 45; // a trade that has gone nowhere for this long is closed: a sideways stock only ties up the money
 const STALL_PROGRESS_R = 0.5; // "gone nowhere" = never got this far (in risk units) in our favour
 
@@ -173,6 +174,7 @@ export class AutoTrader {
       seen.movedR = round2(movedR);
       if (movedR > 0.5 || movedR < -0.3) return { skipped: `price already moved ${movedR.toFixed(2)}R from the entry` };
     }
+    if (idea.setup === 'News gap' && settings.earlyNews === false) return { skipped: 'news gap trades are switched off' };
     if (idea.score < settings.minScore) return { skipped: `score ${idea.score} is below ${settings.minScore}` };
     if (await Position.findOne({ user: userId, symbol: idea.symbol, status: 'OPEN' })) return { skipped: 'already in this stock' };
 
@@ -197,6 +199,10 @@ export class AutoTrader {
     const qty = settings.maxShares > 0 ? Math.min(size.qty, settings.maxShares) : size.qty;
     const profitAtT1 = qty * Math.abs(idea.target1 - idea.entry);
     const charges = roundTripCharges({ qty, price: idea.entry });
+    const atRisk = qty * risk;
+    if (atRisk > 0 && charges > MAX_CHARGES_OF_RISK * atRisk) {
+      return { skipped: `charges (₹${charges}) are ${Math.round((charges / atRisk) * 100)}% of the ₹${round2(atRisk)} at risk, over the ${Math.round(MAX_CHARGES_OF_RISK * 100)}% limit; the stop is too tight for the size` };
+    }
     if (profitAtT1 < MIN_PROFIT_TO_CHARGES * charges) {
       return { skipped: `profit at target 1 (₹${round2(profitAtT1)}) is under ${MIN_PROFIT_TO_CHARGES}x the charges (₹${charges})` };
     }

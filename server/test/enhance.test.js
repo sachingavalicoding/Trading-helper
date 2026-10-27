@@ -231,3 +231,51 @@ test('the target table shows which first target would have paid best', () => {
   assert.equal(at(0.5).hitRate, 75);
   assert.equal(at(0.5).expectancyR, 0.13, '0.75 x 0.5R - 0.25 x 1R');
 });
+
+import { newsGap } from '../src/scanner/setups.js';
+import { entryWindow } from '../src/scanner/evaluate.js';
+
+const gapCtx = (over = {}) => {
+  const bar = (i, o, h, l, c) => ({ time: T0 + i * 300, open: o, high: h, low: l, close: c, volume: 1000 });
+  return ctx({
+    ltp: 103.6,
+    atr5: 0.5,
+    prevClose: 100,
+    gapPct: 2.5,
+    tick: { open: 102.5 },
+    today5: [bar(0, 102.5, 103, 102.3, 102.9), bar(1, 102.9, 103.4, 102.8, 103.3), bar(2, 103.3, 103.4, 103.3, 103.4)],
+    levels: [],
+    news: { label: 'BULLISH', title: 'Wins a large order', reaction: 'AGREES', movePct: 1 },
+    ...over,
+  });
+};
+
+test('a held gap on agreeing news that breaks the first bars\' high is a News gap, marked early', () => {
+  const [c] = newsGap(gapCtx());
+  assert.equal(c.setup, 'News gap');
+  assert.equal(c.side, 'BUY');
+  assert.equal(c.early, true);
+  assert.equal(c.status, 'ENTRY');
+  assert.ok(c.stopLoss < 102.3, 'the stop is below where the gap held');
+  assert.match(c.reasons[0], /opened up 2.5% on news/);
+});
+
+test('no News gap without agreeing news, a big enough gap, a held gap, or when the news is being sold', () => {
+  assert.deepEqual(newsGap(gapCtx({ news: null })), []);
+  assert.deepEqual(newsGap(gapCtx({ news: { label: 'BEARISH', title: 'x', reaction: 'AGREES' } })).filter((c) => c.side === 'BUY'), []);
+  assert.deepEqual(newsGap(gapCtx({ news: { label: 'BULLISH', title: 'x', reaction: 'FADING' } })), []);
+  assert.deepEqual(newsGap(gapCtx({ gapPct: 1 })), []);
+  const bar = (i, o, h, l, c) => ({ time: T0 + i * 300, open: o, high: h, low: l, close: c, volume: 1000 });
+  assert.deepEqual(newsGap(gapCtx({ today5: [bar(0, 102.5, 103, 100.4, 102.9), bar(1, 102.9, 103.4, 102.8, 103.3), bar(2, 103.3, 103.4, 103.3, 103.4)] })), [], 'gave back more than half of the gap');
+});
+
+test('before 09:20 nothing; 09:20 to 09:30 only the news-gap setup; then everything until 14:30', () => {
+  const at = (h, m) => new Date(Date.UTC(2026, 9, 27, h, m) - 5.5 * 3600000); // IST
+  assert.equal(entryWindow(at(9, 19)), 'closed');
+  assert.equal(entryWindow(at(9, 20)), 'early');
+  assert.equal(entryWindow(at(9, 29)), 'early');
+  assert.equal(entryWindow(at(9, 30)), 'open');
+  assert.equal(entryWindow(at(14, 29)), 'open');
+  assert.equal(entryWindow(at(14, 30)), 'closed');
+  assert.equal(entryWindow(at(9, 25), true), 'closed', 'the old rules keep their 09:30 start');
+});

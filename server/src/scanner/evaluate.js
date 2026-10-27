@@ -6,6 +6,7 @@ import { roundToTick, round2 } from '../utils/money.js';
 export const MAX_STOP_PCT = 1.2; // a stop wider than this risks too much on one idea
 export const MIN_SCORE = 70; // only strong ideas are shown or alerted
 const FIRST_ENTRY_MIN = 9 * 60 + 30; // opening range is only complete at 09:30
+export const EARLY_ENTRY_MIN = 9 * 60 + 20; // the news-gap setup may start once the first 5-minute bar has closed
 const LAST_ENTRY_MIN = 14 * 60 + 30; // late entries have little time to reach target 1 before the 15:15 square-off
 const LEGACY_LAST_ENTRY_MIN = 14 * 60 + 45;
 export const MAX_TARGET_VS_DAILY_RANGE = 0.8; // target 1 further than this share of the stock's usual daily range is unlikely to be reached
@@ -218,6 +219,13 @@ function inEntryWindow(now, legacy = false) {
   return minutes >= FIRST_ENTRY_MIN && minutes < (legacy ? LEGACY_LAST_ENTRY_MIN : LAST_ENTRY_MIN);
 }
 
+/** 'open' for normal entries (09:30-14:30), 'early' from 09:20 when only the news-gap setup may fire, else 'closed'. */
+export function entryWindow(now, legacy = false) {
+  if (inEntryWindow(now, legacy)) return 'open';
+  const { minutes } = istParts(now);
+  return !legacy && minutes >= EARLY_ENTRY_MIN && minutes < FIRST_ENTRY_MIN ? 'early' : 'closed';
+}
+
 /**
  * All ideas for one stock, best first. With `enforceWindows` (live trading hours) nothing is
  * suggested outside the entry window.
@@ -225,8 +233,11 @@ function inEntryWindow(now, legacy = false) {
 export function evaluateStock(input, { now = new Date(), enforceWindows = false, legacy = false } = {}) {
   const ctx = buildContext(input);
   if (!ctx) return { ctx: null, candidates: [] };
-  if (enforceWindows && !inEntryWindow(now, legacy)) return { ctx, candidates: [] };
+  const window = enforceWindows ? entryWindow(now, legacy) : 'open';
+  if (window === 'closed') return { ctx, candidates: [] };
+  const early = window === 'early';
   const candidates = SETUPS.flatMap((setup) => setup(ctx))
+    .filter((c) => !early || c.early)
     .map((c) => scoreCandidate(ctx, legacy ? c : reachTargets(ctx, adaptTargets(ctx, c)), { legacy }))
     .sort((a, b) => b.score - a.score);
   return { ctx, candidates };

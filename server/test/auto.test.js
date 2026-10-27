@@ -349,3 +349,29 @@ test('a trade that has gone nowhere for 45 minutes is closed as a time exit, but
     trader.stop();
   }
 });
+
+test('skips a trade whose charges would be over a quarter of the money it risks (a stop too tight for its size)', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  const s = settings({ user: uid, maxOpen: 10, riskAmount: 200, riskPct: 0.1 });
+  ctx.provider.setPrice('SBIN', 800);
+  await settle();
+  const ltp = ctx.provider.getLastTick('SBIN').ltp;
+  const tight = { ...idea('SBIN', 'BUY'), stopLoss: ltp - ltp * 0.002 }; // 0.2% stop: 250 shares, a big position
+  const r = await trader.consider(s, tight);
+  assert.match(r.skipped, /charges .* of the ₹.* at risk, over the 25% limit/);
+  const ok = await trader.consider(s, { ...idea('SBIN', 'BUY', 81), stopLoss: ltp - ltp * 0.006, target1: ltp + ltp * 0.012, target2: ltp + ltp * 0.02 });
+  assert.ok(ok.order, ok.skipped);
+});
+
+test('a news-gap idea is skipped when news-gap trades are switched off, and traded otherwise', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  ctx.provider.setPrice('TCS', 3000);
+  await settle();
+  const gap = { ...idea('TCS', 'BUY'), setup: 'News gap' };
+  const off = await trader.consider(settings({ user: uid, maxOpen: 10, maxShares: 1, earlyNews: false }), gap);
+  assert.match(off.skipped, /news gap trades are switched off/);
+  const on = await trader.consider(settings({ user: uid, maxOpen: 10, maxShares: 1 }), { ...gap, _id: `${gap._id}-b` });
+  assert.ok(on.order, on.skipped);
+});

@@ -202,4 +202,50 @@ export function levelRetest(ctx) {
   return out;
 }
 
-export const SETUPS = [openingRange, vwapPullback, levelRetest];
+export const NEWS_GAP_PCT = 1.5; // a gap smaller than this is not the kind of move news makes
+const NEWS_GAP_LAST_BARS = 12; // only in the first hour: after that it is just another breakout
+
+/**
+ * A stock that opened well away from yesterday's close on fresh news that agrees, held most of the gap through the
+ * first 5-minute bar(s), and is now breaking the high (or low) of those bars. This is the one setup allowed before 09:30,
+ * because waiting for the 15-minute opening range means the move has often been made. `early` marks it for that.
+ */
+export function newsGap(ctx) {
+  const { news, today5, ltp, atr5, gapPct, prevClose } = ctx;
+  if (!news || !prevClose || today5.length < 2 || today5.length > NEWS_GAP_LAST_BARS) return [];
+  const done = today5.slice(0, -1); // the last bar is still forming
+  const out = [];
+  for (const { side, d } of sides) {
+    if (d * gapPct < NEWS_GAP_PCT || (news.label === 'BULLISH') !== (d > 0) || news.reaction === 'FADING') continue;
+    const halfway = prevClose + (ctx.tick.open - prevClose) / 2;
+    const heldAt = d > 0 ? Math.min(...done.map((b) => b.low)) : Math.max(...done.map((b) => b.high));
+    if (d * (heldAt - halfway) <= 0) continue; // it gave back more than half of the gap
+    const level = d > 0 ? Math.max(...done.map((b) => b.high)) : Math.min(...done.map((b) => b.low));
+    const beyond = d * (ltp - level);
+    let status;
+    if (beyond > 0) status = beyond <= atr5 * CHASE_ATR ? 'ENTRY' : 'MISSED';
+    else if (beyond > -atr5 * 0.5) status = 'WATCHING';
+    else continue;
+    const w = word(d);
+    const c = candidate(ctx, {
+      setup: 'News gap',
+      side,
+      d,
+      status,
+      trigger: level,
+      entry: status === 'WATCHING' ? level : ltp,
+      rawStop: heldAt - d * atr5 * 0.2,
+      stopNote: `just past the day's ${w.low} so far (${fmt(heldAt)}), where the gap is still held`,
+      reasons: [
+        `The stock opened ${w.up} ${Math.abs(gapPct).toFixed(1)}% on news: "${news.title}"`,
+        `It has held more than half of the gap (${w.low} of the first bars: ${fmt(heldAt)})`,
+        beyond > 0 ? `Price is now ${w.above} the ${w.high} of the first bars (${fmt(level)})` : `Waiting for price to go ${w.above} ${fmt(level)}`,
+      ],
+      wrongIf: `Price falls back ${w.below} ${fmt(heldAt)} and fills the gap`,
+    });
+    if (c) out.push({ ...c, early: true });
+  }
+  return out;
+}
+
+export const SETUPS = [openingRange, vwapPullback, levelRetest, newsGap];
