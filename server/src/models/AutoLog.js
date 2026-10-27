@@ -45,6 +45,7 @@ const autoLogSchema = new mongoose.Schema(
     order: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
     position: { type: mongoose.Schema.Types.ObjectId, ref: 'Position' },
     card: { type: mongoose.Schema.Types.Mixed }, // the scanner card: checks, score breakdown, reasons
+    excursion: { type: new mongoose.Schema({ bestR: Number, worstR: Number }, { _id: false }) }, // furthest in our favour and against us so far while open, saved as it moves so a server restart does not lose it
     outcome: outcomeSchema,
     decidedAt: { type: Date, default: Date.now },
   },

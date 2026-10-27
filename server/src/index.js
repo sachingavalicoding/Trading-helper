@@ -38,6 +38,7 @@ async function main() {
   if (env.newsEnabled) news.start();
   scanner.start();
   const autoTrader = new AutoTrader({ scanner, engine, config: env });
+  await autoTrader.init();
   autoTrader.start();
   const optionTrader = new OptionTrader({ market, engine, config: env, scanner });
   await optionTrader.init();

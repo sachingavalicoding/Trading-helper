@@ -67,6 +67,8 @@ export function summarizeIdeas(ideas) {
     bySetup: group(done, (i) => i.setup),
     bySide: group(done, (i) => i.side),
     byHour: group(done, hour, (h) => h).map((r) => ({ ...r, label: `${String(r.key).padStart(2, '0')}:00` })),
+    // How far the stock had already gone with the trade (in % on the day) when the idea was raised. Only ideas raised after this was recorded carry it.
+    byMove: group(done.filter((i) => i.movedPct != null), (i) => (i.movedPct < 0.5 ? 'under 0.5%' : i.movedPct < 1.5 ? '0.5% to 1.5%' : 'over 1.5%'), (k) => ({ 'under 0.5%': 0, '0.5% to 1.5%': 1, 'over 1.5%': 2 })[k]),
     byScore: group(done, (i) => (i.score >= 80 ? '80+' : i.score >= 70 ? '70-79' : '60-69'), (k) => ({ '80+': 0, '70-79': 1, '60-69': 2 })[k]),
   };
 }
