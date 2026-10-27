@@ -13,6 +13,7 @@ const scanIdeaSchema = new mongoose.Schema(
     stopLoss: { type: Number, required: true },
     target1: { type: Number, required: true },
     target2: { type: Number, required: true },
+    target3: Number, // where an auto trade is finally sold; targets 1 and 2 only lift its stop
     riskReward: { type: Number, required: true },
     score: { type: Number, required: true },
     status: { type: String, enum: ['OPEN', 'TARGET_HIT', 'STOPPED', 'EXPIRED'], default: 'OPEN' },

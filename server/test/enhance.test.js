@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { summarizeDaily } from '../src/scanner/daily.js';
 import { adx, supertrend, obvChange, squeezeRelease } from '../src/signals/indicators.js';
 import { pivotsFrom, candleConfirms } from '../src/scanner/pivots.js';
-import { scoreCandidate, adaptTargets, WEIGHTS, LEGACY_WEIGHTS, MIN_ADX } from '../src/scanner/evaluate.js';
+import { scoreCandidate, adaptTargets, reachTargets, WEIGHTS, LEGACY_WEIGHTS, MIN_ADX } from '../src/scanner/evaluate.js';
 
 const bars = (n, close) => Array.from({ length: n }, (_, i) => {
   const c = close(i);
@@ -171,4 +171,28 @@ test('a far target is pulled in to a slow stock\'s usual reach instead of droppi
   const tight = cand({ entry: 100, stopLoss: 99.1, target1: 101.5, target2: 103 });
   assert.equal(adaptTargets(slow, tight), tight);
   assert.ok(scoreCandidate(slow, tight).blocked.some((t) => /usually moves only/.test(t)));
+});
+
+test('the sale target never sits further than 0.8 of the usual daily range from the entry, and target 2 sits between', () => {
+  const slow = ctx({ month: { trend: 1, sessions: 22, avgRangePct: 1 } });
+  const far = cand({ entry: 100, stopLoss: 99.6, target1: 100.6, target2: 101.8, riskReward: 1.5, targetNote: 'the day high' });
+  const r = reachTargets(slow, far);
+  assert.equal(r.target3, 100.8, '0.8 of a 1% day, not 103');
+  assert.equal(r.target2, 100.7);
+  assert.ok(r.target1 < r.target2 && r.target2 < r.target3);
+  assert.match(r.targetNote, /capped/);
+  assert.equal(far.target3, undefined, 'the input is not changed');
+
+  // a sale already inside the reach is left alone, and so is a stock with no history
+  const near = cand({ entry: 100, stopLoss: 99.8, target1: 100.3, target2: 100.5 });
+  assert.equal(reachTargets(slow, near).target3, 100.7);
+  assert.equal(reachTargets(slow, near).target2, 100.5);
+  assert.equal(reachTargets(ctx({ month: null }), far).target3, 103);
+  // a short sale mirrors it
+  const sell = cand({ side: 'SELL', entry: 100, stopLoss: 100.4, target1: 99.4, target2: 98.2 });
+  assert.equal(reachTargets(slow, sell).target3, 99.2);
+  // the sale stays at least half a risk past target 1, even if the day's reach is smaller than that
+  const tiny = ctx({ month: { trend: 1, sessions: 22, avgRangePct: 0.3 } });
+  const t = reachTargets(tiny, cand({ entry: 100, stopLoss: 99.6, target1: 100.2, target2: 100.4 }));
+  assert.equal(t.target3, 100.4);
 });

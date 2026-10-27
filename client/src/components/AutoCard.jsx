@@ -11,7 +11,8 @@ const FIELDS = [
   { key: 'maxTradeAmount', label: 'Max ₹ per trade', step: 1000, min: 1000, max: 100000000 },
   { key: 'minScore', label: 'Minimum score', step: 5, min: 60, max: 100 },
   { key: 'maxOpen', label: 'Max open trades', step: 1, min: 1, max: 10 },
-  { key: 'riskPct', label: 'Risk per trade (%)', step: 0.25, min: 0.25, max: 3 },
+  { key: 'riskAmount', label: 'Most one trade may lose (₹, 0 = use %)', step: 50, min: 0, max: 10000000 },
+  { key: 'riskPct', label: 'Risk per trade (%, used when ₹ is 0)', step: 0.25, min: 0.25, max: 3 },
   { key: 'dailyLossPct', label: 'Stop for the day after losing (%)', step: 0.5, min: 0.5, max: 10 },
 ];
 
@@ -88,7 +89,7 @@ export function AutoCard() {
   );
 }
 
-const EXIT_LABEL = { STOP: 'Stopped', LOCK: 'Locked profit', TARGET: 'Target', MANUAL: 'Manual exit', SQUARE_OFF: 'Square-off' };
+const EXIT_LABEL = { STOP: 'Stopped', LOCK: 'Locked profit', TARGET: 'Target', MANUAL: 'Manual exit', SQUARE_OFF: 'Square-off', TIME: 'Time exit' };
 
 /** Every decision the auto-trader made today with its reason and result, to review in the evening. */
 function AutoLog() {

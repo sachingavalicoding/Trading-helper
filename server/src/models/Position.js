@@ -22,6 +22,7 @@ const positionSchema = new mongoose.Schema(
     margin: { type: Number, default: 0 },
     lockTrigger: { type: Number, default: null }, // once profit reaches this many rupees, the stop locks in lockAmount
     lockAmount: { type: Number, default: null },
+    lockSteps: { type: [{ _id: false, at: Number, keep: Number }], default: [] }, // profit ladder in rupees: once profit reaches `at` the stop keeps `keep`, then trails (at - keep) behind the best profit until the next rung
     stepPrices: { type: [Number], default: [] }, // targets to run through: past each one the stop jumps to just short of it
     lockRatio: { type: Number, default: null }, // past lockTrigger, the lock grows by this share of every extra rupee of profit (null = trail lockTrigger - lockAmount behind)
     trailPct: { type: Number, default: null }, // stop loss follows the price at this % distance, only towards profit

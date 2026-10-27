@@ -276,6 +276,7 @@ export class ScannerService extends EventEmitter {
         stopLoss: c.stopLoss,
         target1: c.target1,
         target2: c.target2,
+        target3: c.target3,
         riskReward: c.riskReward,
         score: c.score,
         card: c,

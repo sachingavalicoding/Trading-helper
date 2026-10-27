@@ -348,7 +348,7 @@ Account page > "Add paper money" tops up the virtual wallet (`POST /api/wallet/a
 ## Locks that survive charges
 
 - A profit lock or target-ladder stop never sits below cost plus 1.5x the round-trip charges, so a "locked profit" is still a gain after charges. If price is not yet far enough above that level, no lock stop is placed.
-- Auto trades size the profit lock from the money risked on that trade: it starts at 1x the risk and keeps 30% of it (then climbs by the lock ratio), so it works at any balance. Switch it off per user with `lockByRisk: false` on `PUT /api/auto` to keep the fixed rupee defaults.
+- Auto trades use a rupee profit ladder sized from the money risked on that trade (see "Share ladder and stalled trades"). Switch it off per user with `lockByRisk: false` on `PUT /api/auto` to keep the fixed rupee defaults.
 - Auto skips an idea whose profit at target 1 is under 3x its round-trip charges (the skip reason shows in the auto log).
 
 ## Slow stocks get smaller targets
@@ -371,3 +371,10 @@ A separate **Options** tab, paper money only. It buys Nifty 50 index calls (CE) 
 - **By hand.** The Signal tab shows both sides with their scores and reasons and a "Buy 1 lot" button that uses the same chart stop, ladder and lock.
 
 About 9 in 10 individual traders lose money in index options. This is a way to test the idea with paper money, not a promise. Real options orders are not built, and real auto orders would need broker and SEBI rules checked first.
+
+## Share ladder and stalled trades
+
+- **Risk in rupees.** `riskAmount` on `PUT /api/auto` (default ₹200, 0 = use the % setting) is the most one auto trade may lose if its stop is hit. Shares are sized from it, within the max-amount and margin limits.
+- **Profit ladder.** Sized from the money risked, so at ₹200 risk: once a trade is ₹200 up the stop keeps ₹100, at ₹500 it keeps ₹400, at ₹1,000 it keeps ₹800. Between rungs the stop follows (profit - kept) behind the best profit, so it only ever moves towards profit, and it never sits below cost plus 1.5x the charges. The lock is the stop; nothing else is closed. Charges at ₹1 lakh traded are about ₹70-80, so ₹100 kept is only a small net gain.
+- **Reachable sale target.** The sale target (`target3`) and target 2 are pulled in so nothing the plan aims for is further than 0.8 of the stock's usual daily range from the entry. No daily history means no cap.
+- **Stalled trades.** An auto trade that has been open 45 minutes, never got half a risk unit in its favour and is not in profit now is closed at market and logged as a time exit (`TIME`).

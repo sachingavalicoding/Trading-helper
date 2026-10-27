@@ -74,6 +74,31 @@ export function adaptTargets(ctx, c) {
   };
 }
 
+/**
+ * The price an auto trade is finally sold at, and the middle target, pulled in so nothing the plan aims for is further
+ * than 80% of the stock's usual daily range from the entry. Without the cap the sale sits as far past target 2 as target 2
+ * is past target 1, which on a slow stock is a price it reaches on a good day at best. Targets 1 and 2 only lift the stop.
+ * No daily history means no cap: the sale stays at that old distance.
+ */
+export function reachTargets(ctx, c) {
+  const d = c.side === 'BUY' ? 1 : -1;
+  const risk = Math.abs(c.entry - c.stopLoss);
+  const open = roundToTick(c.target2 + (c.target2 - c.target1));
+  const reach = ctx.month?.avgRangePct;
+  if (reach == null || !c.entry || !(risk > 0)) return { ...c, target3: open };
+  const cap = c.entry + d * ((MAX_TARGET_VS_DAILY_RANGE * reach * c.entry) / 100);
+  const floor = c.target1 + d * 0.5 * risk; // the sale is always a little past target 1
+  const far = d * (open - cap) > 0 ? cap : open;
+  const target3 = roundToTick(d * (far - floor) < 0 ? floor : far);
+  if (target3 === open) return { ...c, target3 };
+  return {
+    ...c,
+    target3,
+    target2: roundToTick(c.target1 + (target3 - c.target1) / 2),
+    targetNote: `${c.targetNote}; the sale is capped at ${round2(MAX_TARGET_VS_DAILY_RANGE * reach)}% from entry because this stock usually moves about ${round2(reach)}% a day`,
+  };
+}
+
 /** Score one idea out of 100 and explain every part of the score. */
 export function scoreCandidate(ctx, c, { legacy = false } = {}) {
   const W = legacy ? LEGACY_WEIGHTS : WEIGHTS;
@@ -202,7 +227,7 @@ export function evaluateStock(input, { now = new Date(), enforceWindows = false,
   if (!ctx) return { ctx: null, candidates: [] };
   if (enforceWindows && !inEntryWindow(now, legacy)) return { ctx, candidates: [] };
   const candidates = SETUPS.flatMap((setup) => setup(ctx))
-    .map((c) => scoreCandidate(ctx, legacy ? c : adaptTargets(ctx, c), { legacy }))
+    .map((c) => scoreCandidate(ctx, legacy ? c : reachTargets(ctx, adaptTargets(ctx, c)), { legacy }))
     .sort((a, b) => b.score - a.score);
   return { ctx, candidates };
 }
