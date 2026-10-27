@@ -38,19 +38,16 @@ function follow(c1, from, idea) {
   return { status: 'EXPIRED', exitPrice: c1[end].close };
 }
 
-// What the live auto trader does after it buys, as multiples of the money risked (see AutoTrader):
-// +1R keeps 0.5R, +2.5R keeps 2R, +5R keeps 4R, then the stop follows (rung - kept) behind the best profit;
-// past target 1 or 2 the stop jumps to 80% of the way to it; the sale is at target 3; a trade that has
-// sat for 45 minutes without reaching 0.5R and is not in profit is closed; everything is closed at 15:15.
-export const LADDER = [[1, 0.5], [2.5, 2], [5, 4]];
-const STEP_KEEP = 0.8;
-const STALL_MIN = 45;
-const STALL_R = 0.5;
+// What the live auto trader does after it buys (see AutoTrader): there is no sale target. The stop starts at the
+// idea's stop and climbs with the profit, as [profit, kept] in percent of the money put in. At +0.30% it keeps
+// 0.15%, at +0.45% it keeps 0.32%, at +0.60% it keeps 0.52%, at +1.00% it keeps 0.90%, and past each rung the stop
+// follows (rung - kept) behind the best profit. Whatever is left is closed at 15:15. On ₹1 lakh that is +₹600 -> stop at +₹520.
+export const LADDER = [[0.3, 0.15], [0.45, 0.32], [0.6, 0.52], [1, 0.9]];
 
 /**
- * Walk the same bars with the live exit rules. A bar that touches both the stop and the sale counts as the stop,
- * and a stop raised on a bar only counts from the next bar. Also reports `runR`: how far the idea ran in its favour
- * before price touched its original stop (or the day ended), whatever the exit rules did, so any target can be judged.
+ * Walk the same bars with the live exit rules. A stop raised on a bar only counts from the next bar. Also reports
+ * `runR`: how far the idea ran in its favour before price touched its original stop (or the day ended), whatever
+ * the exit rules did, so any target can be judged. `ladder` is in percent of the entry price.
  */
 export function followLive(c1, from, idea, ladder = LADDER) {
   const d = idea.side === 'BUY' ? 1 : -1;
@@ -74,15 +71,14 @@ export function followLive(c1, from, idea, ladder = LADDER) {
     if (!out) {
       const minutes = istParts(new Date(b.time * 1000)).minutes;
       if (d * (adv - stop) <= 0) out = { status: d * (stop - entry) > 0 ? 'LOCKED' : 'STOPPED', exit: d * (stop - entry) > 0 ? 'LOCK' : 'STOP', exitPrice: stop };
-      else if (idea.target3 != null && d * (fav - idea.target3) >= 0) out = { status: 'TARGET_HIT', exit: 'TARGET', exitPrice: idea.target3 };
       else if (minutes >= SQUARE_OFF_MIN) out = { status: 'EXPIRED', exit: 'SQUARE_OFF', exitPrice: b.close };
-      else if ((b.time - c1[from].time) / 60 >= STALL_MIN && bestR < STALL_R && r(b.close) <= 0) out = { status: 'EXPIRED', exit: 'TIME', exitPrice: b.close };
       else {
         bestR = Math.max(bestR, r(fav));
-        const rung = [...ladder].reverse().find(([at]) => bestR >= at);
-        if (rung) stop = d > 0 ? Math.max(stop, entry + risk * Math.max(rung[1], bestR - (rung[0] - rung[1]))) : Math.min(stop, entry - risk * Math.max(rung[1], bestR - (rung[0] - rung[1])));
-        for (const t of [idea.target1, idea.target2]) {
-          if (t != null && d * (fav - t) > 0) stop = d > 0 ? Math.max(stop, entry + STEP_KEEP * (t - entry)) : Math.min(stop, entry + STEP_KEEP * (t - entry));
+        const bestPct = (bestR * risk * 100) / entry;
+        const rung = [...ladder].reverse().find(([at]) => bestPct >= at);
+        if (rung) {
+          const kept = entry * (1 + (d * Math.max(rung[1], bestPct - (rung[0] - rung[1]))) / 100);
+          stop = d > 0 ? Math.max(stop, kept) : Math.min(stop, kept);
         }
       }
     }

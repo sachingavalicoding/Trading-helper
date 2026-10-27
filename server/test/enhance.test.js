@@ -203,23 +203,27 @@ const T0 = Date.UTC(2026, 9, 27, 4, 0) / 1000; // 09:30 IST
 const minute = (i, o, h, l, c) => ({ time: T0 + i * 60, open: o, high: h, low: l, close: c, volume: 1000 });
 const live = { side: 'BUY', entry: 100, stopLoss: 99, target1: 101.5, target2: 102.5, target3: 104 };
 
-test('live-style replay: the ladder locks a stop behind the best price, a hit stop above entry is a lock', () => {
-  const bars = [minute(0, 100, 100, 100, 100), minute(1, 100, 101.2, 100.9, 101), minute(2, 101, 101, 100.6, 100.7), minute(3, 100.7, 102, 100.5, 102)];
+test('live-style replay: the stop climbs behind the best price along the percent ladder, a hit stop above entry is a lock', () => {
+  const bars = [minute(0, 100, 100, 100, 100), minute(1, 100, 100.7, 100.5, 100.6), minute(2, 100.6, 100.6, 100.2, 100.3), minute(3, 100.3, 102, 100.1, 102)];
   const r = followLive(bars, 0, live);
   assert.equal(r.exit, 'LOCK');
   assert.equal(r.status, 'LOCKED');
-  assert.equal(r.exitPrice, 100.7, '+1.2R keeps 0.7R');
-  assert.equal(r.bestR, 1.2);
+  assert.ok(Math.abs(r.exitPrice - 100.62) < 1e-9, '+0.7% is past the +0.6% rung, which trails 0.08% behind: stop at +0.62%');
+  assert.equal(r.bestR, 0.7);
   assert.equal(r.runR, 2, 'it still ran to +2R before touching the original stop, whatever the exit did');
 });
 
-test('live-style replay: the original stop, the sale target and a stalled trade', () => {
+test('live-style replay: the original stop, no sale target, and no time exit', () => {
   assert.equal(followLive([minute(0, 100, 100, 100, 100), minute(1, 100, 100.2, 98.9, 99)], 0, live).exit, 'STOP');
-  assert.equal(followLive([minute(0, 100, 100, 100, 100), minute(1, 100, 104.1, 100, 104)], 0, live).exitPrice, 104);
+  // the old sale target of 104 is ignored: the trade runs on to the 15:15 square-off
+  const run = [minute(0, 100, 100, 100, 100), ...Array.from({ length: 40 }, (_, i) => minute(i + 1, 100 + i * 0.2, 100.2 + i * 0.2, 100 + i * 0.2, 100.2 + i * 0.2))];
+  const up = followLive(run, 0, live);
+  assert.equal(up.exit, 'SQUARE_OFF');
+  assert.equal(up.exitPrice, run[run.length - 1].close);
+  // a trade that sits flat for an hour is left alone
   const flat = [minute(0, 100, 100, 100, 100), ...Array.from({ length: 55 }, (_, i) => minute(i + 1, 99.9, 100.2, 99.7, 99.9))];
   const t = followLive(flat, 0, live);
-  assert.equal(t.exit, 'TIME');
-  assert.equal(t.exitPrice, 99.9);
+  assert.equal(t.exit, 'SQUARE_OFF');
   assert.ok((flat[flat.length - 1].time - flat[0].time) / 60 >= 45);
 });
 
