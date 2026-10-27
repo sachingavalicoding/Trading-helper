@@ -483,3 +483,17 @@ test('the share auto log does not show option rows', async () => {
   const opts = (await api().get('/api/options/log').set(fresh.auth).expect(200)).body;
   assert.equal(opts.entries.length, 1);
 });
+
+test('no option target is further than the index can reach in a usual day, so the sale price stays believable', () => {
+  const base = { read: sideRead(25000, 24965, []), contract, premium: 230, settings: settingsDoc({ maxLossPct: 14 }), available: 100000, now: MON };
+  const fresh = planTrade({ ...base, market: mk() }).plan;
+  assert.ok(fresh.target1 < fresh.target2 && fresh.target2 < fresh.target3);
+  // 0.8 of a 1.1% day, less 0.3% already moved, is about 0.58% of 25000 = 145 points: far less than the ~200 points the old +39% sale needed
+  const reach = bsPrice({ type: 'CE', spot: 25000 + 0.0058 * 25000, strike: 25000, t: 7 / 365, iv: 0.15 });
+  assert.ok(fresh.target3 <= reach + 12, `sale ${fresh.target3} vs reach ${reach}`);
+  assert.ok(fresh.target3 <= 230 * 1.35, `sale ${fresh.target3} is under +35% of the premium`);
+  const late = planTrade({ ...base, market: { ...mk(), dayRangePct: 0.9 } });
+  if (late.plan) assert.ok(late.plan.target3 <= fresh.target3, 'a day that has already moved leaves a nearer sale');
+  const noHistory = planTrade({ ...base, market: { ...mk(), avgRangePct: null } }).plan;
+  assert.ok(noHistory.target3 <= 230 * 1.4, 'without daily history the reach is a few ATRs, not unlimited');
+});

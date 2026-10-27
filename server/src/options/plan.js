@@ -11,6 +11,9 @@ export const MIN_LOSS_PCT = 0.1; // a premium stop closer than this is inside no
 export const MAX_LOSS_PCT = 0.3; // if the chart stop would cost more than this share of the premium, the trade is too expensive to take
 export const MIN_FIRST_TARGET_R = 1.2; // target 1 must pay at least this many times the premium at risk
 export const MAX_FIRST_TARGET_R = 2.5;
+export const REACH_SHARE = 0.8; // targets stay within this share of the index's usual daily range (as for shares)
+export const MIN_ROOM_SHARE = 0.25; // late in a big day there is still at least this share of a usual range to aim for
+const REACH_ATR_FALLBACK = 6; // without daily history: about this many 5-minute ATRs
 export const MAX_IV = 0.35; // above this the premium is very expensive and usually deflates fast
 export const MIN_PROFIT_TO_CHARGES = 3;
 const MS_YEAR = 365 * 24 * 3600 * 1000;
@@ -43,13 +46,17 @@ export function planTrade({ read, market: m, contract, premium, settings, availa
   const risk = premium - stopLoss;
   if (!(risk > 0)) return { skipped: 'no room for a stop below the premium' };
 
-  // Target 1: the nearest level ahead that pays enough, but never further than the index usually has left to travel today.
-  const room = m.avgRangePct == null ? null : Math.max(m.avgRangePct - m.dayRangePct, m.avgRangePct * 0.3);
-  const reachSpot = room == null ? null : m.spot + read.d * (room / 100) * m.spot;
+  // How far the index can realistically still go today: most of a usual day's range, less what it has already moved
+  // (never less than a quarter of it). With no daily history, a few hours of ordinary movement. Every target stays inside this.
+  const roomPts = m.avgRangePct == null ? m.atr5 * REACH_ATR_FALLBACK : (Math.max(REACH_SHARE * m.avgRangePct - m.dayRangePct, MIN_ROOM_SHARE * m.avgRangePct) / 100) * m.spot;
+  const reachSpot = m.spot + read.d * roomPts;
+  const reachPremium = priceAt(reachSpot);
+
+  // Target 1: the nearest level ahead that pays enough, but never beyond that reach.
   let target1 = null;
   let targetNote = '';
   for (const lvl of read.levels) {
-    const spotGoal = reachSpot != null && read.d * (lvl.price - reachSpot) > 0 ? reachSpot : lvl.price;
+    const spotGoal = read.d * (lvl.price - reachSpot) > 0 ? reachSpot : lvl.price;
     const gain = priceAt(spotGoal) - premium;
     if (gain >= MIN_FIRST_TARGET_R * risk) {
       target1 = premium + Math.min(gain, MAX_FIRST_TARGET_R * risk);
@@ -63,8 +70,10 @@ export function planTrade({ read, market: m, contract, premium, settings, availa
     targetNote = 'one and a half times the risk (no level ahead)';
   }
   target1 = roundToTick(target1);
-  const target2 = roundToTick(target1 + risk);
-  const target3 = roundToTick(target2 + (target2 - target1)); // the sale: as far past target 2 as 2 is past 1; the first two only lift the stop
+  // The sale is as far past target 2 as 2 is past 1 (the first two only lift the stop), but no further than the day's reach:
+  // a target the index is unlikely to get to is just a stop that never moves.
+  const target3 = roundToTick(Math.max(Math.min(target1 + 2 * risk, reachPremium), target1 + 0.5 * risk));
+  const target2 = roundToTick(target1 + (target3 - target1) / 2);
 
   // Size: the most this trade may lose, the money set aside for options, and the lot size.
   const lotSize = contract.lotSize;
