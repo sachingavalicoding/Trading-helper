@@ -28,9 +28,13 @@ const symbols = arg('symbols') ? arg('symbols').split(',').map((s) => s.trim().t
 const market = new MarketDataService(createProvider(env), { holidays: env.nseHolidays });
 await market.start();
 if (env.provider === 'mock') console.log('WARNING: mock feed, history is random. Results mean nothing.\n');
-const nifty = await market.getCandles('NIFTY 50', '1m').catch(() => null);
+// Upstox serves about a month of 1-minute candles, but the live app only loads the last few days. Ask for what the test needs.
+const historyDays = Number(arg('history-days', Math.min(28, Math.ceil((days + holdout) * 1.5) + 4)));
+const nifty = await market.getCandles('NIFTY 50', '1m', { days: historyDays }).catch(() => null);
 const history = {};
-for (const symbol of symbols) history[symbol] = await market.getCandles(symbol, '1m').catch(() => null);
+for (const symbol of symbols) history[symbol] = await market.getCandles(symbol, '1m', { days: historyDays }).catch(() => null);
+const sessions = new Set((history[symbols[0]] || []).map((b) => new Date((b.time + 19800) * 1000).toISOString().slice(0, 10)));
+console.log(`${sessions.size} sessions of 1-minute candles loaded (${historyDays} calendar days requested).${sessions.size < days + holdout + 1 ? ` That is fewer than ${days + holdout} replay days plus one warm-up day, so the tuning period will be shorter.` : ''}\n`);
 
 const run = (legacy, skipDays, n, exits = 'target1', scale = 1) => symbols.flatMap((symbol) => (history[symbol] ? replayStock({ symbol, c1: history[symbol], nifty, days: n, legacy, skipDays, exits, stopScale: scale, ladder }) : []));
 const money = (n) => (n == null ? '-' : `₹${n.toLocaleString('en-IN')}`);
@@ -40,8 +44,9 @@ console.log(`${symbols.length} stocks, risk ${money(opts.riskAmount)} per trade,
 for (const [name, skip, n] of [['Tuning period', holdout, days], ['Unseen period', 0, holdout]]) {
   console.log(`${name}`);
   const old = run(true, skip, n);
-  const now = run(false, skip, n, 'target1', stopScale);
-  const live = run(false, skip, n, 'live', stopScale);
+  const both = run(false, skip, n, 'both', stopScale);
+  const now = both;
+  const live = both.map((i) => ({ ...i, ...i.live }));
   console.log(line('  Old rules', evaluate(old, opts)));
   console.log(line('  Enhanced, sell at T1', evaluate(now, opts)));
   console.log(line('  Enhanced, live exits', evaluate(live, opts)));

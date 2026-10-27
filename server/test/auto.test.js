@@ -330,13 +330,14 @@ test('a trade that has gone nowhere for 45 minutes is closed as a time exit, but
     const b = idea('ITC', 'BUY');
     assert.ok((await trader.consider(s, a)).order);
     assert.ok((await trader.consider(s, b)).order);
-    const old = (symbol) => {
+    const old = async (symbol) => {
       const x = trader.excursion.get(`${uid}|${symbol}`);
       x.openedAt = Date.now() - 50 * 60000;
+      await Position.updateOne({ user: uid, symbol, status: 'OPEN' }, { openedAt: new Date(x.openedAt) });
       return x;
     };
-    old('HDFCBANK');
-    old('ITC').bestR = 0.8; // this one got going
+    await old('HDFCBANK');
+    (await old('ITC')).bestR = 0.8; // this one got going
     ctx.provider.setPrice('HDFCBANK', a.entry - 0.5);
     ctx.provider.setPrice('ITC', b.entry - 0.2);
     await settle();
@@ -374,4 +375,31 @@ test('a news-gap idea is skipped when news-gap trades are switched off, and trad
   assert.match(off.skipped, /news gap trades are switched off/);
   const on = await trader.consider(settings({ user: uid, maxOpen: 10, maxShares: 1 }), { ...gap, _id: `${gap._id}-b` });
   assert.ok(on.order, on.skipped);
+});
+
+test('the stall exit never closes a position the user added to by hand, or one that is no longer the auto trade', async () => {
+  trader.start();
+  try {
+    const fresh = await registerUser(app);
+    const uid = fresh.user.id || fresh.user._id;
+    const s = settings({ user: uid, maxOpen: 10, maxShares: 1 });
+    ctx.provider.setPrice('INFY', 1500);
+    await settle();
+    const a = idea('INFY', 'BUY');
+    assert.ok((await trader.consider(s, a)).order);
+    // the user buys one more share by hand: the position is now 2 shares, not the auto trade's 1
+    await ctx.engine.placeOrder(uid, { symbol: 'INFY', side: 'BUY', orderType: 'MARKET', qty: 1 });
+    const x = trader.excursion.get(`${uid}|INFY`);
+    x.openedAt = Date.now() - 50 * 60000;
+    await Position.updateOne({ user: uid, symbol: 'INFY', status: 'OPEN' }, { openedAt: new Date(x.openedAt) });
+    ctx.provider.setPrice('INFY', a.entry - 0.5);
+    await settle();
+    await new Promise((r) => setTimeout(r, 100));
+    const pos = await Position.findOne({ user: uid, symbol: 'INFY', status: 'OPEN' });
+    assert.ok(pos, 'still open');
+    assert.equal(pos.netQty, 2);
+    assert.equal(trader.excursion.has(`${uid}|INFY`), false, 'no longer tracked as an auto trade');
+  } finally {
+    trader.stop();
+  }
 });

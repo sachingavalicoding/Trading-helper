@@ -77,7 +77,8 @@ export class UpstoxProvider extends BaseProvider {
     if (keys.length) this.#send('sub', keys);
   }
 
-  async getHistory(symbol, interval = '1m') {
+  /** `days` (calendar days back) is for the backtest; the live app keeps the short default. Upstox serves 1-15 minute candles for about a month. */
+  async getHistory(symbol, interval = '1m', { days = null } = {}) {
     const key = this.keyBySymbol.get(symbol);
     if (!key) return [];
     const unit = Number.parseInt(interval, 10) || 1;
@@ -88,7 +89,7 @@ export class UpstoxProvider extends BaseProvider {
     const to = new Date(Date.now() + IST_OFFSET_MS);
     to.setUTCDate(to.getUTCDate() - 1);
     const from = new Date(to);
-    from.setUTCDate(from.getUTCDate() - (unit === 1 ? 4 : 10));
+    from.setUTCDate(from.getUTCDate() - (days ? Math.min(days, 28) : unit === 1 ? 4 : 10));
     const day = (d) => d.toISOString().slice(0, 10);
     try {
       const hist = await this.#get(`/v3/historical-candle/${enc}/minutes/${unit}/${day(to)}/${day(from)}`);

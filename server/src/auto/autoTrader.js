@@ -56,19 +56,31 @@ export class AutoTrader {
       x.bestR = Math.max(x.bestR, r);
       x.worstR = Math.min(x.worstR, r);
       this.excursion.set(key, x);
-      if (!x.exiting && Date.now() - x.openedAt >= STALL_MINUTES * 60000 && x.bestR < STALL_PROGRESS_R && r <= 0) this.#stallExit(x);
+      if (!x.exiting && Date.now() - x.openedAt >= STALL_MINUTES * 60000 && x.bestR < STALL_PROGRESS_R && r <= 0) this.#stallExit(x).catch(() => {});
     }
   }
 
-  /** Close a trade that has sat for STALL_MINUTES without ever getting going, and is not in profit now. */
-  #stallExit(x) {
+  /**
+   * Close a trade that has sat for STALL_MINUTES without ever getting going, and is not in profit now.
+   * It only ever closes what the auto trader opened: if the position is gone, was opened again later, or has been
+   * added to or cut by hand (its size is no longer the auto trade's), the trade is no longer ours to close and is dropped.
+   */
+  async #stallExit(x) {
     x.exiting = true;
-    x.timeExit = true;
-    this.engine.exitPosition(x.user, x.symbol).catch((e) => {
+    const key = `${x.user}|${x.symbol}`;
+    try {
+      const pos = await Position.findOne({ user: x.user, symbol: x.symbol, status: 'OPEN' }).lean();
+      if (!pos || Math.abs(pos.netQty) !== x.qty || new Date(pos.openedAt).getTime() > x.openedAt + 5000) {
+        this.excursion.delete(key);
+        return;
+      }
+      x.timeExit = true;
+      await this.engine.exitPosition(x.user, x.symbol);
+    } catch (e) {
       x.exiting = false;
       x.timeExit = false;
       logger.warn(`stall exit for ${x.symbol} failed: ${e.message}`);
-    });
+    }
   }
 
   /** Write one row of the auto log. Logging must never get in the way of trading. */
@@ -99,7 +111,10 @@ export class AutoTrader {
   /** A stop, target, manual exit or square-off filled: if that closed an auto trade, record how it ended. */
   async #finish({ userId, order }) {
     const log = await AutoLog.findOne({ user: userId, symbol: order.symbol, status: 'OPEN', segment: { $ne: 'OPT' } });
-    if (!log) return;
+    if (!log) {
+      this.excursion.delete(`${userId}|${order.symbol}`); // no open auto trade in this stock any more, so nothing of ours to watch
+      return;
+    }
     const pos = await Position.findById(log.position).lean();
     if (!pos || pos.status !== 'CLOSED') return;
     const key = `${userId}|${order.symbol}`;
@@ -156,7 +171,7 @@ export class AutoTrader {
       const { order } = result;
       const position = await Position.findOne({ user: settings.user, symbol: idea.symbol, status: 'OPEN' }, '_id').lean();
       const risk = Math.abs(idea.entry - idea.stopLoss);
-      this.excursion.set(`${settings.user}|${idea.symbol}`, { user: settings.user, openedAt: Date.now(), symbol: idea.symbol, entry: order.avgFillPrice ?? idea.entry, risk, dir: idea.side === 'BUY' ? 1 : -1, bestR: 0, worstR: 0 });
+      this.excursion.set(`${settings.user}|${idea.symbol}`, { user: settings.user, qty: order.qty, openedAt: Date.now(), symbol: idea.symbol, entry: order.avgFillPrice ?? idea.entry, risk, dir: idea.side === 'BUY' ? 1 : -1, bestR: 0, worstR: 0 });
       await this.#record(settings, idea, { ...base, decision: 'PLACED', status: 'OPEN', qty: order.qty, fillPrice: order.avgFillPrice, order: order._id, position: position?._id });
     }
     return result;

@@ -52,3 +52,28 @@ test('index feeds have no depth', () => {
   assert.equal(tick.depth, null);
   assert.equal(tick.isIndex, true);
 });
+
+test('history looks back 4 days by default, as far as asked for the backtest, and never past 28', async () => {
+  const { UpstoxProvider } = await import('../src/market/providers/upstox/UpstoxProvider.js');
+  const p = new UpstoxProvider({ accessToken: 'x' });
+  p.keyBySymbol.set('INFY', 'NSE_EQ|INE009A01021');
+  const urls = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    return { ok: true, json: async () => ({ data: { candles: [] } }) };
+  };
+  try {
+    const span = async (opts) => {
+      urls.length = 0;
+      await p.getHistory('INFY', '1m', opts);
+      const [, to, from] = urls[0].match(/minutes\/1\/(\d{4}-\d{2}-\d{2})\/(\d{4}-\d{2}-\d{2})/);
+      return Math.round((new Date(to) - new Date(from)) / 86400000);
+    };
+    assert.equal(await span(undefined), 4);
+    assert.equal(await span({ days: 20 }), 20);
+    assert.equal(await span({ days: 90 }), 28);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
