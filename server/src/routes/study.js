@@ -11,6 +11,9 @@ const KINDS = ['options', 'shares'];
 const runSchema = z.object({
   days: z.coerce.number().int().min(1).max(60).optional(),
   iv: z.coerce.number().min(0.08).max(0.4).default(0.14),
+  exit: z.enum(['lock', 'target']).default('lock'),
+  target: z.coerce.number().min(100).max(100000).default(1000),
+  fixedLots: z.coerce.number().int().min(0).max(20).default(0),
 });
 const MAX_DAYS = { options: 60, shares: 15 }; // a share replay runs the whole scanner on 50 stocks, so it is kept short
 

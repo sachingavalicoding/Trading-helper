@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { copyText } from '../../lib/copyText.js';
 import { formatPnl, formatPrice, pnlClass } from '../../lib/format.js';
 import { useStudy } from '../../lib/useStudy.js';
-import { EXIT_WORD, hourRows, istStamp, sizingText, studyText, verdict } from '../../lib/study.js';
+import { EXIT_WORD, exitText, hourRows, istStamp, sizingText, studyText, verdict } from '../../lib/study.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 
 const DAYS = [
@@ -167,7 +167,12 @@ function Breadth({ rows }) {
 /** Replays past Nifty candles through each way of reading the chart and shows what each would have made as one-lot option trades. Analysis only. */
 export function OptionsStudy() {
   const [days, setDays] = useState(20);
+  const [exit, setExit] = useState('lock');
+  const [target, setTarget] = useState('1000');
+  const [lots, setLots] = useState(0);
   const { state, error, running, run } = useStudy('options');
+  const targetValue = Number(target);
+  const targetBad = exit === 'target' && !(targetValue >= 100 && targetValue <= 100000);
 
   async function copy() {
     const ok = await copyText(studyText(state.result));
@@ -183,12 +188,21 @@ export function OptionsStudy() {
           <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
           <div>
             <h3 className="text-sm font-semibold">Which way of reading the chart pays?</h3>
-            <p className="text-[11px] leading-snug text-muted">Replays past Nifty candles. Each technique buys a call or put when its pattern shows, with a chart stop and your profit lock, lots sized to your loss limit, closed at 15:15. This does not change the live trading.</p>
+            <p className="text-[11px] leading-snug text-muted">Replays past Nifty candles. Each technique buys a call or put when its pattern shows, with the chart stop, closed at 15:15. Choose how a winning trade is sold below. This does not change the live trading.</p>
           </div>
         </div>
+        <Segmented className="w-full" size="sm" value={exit} onChange={setExit} options={[{ value: 'lock', label: 'Profit lock (your Account rule)' }, { value: 'target', label: 'Fixed target' }]} />
+        {exit === 'target' && (
+          <label className="flex items-center justify-between gap-3 text-xs text-muted">
+            <span>Sell when the profit on one lot reaches (₹). No profit lock.</span>
+            <input className="field num !w-24 !px-2 !py-1.5 text-right !text-sm" inputMode="numeric" value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Target profit per lot in rupees" />
+          </label>
+        )}
+        <Segmented className="w-full" size="sm" value={lots} onChange={setLots} options={[{ value: 0, label: 'Lots sized to my loss limit' }, { value: 1, label: '1 lot' }]} />
+        {targetBad && <p className="text-xs text-down">The target must be between ₹100 and ₹1,00,000.</p>}
         <div className="flex items-center gap-2">
           <Segmented className="flex-1" size="sm" value={days} onChange={setDays} options={DAYS} />
-          <button type="button" onClick={() => run(days)} disabled={running} className="btn btn-primary btn-sm shrink-0">
+          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots })} disabled={running || targetBad} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Run study'}
           </button>
         </div>
@@ -205,7 +219,7 @@ export function OptionsStudy() {
           {r.simulated && <Card className="border-warn p-3 text-xs text-warn">This was made on the sample feed, whose history is random, so the numbers mean nothing. Log in to Upstox and run it again.</Card>}
           <Card className="flex items-center justify-between gap-2 p-3 text-xs">
             <p className="text-muted">
-              {r.period.from} to {r.period.to} · {r.period.days} trading days · {sizingText(r.params)} · profit lock +₹{r.params.lockStart} keeps ₹{r.params.lockStart - r.params.lockGap} · premiums estimated at {Math.round(r.params.iv * 100)}% volatility
+              {r.period.from} to {r.period.to} · {r.period.days} trading days · {sizingText(r.params)} · {exitText(r.params)} · premiums estimated at {Math.round(r.params.iv * 100)}% volatility
             </p>
             <button type="button" onClick={copy} className="btn btn-sm shrink-0">
               <ClipboardCopy className="h-3.5 w-3.5" /> Copy

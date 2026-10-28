@@ -260,7 +260,9 @@ test('the study runs in the background, keeps its latest result, refuses a secon
   await request(app).post('/api/study/options').set(u.auth).send({ days: 0 }).expect(400);
   await request(app).post('/api/study/options').set(u.auth).send({ days: 61 }).expect(400);
   await request(app).post('/api/study/options').set(u.auth).send({ days: 10, iv: 0.9 }).expect(400);
-  await request(app).post('/api/study/options').set(u.auth).send({ days: 10 }).expect(202);
+  await request(app).post('/api/study/options').set(u.auth).send({ days: 10, exit: 'target', target: 5 }).expect(400);
+  await request(app).post('/api/study/options').set(u.auth).send({ days: 10, exit: 'sometimes' }).expect(400);
+  await request(app).post('/api/study/options').set(u.auth).send({ days: 10, exit: 'target', target: 1500, fixedLots: 1 }).expect(202);
   await request(app).post('/api/study/options').set(u.auth).send({ days: 10 }).expect(409);
 
   let body;
@@ -271,6 +273,7 @@ test('the study runs in the background, keeps its latest result, refuses a secon
   }
   assert.equal(body.status.state, 'idle', JSON.stringify(body.status));
   assert.equal(body.result.period.days, 10);
+  assert.deepEqual([body.result.params.exit, body.result.params.target, body.result.params.fixedLots], ['target', 1500, 1]);
   assert.equal(body.result.simulated, false);
   assert.ok(body.result.techniques.length >= 12);
   assert.ok(calls >= 51, 'Nifty and then the 50 stocks');
@@ -335,4 +338,26 @@ test('the shares study runs through the API on the Account stop, is kept per kin
   assert.equal(body.result.params.riskAmount, 200, 'sized to the Account stop for shares');
   assert.match(body.note, /order book/);
   assert.equal((await request(app).get('/api/study/options').set(u.auth).expect(200)).body.result, null, 'the options study is separate');
+});
+
+test('with a target there is no profit lock: the trade is sold when the profit reaches it, a stop in the same bar comes first, and 1 lot can be forced', () => {
+  const start = Date.UTC(2026, 9, 12, 4, 30) / 1000;
+  const rise = minutes(24000, Array.from({ length: 300 }, () => 0.4));
+  const params = { ...PARAMS, target: 1000, lossLimit: 3000, maxLots: 2, fixedLots: 1 };
+  const t = simulateTrade({ c1: rise, byTime: index(rise), signal: { technique: 'x', note: '', side: 'CE', time: start, stop: 23900 }, params });
+  assert.equal(t.reason, 'TARGET');
+  assert.equal(t.lots, 1);
+  assert.ok(t.gross >= 999.9 && t.gross < 1100, `gross ${t.gross}`);
+  assert.ok(t.exitSpot > t.entrySpot);
+
+  const free = simulateTrade({ c1: rise, byTime: index(rise), signal: { technique: 'x', note: '', side: 'CE', time: start, stop: 23960 }, params: { ...params, fixedLots: 0, lossLimit: 5000, maxLots: 2 } });
+  assert.equal(free.lots, 2);
+  assert.ok(free.gross >= 1999.9, 'the target counts per lot');
+
+  const lockMode = simulateTrade({ c1: rise, byTime: index(rise), signal: { technique: 'x', note: '', side: 'CE', time: start, stop: 23900 }, params: { ...PARAMS, lossLimit: 3000, maxLots: 1 } });
+  assert.notEqual(lockMode.reason, 'TARGET');
+
+  const falls = minutes(24000, Array.from({ length: 100 }, () => -0.5));
+  const stopped = simulateTrade({ c1: falls, byTime: index(falls), signal: { technique: 'x', note: '', side: 'CE', time: start, stop: 23980 }, params });
+  assert.equal(stopped.reason, 'STOP');
 });
