@@ -50,7 +50,7 @@ export const LADDER = [[0.3, 0.15], [0.45, 0.32], [0.6, 0.52], [1, 0.9]];
  * Walk the same bars with the live exit rules. A stop raised on a bar only counts from the next bar. Also reports
  * `runR`: how far the idea ran in its favour before price touched its original stop (or the day ended), whatever
  * the exit rules did, so any target can be judged. `ladder` is in percent of the entry price.
- * With `money` ({ riskAmount, slippagePct, steps, target }) the exits are in rupees on the shares the idea would really buy:
+ * With `money` ({ riskAmount, slippagePct, steps, target, exitMin }) the exits are in rupees on the shares the idea would really buy:
  * `steps` is the Account ladder (rows of profit and lock, as live), and a `target` replaces it with a sale at that profit.
  */
 export function followLive(c1, from, idea, ladder = LADDER, money = null) {
@@ -81,7 +81,7 @@ export function followLive(c1, from, idea, ladder = LADDER, money = null) {
     if (!out) {
       const minutes = istParts(new Date(b.time * 1000)).minutes;
       if (d * (adv - stop) <= 0) out = { status: d * (stop - entry) > 0 ? 'LOCKED' : 'STOPPED', exit: d * (stop - entry) > 0 ? 'LOCK' : 'STOP', exitPrice: stop };
-      else if (minutes >= SQUARE_OFF_MIN) out = { status: 'EXPIRED', exit: 'SQUARE_OFF', exitPrice: b.close };
+      else if (minutes >= (money?.exitMin ?? SQUARE_OFF_MIN)) out = { status: 'EXPIRED', exit: 'SQUARE_OFF', exitPrice: b.close };
       else {
         bestR = Math.max(bestR, r(fav));
         if (money) {
@@ -147,6 +147,7 @@ export function replayStock({ symbol, c1, nifty = null, days = 3, legacy = false
     const { candidates } = evaluateStock({ symbol, tick, c1: c1.slice(0, i + 1), niftyChangePct }, { now, enforceWindows: true, legacy });
     const top = candidates.find((c) => c.score >= MIN_SCORE);
     if (!top || top.status !== 'ENTRY') continue;
+    if (money?.exitMin && istParts(now).minutes >= money.exitMin) continue; // no new trade at or after the time you close
     const key = `${day}|${top.setup}|${top.side}`;
     if (raised.has(key)) continue;
     raised.add(key);

@@ -91,6 +91,16 @@ test('a call that keeps rising is held to 15:15, one that gives back a big gain 
   assert.ok(stopped.net < -500 && stopped.exitSpot <= 23980, JSON.stringify(stopped));
 });
 
+test('the replay closes at the exit time you set, and takes no trade at or after it', () => {
+  const start = Date.UTC(2026, 9, 12, 4, 30) / 1000; // 10:00 IST
+  const rise = minutes(24000, Array.from({ length: 330 }, () => 0.4));
+  const at = (exitMin, time = start) => simulateTrade({ c1: rise, byTime: index(rise), signal: { technique: 'x', note: '', side: 'CE', time, stop: 23960 }, params: { ...PARAMS, exitMin } });
+  const early = at(14 * 60 + 15);
+  assert.equal(early.reason, 'EOD');
+  assert.equal(early.exitTime, Date.UTC(2026, 9, 12, 8, 45) / 1000, 'closed at 14:15 IST');
+  assert.equal(at(10 * 60 + 30, Date.UTC(2026, 9, 12, 5, 0) / 1000), null, 'a signal at 10:30 is too late for a 10:30 exit');
+});
+
 test('a typed lock ladder replaces lockStart and lockGap in the replay: an early first row sells a smaller gain, an empty ladder never locks', () => {
   const start = Date.UTC(2026, 9, 12, 4, 30) / 1000;
   const gaveBack = minutes(24000, [...Array.from({ length: 100 }, () => 0.8), ...Array.from({ length: 100 }, () => -0.8)]);

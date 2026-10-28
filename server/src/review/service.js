@@ -168,6 +168,7 @@ export class ReviewService {
       expiryWeekday: this.market.expiryWeekday,
       lossLimit: rules.stopLoss ?? 0,
       maxLots: settings?.maxLots ?? 2,
+      exitMin: rules.exitMin,
     };
     if (!c1.length) return { day, candles: [], signals: [], patterns: [] };
     return reviewPatterns({ c1, day, params });

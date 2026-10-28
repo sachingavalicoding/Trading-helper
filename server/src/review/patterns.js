@@ -22,7 +22,7 @@ const outcome = (t) =>
     : null;
 
 /** How the index moved after the entry, in points in the trade's favour: the best, the worst, and where it stood an hour later. */
-function pathAfter(c1, startIdx, long) {
+function pathAfter(c1, startIdx, long, exitMin) {
   const entry = c1[startIdx].open;
   const day = dayOf(c1[startIdx].time);
   let best = { pts: 0, minutes: 0 };
@@ -32,7 +32,7 @@ function pathAfter(c1, startIdx, long) {
     const bar = c1[j];
     const minutes = Math.round((bar.time - c1[startIdx].time) / 60);
     const at = istParts(new Date(bar.time * 1000));
-    if (at.dateKey !== day || at.minutes >= EXIT_MIN || minutes > WATCH_MIN) break;
+    if (at.dateKey !== day || at.minutes >= exitMin || minutes > WATCH_MIN) break;
     const fav = long ? bar.high - entry : entry - bar.low;
     const adv = long ? bar.low - entry : entry - bar.high;
     if (fav > best.pts) best = { pts: fav, minutes };
@@ -45,9 +45,10 @@ function pathAfter(c1, startIdx, long) {
 /**
  * @param c1      Nifty 1-minute bars, several sessions, oldest first (the earlier sessions give the indicators their context)
  * @param day     'YYYY-MM-DD' (IST)
- * @param params  as `simulateTrade`: { iv, lockStart, lockGap, lotSize, holidays, expiryWeekday, lossLimit, maxLots }
+ * @param params  as `simulateTrade`: { iv, lockStart, lockGap, lotSize, holidays, expiryWeekday, lossLimit, maxLots, exitMin }
  */
 export function reviewPatterns({ c1, day, params }) {
+  const exitMin = params.exitMin ?? EXIT_MIN;
   let bars5 = aggregateCandles(c1, '5m');
   if (bars5.length && bars5.at(-1).time + 300 > c1.at(-1).time + 60) bars5 = bars5.slice(0, -1); // the last bucket is still forming
   const candles = bars5.filter((b) => dayOf(b.time) === day);
@@ -71,10 +72,14 @@ export function reviewPatterns({ c1, day, params }) {
       entry: round2(entry),
       stop: round2(stop),
       stopPts: round2(Math.abs(entry - stop)),
-      ...pathAfter(c1, startIdx, long),
+      ...pathAfter(c1, startIdx, long, exitMin),
     };
     if (wide) {
       signals.push({ ...base, skipped: 'far' });
+      continue;
+    }
+    if (istParts(new Date(s.time * 1000)).minutes >= exitMin) {
+      signals.push({ ...base, skipped: 'late' });
       continue;
     }
     const signal = { ...s, stop };
@@ -96,6 +101,6 @@ export function reviewPatterns({ c1, day, params }) {
     open: candles[0].open,
     patterns: CHART_PATTERNS.map(({ key, label, text }) => ({ key, label, text })),
     signals,
-    exits: { lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? [{ at: params.lockStart, keep: params.lockStart - params.lockGap }], lossLimit: params.lossLimit, target: TARGET_PER_LOT },
+    exits: { lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? [{ at: params.lockStart, keep: params.lockStart - params.lockGap }], lossLimit: params.lossLimit, target: TARGET_PER_LOT, exitMin },
   };
 }
