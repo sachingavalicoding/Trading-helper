@@ -10,6 +10,7 @@ const round2 = (n) => Math.round(n * 100) / 100;
 const MIN_PROFIT_TO_CHARGES = 3; // skip a trade whose profit at target 1 is under this many times its round-trip charges
 // There is no sale target. The order engine puts the user's profit lock (Account tab) on every new position: once the profit reaches
 // the lock start the stop follows a fixed gap behind the best profit. A trade ends at its stop or at the 15:15 square-off.
+const MIN_STOP_PCT = 0.5; // skip an idea whose stop is closer than this % of the entry: on 27-28 Oct the 4 trades with stops under 0.5% away lost 3 times within minutes
 const MAX_CHARGES_OF_RISK = 0.25; // skip a trade whose round-trip charges are more than this share of the money it risks: its stop is too tight for its size
 
 /**
@@ -158,6 +159,7 @@ export class AutoTrader {
       seen.movedR = round2(movedR);
       if (movedR > 0.5 || movedR < -0.3) return { skipped: `price already moved ${movedR.toFixed(2)}R from the entry` };
     }
+    if (risk && idea.entry && (risk / idea.entry) * 100 < MIN_STOP_PCT) return { skipped: `the stop is only ${round2((risk / idea.entry) * 100)}% from the entry, under the ${MIN_STOP_PCT}% minimum, so normal wiggle would hit it` };
     if (idea.setup === 'News gap' && settings.earlyNews === false) return { skipped: 'news gap trades are switched off' };
     if (idea.score < settings.minScore) return { skipped: `score ${idea.score} is below ${settings.minScore}` };
     if (await Position.findOne({ user: userId, symbol: idea.symbol, status: 'OPEN' })) return { skipped: 'already in this stock' };

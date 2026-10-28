@@ -25,7 +25,7 @@ function Row({ label, value, className = '' }) {
 const NUM = 'field num mt-1 !py-2';
 
 /** One segment's stop and profit lock: three numbers, kept as text while typing. */
-function RulesForm({ title, rules, onSave, saved }) {
+function RulesForm({ title, rules, onSave, saved, stopLabel = 'Stop loss (₹ a trade)', stopNote }) {
   const [draft, setDraft] = useState(null);
   const v = draft ?? { stopLoss: String(rules.stopLoss), lockStart: String(rules.lockStart), lockGap: String(rules.lockGap) };
   const n = (k) => Number(v[k]);
@@ -36,7 +36,7 @@ function RulesForm({ title, rules, onSave, saved }) {
       <div className="text-sm font-semibold">{title}</div>
       <div className="grid grid-cols-3 gap-3">
         <label className="text-xs text-muted">
-          Stop loss (₹ a trade)
+          {stopLabel}
           <input className={NUM} inputMode="numeric" value={v.stopLoss} onChange={set('stopLoss')} />
         </label>
         <label className="text-xs text-muted">
@@ -56,7 +56,7 @@ function RulesForm({ title, rules, onSave, saved }) {
         {n('lockStart') > 0 && n('lockGap') > 0 && n('lockStart') > n('lockGap')
           ? `Example: at +₹${n('lockStart')} the stop keeps ₹${n('lockStart') - n('lockGap')}; at +₹${n('lockStart') + n('lockGap')} it keeps ₹${n('lockStart')}, and so on. It never moves back.`
           : 'No profit lock.'}{' '}
-        {n('stopLoss') > 0 ? `Every trade starts with a stop that loses at most ₹${n('stopLoss')}.` : 'No automatic stop.'}
+        {stopNote ?? (n('stopLoss') > 0 ? `Every trade starts with a stop that loses at most ₹${n('stopLoss')}.` : 'No automatic stop.')}
       </p>
     </div>
   );
@@ -90,7 +90,7 @@ function TradingRules() {
         <p className="text-xs text-muted">One set of rules for auto and manual trades. A trade placed with its own stop keeps that stop.</p>
       </div>
       <RulesForm key={`s${JSON.stringify(data.shares)}`} title="Shares" rules={data.shares} onSave={save('shares')} saved={saved === 'shares'} />
-      <RulesForm key={`o${JSON.stringify(data.options)}`} title="Options" rules={data.options} onSave={save('options')} saved={saved === 'options'} />
+      <RulesForm key={`o${JSON.stringify(data.options)}`} title="Options" rules={data.options} onSave={save('options')} saved={saved === 'options'} stopLabel="Most one trade may lose (₹)" stopNote={Number(data.options.stopLoss) > 0 ? `The bot sells when the Nifty chart level breaks, and buys only as many lots as keep that loss within ₹${data.options.stopLoss}. A hard stop sits behind it for a fast fall.` : 'No loss limit.'} />
       <div className="space-y-2 border-t border-line pt-3">
         <div className="text-sm font-semibold">Auto shares: limits</div>
         <AutoLimits />

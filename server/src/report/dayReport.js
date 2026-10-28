@@ -12,12 +12,12 @@ const signed = (n, suffix = '') => (n == null ? '-' : `${n > 0 ? '+' : ''}${roun
 const cut = (s, n) => (String(s || '').length > n ? `${String(s).slice(0, n - 1)}…` : String(s || ''));
 const MAX_ROWS = 60;
 
-const lockText = (r) => `${r.stopLoss > 0 ? `stop ₹${r.stopLoss} a trade` : 'no automatic stop'}; ${r.lockStart > 0 ? `once the profit reaches ₹${r.lockStart} the stop follows ₹${r.lockGap} behind the best profit` : 'no profit lock'}`;
+const lockText = (r, stopLabel = 'stop') => `${r.stopLoss > 0 ? `${stopLabel} ₹${r.stopLoss} a trade` : 'no automatic stop'}; ${r.lockStart > 0 ? `once the profit reaches ₹${r.lockStart} the stop follows ₹${r.lockGap} behind the best profit` : 'no profit lock'}`;
 
 function rules({ auto, options, rules: lock = TRADE_DEFAULTS }) {
   const lines = [];
   if (auto) lines.push(`- Auto shares: ${auto.enabled ? 'ON' : 'off'}, min score ${auto.minScore}, max ${auto.maxOpen} open, stop for the day after -${auto.dailyLossPct}%, max ₹${auto.maxTradeAmount} a trade, no sale target; ${lockText(lock.shares)}.`);
-  if (options) lines.push(`- Auto options: ${options.enabled ? 'ON' : 'off'}, min score ${options.minScore}, budget ₹${options.budget}, max ${options.maxLots} lots, ${options.maxTrades} trades a day, no target and no trailing; ${lockText(lock.options)}.`);
+  if (options) lines.push(`- Auto options: ${options.enabled ? 'ON' : 'off'}, min score ${options.minScore}, budget ₹${options.budget}, max ${options.maxLots} lots, ${options.maxTrades} trades a day, chart stop (closed 1-minute candle), no target and no trailing; ${lockText(lock.options, 'loss limit')}.`);
   return lines;
 }
 

@@ -283,16 +283,15 @@ test('skips a trade whose profit at target 1 would not cover its charges three t
   assert.equal(logged.decision, 'SKIPPED');
 });
 
-test('skips a trade whose charges would be over a quarter of the money it risks (a stop too tight for its size)', async () => {
+test('skips an idea whose stop is closer than 0.5% of the entry, because normal wiggle would hit it', async () => {
   const fresh = await registerUser(app);
   const uid = fresh.user.id || fresh.user._id;
-  const s = settings({ user: uid, maxOpen: 10, riskAmount: 200, riskPct: 0.1 });
+  const s = settings({ user: uid, maxOpen: 10 });
   ctx.provider.setPrice('SBIN', 800);
   await settle();
   const ltp = ctx.provider.getLastTick('SBIN').ltp;
-  const tight = { ...idea('SBIN', 'BUY'), stopLoss: ltp - ltp * 0.002 }; // 0.2% stop: 250 shares, a big position
-  const r = await trader.consider(s, tight);
-  assert.match(r.skipped, /charges .* of the ₹.* at risk, over the 25% limit/);
+  const tight = { ...idea('SBIN', 'BUY'), stopLoss: ltp - ltp * 0.003 };
+  assert.match((await trader.consider(s, tight)).skipped, /only 0\.3% from the entry, under the 0\.5% minimum/);
   const ok = await trader.consider(s, { ...idea('SBIN', 'BUY', 81), stopLoss: ltp - ltp * 0.006, target1: ltp + ltp * 0.012, target2: ltp + ltp * 0.02 });
   assert.ok(ok.order, ok.skipped);
 });
