@@ -5,7 +5,7 @@ import { useMarket } from '../context/MarketContext.jsx';
 import { getTick } from '../lib/tickStore.js';
 import { rankMovers } from '../lib/movers.js';
 import { formatPct, pnlClass } from '../lib/format.js';
-import { Card } from './ui.jsx';
+import { Fold } from './ui.jsx';
 
 function List({ title, icon: Icon, tone, rows }) {
   return (
@@ -45,13 +45,14 @@ export function Movers() {
 
   if (!rank) return null;
   return (
-    <Card className="space-y-2 p-3">
-      <div className="text-sm font-semibold">Weakest and strongest vs Nifty 50</div>
+    <Fold id="scan-movers" title="Weakest and strongest" icon={TrendingUp} summary={`Weakest ${rank.weakest[0]?.symbol ?? '-'} · strongest ${rank.strongest[0]?.symbol ?? '-'} vs Nifty 50`}>
+      <div className="space-y-2">
       <div className="flex gap-4">
         <List title="Weakest (sell watch)" icon={TrendingDown} tone="text-down" rows={rank.weakest} />
         <List title="Strongest (buy watch)" icon={TrendingUp} tone="text-up" rows={rank.strongest} />
       </div>
       <p className="text-[11px] leading-snug text-muted">A watch list, not a signal. Wait for the scanner or the chart signal to confirm. Not investment advice.</p>
-    </Card>
+      </div>
+    </Fold>
   );
 }

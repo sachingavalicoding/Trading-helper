@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Bell, BellOff, ChevronDown, Radar, RefreshCw } from 'lucide-react';
+import { Bell, BellOff, ChevronDown, Radar, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMarket } from '../context/MarketContext.jsx';
 import { useApi } from '../lib/useApi.js';
@@ -15,7 +15,7 @@ import { ScannerRecord } from '../components/ScannerRecord.jsx';
 import { useOrderBlock } from '../lib/orderGate.js';
 import { alertsOn, alertsSupported, setAlerts } from '../lib/alerts.js';
 import { NewsLine, NewsCard } from '../components/NewsCard.jsx';
-import { Badge, Card, EmptyState, Segmented, Skeleton } from '../components/ui.jsx';
+import { Badge, Card, EmptyState, Fold, Segmented, Skeleton } from '../components/ui.jsx';
 
 const REFRESH_MS = 10_000;
 const SCORE_OPTIONS = [
@@ -220,15 +220,12 @@ function IdeaCard({ idea, onBuy, calibration, blocked }) {
   );
 }
 
-function Section({ title, hint, children }) {
+/** A list of ideas you can fold away, so the page can show only what you are looking at. */
+function Section({ id, title, hint, defaultOpen = true, children }) {
   return (
-    <section className="space-y-2">
-      <div className="flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        {hint && <span className="text-[11px] text-muted">{hint}</span>}
-      </div>
+    <Fold plain id={`scan-${id}`} title={title} hint={hint} defaultOpen={defaultOpen}>
       {children}
-    </section>
+    </Fold>
   );
 }
 
@@ -327,7 +324,8 @@ export default function Scanner() {
 
       <Movers />
 
-      <Card className="space-y-3 p-3">
+      <Fold id="scan-filters" title="Filters and size" icon={SlidersHorizontal} summary={`Risk ${risk}% · max ₹${maxAmount.toLocaleString('en-IN')} · ${SIDE_OPTIONS.find((o) => o.value === side)?.label ?? side} · score ${minScore}+ · ${TIME_WINDOWS.find((t) => t.value === win)?.label ?? win}`}>
+      <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-sm font-semibold">Risk per trade</div>
@@ -357,7 +355,8 @@ export default function Scanner() {
         <Segmented size="sm" options={SIDE_OPTIONS} value={side} onChange={setSide} className="w-full" />
         <Segmented size="sm" options={SCORE_OPTIONS} value={minScore} onChange={setMinScore} className="w-full" />
         <Segmented size="sm" options={TIME_WINDOWS.map(({ value, label }) => ({ value, label }))} value={win} onChange={setWin} className="w-full" />
-      </Card>
+      </div>
+      </Fold>
 
       {loading && !data && (
         <div className="space-y-3">
@@ -386,7 +385,7 @@ export default function Scanner() {
 
       {data && !data.warming && (
         <>
-          <Section title="Entry now" hint={entries.length ? `${entries.length} idea${entries.length > 1 ? 's' : ''}` : null}>
+          <Section id="entry" title="Entry now" hint={entries.length ? `${entries.length} idea${entries.length > 1 ? 's' : ''}` : null}>
             {entries.length === 0 ? (
               <Card>
                 <EmptyState icon={Radar} title="No good setups right now">
@@ -399,7 +398,7 @@ export default function Scanner() {
           </Section>
 
           {watching.length > 0 && (
-            <Section title="Watching" hint="setup forming, no entry yet">
+            <Section id="watching" title="Watching" hint={`${watching.length} · setup forming, no entry yet`}>
               {watching.map((i) => (
                 <IdeaCard key={`${i.symbol}-${i.setup}-${i.side}`} idea={i} onBuy={setSheet} calibration={data.calibration} blocked={blocked} />
               ))}
@@ -407,10 +406,8 @@ export default function Scanner() {
           )}
 
           {rejected.length > 0 && (
-            <Section title="Not worth entering" hint="rejected, with the reason">
-              <details className="group">
-                <summary className="cursor-pointer text-sm text-accent">Show {rejected.length} rejected idea{rejected.length > 1 ? 's' : ''}</summary>
-              <Card className="mt-2 divide-y divide-line">
+            <Section id="rejected" title="Not worth entering" hint={`${rejected.length} rejected, with the reason`} defaultOpen={false}>
+              <Card className="divide-y divide-line">
                 {rejected.map((r) => (
                   <div key={`${r.symbol}-${r.setup}-${r.side}`} className="space-y-1 px-3 py-2.5 text-sm">
                     <div className="flex items-center justify-between gap-2">
@@ -431,12 +428,11 @@ export default function Scanner() {
                   </div>
                 ))}
               </Card>
-              </details>
             </Section>
           )}
 
           {done.length > 0 && (
-            <Section title="Done today">
+            <Section id="done" title="Done today" hint={`${done.length}`}>
               <Card className="divide-y divide-line">
                 {done.map((d) => (
                   <div key={d.id} className="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">

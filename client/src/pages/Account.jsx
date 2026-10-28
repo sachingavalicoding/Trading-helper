@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, LayoutDashboard, ListOrdered, LogOut, RotateCcw, ScanSearch, Sun, Moon, Wallet } from 'lucide-react';
+import { ChevronDown, ChevronRight, LayoutDashboard, ListOrdered, LogOut, RotateCcw, ScanSearch, SlidersHorizontal, Sun, Moon, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
@@ -9,7 +9,7 @@ import { useApi } from '../lib/useApi.js';
 import { api } from '../lib/api.js';
 import { useStartingBalance } from '../lib/useStartingBalance.js';
 import { formatINR, formatPnl, pnlClass } from '../lib/format.js';
-import { Card, Skeleton, Disclaimer } from '../components/ui.jsx';
+import { Card, Skeleton, Disclaimer, Fold, useFold } from '../components/ui.jsx';
 import { AutoLimits } from '../components/AutoCard.jsx';
 import { OptionsLimits } from '../components/options/OptionsAutoCard.jsx';
 import { EntryChoices, ReportsAndStudies } from '../components/study/ReportsStudies.jsx';
@@ -99,8 +99,7 @@ function TradingRules() {
   const { data, reload } = useApi('/trade-defaults', []);
   const options = useApi('/options', []);
   const [saved, setSaved] = useState('');
-  const [open, setOpen] = useState(false);
-  if (!data) return <Skeleton className="h-28" />;
+  if (!data) return <Skeleton className="h-16" />;
 
   const save = (key) => async (rules) => {
     try {
@@ -119,48 +118,28 @@ function TradingRules() {
   const line = (r, stopWord) => `${r.stopLoss > 0 ? `${stopWord} ${rs(r.stopLoss)}` : 'no stop'} · ${r.lockStart > 0 ? `lock from +${rs(r.lockStart)}, ${rs(r.lockGap)} behind` : 'no lock'}`;
 
   return (
-    <Card className="space-y-3 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-sm font-semibold">Limits</div>
-          <dl className="mt-1 space-y-0.5 text-xs">
-            <div className="flex gap-2">
-              <dt className="w-14 shrink-0 text-muted">Shares</dt>
-              <dd className="num">{line(data.shares, 'stop')}</dd>
-            </div>
-            <div className="flex gap-2">
-              <dt className="w-14 shrink-0 text-muted">Options</dt>
-              <dd className="num">{line(data.options, 'loss limit')}</dd>
-            </div>
-          </dl>
+    <Fold id="acct-limits" title="Limits" icon={SlidersHorizontal} summary={`Shares: ${line(data.shares, 'stop')}. Options: ${line(data.options, 'loss limit')}`}>
+      <div className="space-y-5">
+        <p className="text-xs text-muted">One set of rules for auto and manual trades. A trade placed with its own stop keeps that stop.</p>
+        <RulesForm key={`s${JSON.stringify(data.shares)}`} title="Shares" rules={data.shares} onSave={save('shares')} saved={saved === 'shares'} />
+        <RulesForm key={`o${JSON.stringify(data.options)}`} title="Options" rules={data.options} onSave={save('options')} saved={saved === 'options'} stopLabel="Most one trade may lose (₹)" stopNote={Number(data.options.stopLoss) > 0 ? `The bot sells when the Nifty chart level breaks, and buys only as many lots as keep that loss within ₹${data.options.stopLoss}. A hard stop sits behind it for a fast fall.` : 'No loss limit.'} />
+        <div className="space-y-3 border-t border-line pt-3">
+          <div className="text-sm font-semibold">Profit lock ladder</div>
+          <LadderTable title="Shares" rules={data.shares} />
+          <LadderTable title="Options" rules={data.options} />
         </div>
-        <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="btn btn-secondary btn-sm shrink-0">
-          {open ? 'Hide' : 'Set limits'}
-        </button>
-      </div>
-      {open && (
-        <div className="space-y-5 border-t border-line pt-3">
-          <p className="text-xs text-muted">One set of rules for auto and manual trades. A trade placed with its own stop keeps that stop.</p>
-          <RulesForm key={`s${JSON.stringify(data.shares)}`} title="Shares" rules={data.shares} onSave={save('shares')} saved={saved === 'shares'} />
-          <RulesForm key={`o${JSON.stringify(data.options)}`} title="Options" rules={data.options} onSave={save('options')} saved={saved === 'options'} stopLabel="Most one trade may lose (₹)" stopNote={Number(data.options.stopLoss) > 0 ? `The bot sells when the Nifty chart level breaks, and buys only as many lots as keep that loss within ₹${data.options.stopLoss}. A hard stop sits behind it for a fast fall.` : 'No loss limit.'} />
-          <div className="space-y-3 border-t border-line pt-3">
-            <div className="text-sm font-semibold">Profit lock ladder</div>
-            <LadderTable title="Shares" rules={data.shares} />
-            <LadderTable title="Options" rules={data.options} />
-          </div>
+        <div className="space-y-2 border-t border-line pt-3">
+          <div className="text-sm font-semibold">Auto shares: limits</div>
+          <AutoLimits />
+        </div>
+        {options.data && (
           <div className="space-y-2 border-t border-line pt-3">
-            <div className="text-sm font-semibold">Auto shares: limits</div>
-            <AutoLimits />
+            <div className="text-sm font-semibold">Auto options: limits</div>
+            <OptionsLimits data={options.data} reload={options.reload} />
           </div>
-          {options.data && (
-            <div className="space-y-2 border-t border-line pt-3">
-              <div className="text-sm font-semibold">Auto options: limits</div>
-              <OptionsLimits data={options.data} reload={options.reload} />
-            </div>
-          )}
-        </div>
-      )}
-    </Card>
+        )}
+      </div>
+    </Fold>
   );
 }
 
@@ -171,6 +150,7 @@ export default function Account() {
   const { data: f, loading } = useApi('/wallet', [version]);
   const [busy, setBusy] = useState(false);
   const { label: startLabel } = useStartingBalance();
+  const [fundsOpen, setFundsOpen] = useFold('acct-funds', false);
 
   async function reset() {
     if (!window.confirm('Reset your account? All orders, positions and trade history will be deleted and your wallet goes back to ' + startLabel + '.')) return;
@@ -205,23 +185,37 @@ export default function Account() {
 
   return (
     <div className="space-y-3">
-      <Card className="p-4">
-        <div className="text-lg font-bold">{user?.name}</div>
-        <div className="text-sm text-muted">{user?.email}</div>
-      </Card>
+      <div className="flex items-center gap-3 px-1 pt-1">
+        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-accent text-lg font-bold text-on-accent" aria-hidden="true">
+          {(user?.name || '?').trim().charAt(0).toUpperCase()}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-lg font-bold leading-tight">{user?.name}</div>
+          <div className="truncate text-xs text-muted">{user?.email}</div>
+        </div>
+        <button type="button" onClick={toggle} aria-label={theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme'} className="btn btn-secondary !p-2.5">
+          {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
+      </div>
 
-      <Card className="divide-y divide-line px-4">
-        <div className="py-3">
-          <div className="text-xs text-muted">Available to trade</div>
-          <div className="num text-2xl font-bold">{loading && !f ? <Skeleton className="h-8 w-36" /> : formatINR(f?.available)}</div>
+      <Card className="p-4">
+        <div className="text-xs text-muted">Available to trade</div>
+        <div className="num text-3xl font-bold tracking-tight">{loading && !f ? <Skeleton className="h-9 w-40" /> : formatINR(f?.available)}</div>
+        <div className="mt-1 flex items-center justify-between text-xs">
+          <span className="text-muted">Realised since reset</span>
+          <span className={`num font-semibold ${pnlClass(f?.realizedPnl)}`}>{formatPnl(f?.realizedPnl)}</span>
         </div>
-        <div>
-          <Row label="Cash balance" value={formatINR(f?.balance)} />
-          <Row label="Margin used" value={formatINR(f?.usedMargin)} />
-          <Row label="Blocked for pending orders" value={formatINR(f?.blockedMargin)} />
-          <Row label="Starting capital" value={formatINR(f?.startingBalance)} />
-          <Row label="Realised P&L since reset" value={formatPnl(f?.realizedPnl)} className={pnlClass(f?.realizedPnl)} />
-        </div>
+        <button type="button" onClick={() => setFundsOpen(!fundsOpen)} aria-expanded={fundsOpen} className="mt-2 flex w-full items-center justify-center gap-1 border-t border-line pt-2 text-xs font-semibold text-accent">
+          {fundsOpen ? 'Hide funds details' : 'Funds details'} <ChevronDown className={`h-4 w-4 transition-transform ${fundsOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {fundsOpen && (
+          <div className="divide-y divide-line">
+            <Row label="Cash balance" value={formatINR(f?.balance)} />
+            <Row label="Margin used" value={formatINR(f?.usedMargin)} />
+            <Row label="Blocked for pending orders" value={formatINR(f?.blockedMargin)} />
+            <Row label="Starting capital" value={formatINR(f?.startingBalance)} />
+          </div>
+        )}
       </Card>
 
       <div className="grid grid-cols-3 gap-2">
@@ -245,12 +239,6 @@ export default function Account() {
       <ReportsAndStudies />
 
       <Card className="divide-y divide-line">
-        <button type="button" onClick={toggle} className="flex w-full items-center justify-between px-4 py-3.5 text-sm transition-colors hover:bg-surface-2">
-          <span>Theme</span>
-          <span className="flex items-center gap-2 text-muted">
-            {theme === 'dark' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />} {theme === 'dark' ? 'Dark' : 'Light'}
-          </span>
-        </button>
         <button type="button" disabled={busy} onClick={addFunds} className="flex w-full items-center gap-2 px-4 py-3.5 text-sm transition-colors hover:bg-surface-2 disabled:opacity-50">
           <Wallet className="h-4 w-4" /> Add paper money
         </button>

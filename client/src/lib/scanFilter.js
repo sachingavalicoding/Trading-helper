@@ -3,7 +3,7 @@ export const TIME_WINDOWS = [
   { value: 'ALL', label: 'All day', from: 0, to: 1440 },
   { value: 'AM', label: '9:30-11:30', from: 9 * 60 + 30, to: 11 * 60 + 30 },
   { value: 'MID', label: '11:30-1:30', from: 11 * 60 + 30, to: 13 * 60 + 30 },
-  { value: 'PM', label: '1:30-2:45', from: 13 * 60 + 30, to: 14 * 60 + 45 },
+  { value: 'PM', label: '1:30-3:15', from: 13 * 60 + 30, to: 15 * 60 + 15 },
 ];
 
 /** Minutes after midnight in India for an ISO time. */
