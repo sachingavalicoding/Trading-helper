@@ -307,6 +307,25 @@ On Android Chrome, open the app and choose menu > Add to Home screen to install 
 
 The web app is prebuilt in `phone-app/`. After changing the client, run `npm run build:phone` in `client/` and commit the result.
 
+## Upstox request pacing
+
+Candle history (daily, minute and intraday) leaves for Upstox at most 5 requests a second, queued in order, so a restart or a study over the 50 stocks cannot flood the gateway. If Upstox answers HTTP 429 (Cloudflare "Error 1015: You are being rate limited"), all history waits 15 seconds (or the server's `Retry-After`, up to 60 s) and the refused call is sent once more; a second 429 is logged as a failed candle load as before. A block that has already started lasts a few minutes: wait, then reload, and avoid repeated study runs meanwhile. Live prices and orders are not paced.
+
+## Saved candle history
+
+Studies and Review read three months of 1-minute candles (Nifty and the 50 stocks) from your own MongoDB instead of calling Upstox again each time. Charts, option charts, trading and live prices still use Upstox directly.
+
+- **One button:** log in to Upstox, then Account > Studies > Data > "Download last 3 months" (or `POST /api/history/sync`). It fetches only the days that are not saved yet, so pressing it again costs nothing, and it resumes where it stopped if it is interrupted or rate limited. The sample (mock) feed has no history, so the button is refused there.
+- **Storage:** one packed, gzipped document per symbol per day (`CandleDay`, about 3 KB) plus a coverage record per symbol (`CandleCoverage`). Roughly 10 MB for 51 symbols. Only finished days are stored (a day counts as finished after 15:35 IST).
+- **Every evening** after 15:40 IST on weekdays the server adds the new day and deletes anything older than 92 days, but only once a first download exists.
+- **Reading:** a study over N days uses the saved days plus today's live candles. Before anything is saved it falls back to asking Upstox, as before. The Options study offers up to 62 trading days (about 3 months); the Shares study stays at 15 days.
+
+## Options patterns
+
+The Options study and Review > Patterns test these on the Nifty 5-minute chart (a put is the mirror of a call): double bottom/top, sharp fall then turn, breakout of the last hour, opening range breakout (15 and 30 minutes), pullback to the 21 EMA, engulfing, hammer/shooting star, inside bar, supertrend flip, EMA 9/21 cross, 50-stock breadth, break of yesterday's high/low, strong momentum bar, and four that use volume: VWAP reclaim, VWAP pullback, breakout on high volume and volume climax.
+
+The index has no volume of its own, so VWAP and volume are built from the traded value (price times shares) of the 50 stocks. These four are tested only when the 50 stocks' candles are available (in Review, once they are saved) and are not offered to the live trader until a study shows they pay. The win rate and profit of each pattern depend on the days studied: read them in the study, not from this list.
+
 ## Honest limitations
 
 - Fills are idealized. They happen at LTP with no slippage, no partial fills and no queue position, so real results will be worse.

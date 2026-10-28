@@ -19,7 +19,7 @@ const PATTERN_FRESH_MS = 4 * 60000; // a pattern is acted on only while the 5-mi
 
 // The chart patterns the trader can buy on. The 30-day study (Options > Study) found these three made money on more than 12 trades each:
 // breakout of the last hour (+13.4k, 76% win), inside bar breakout (+6.4k) and the EMA 9/21 cross (+2.5k). The 50-stock breadth needs history the live feed lacks.
-export const LIVE_PATTERNS = TECHNIQUES.filter((t) => t.key !== 'breadth').map((t) => ({ key: t.key, label: t.label }));
+export const LIVE_PATTERNS = TECHNIQUES.filter((t) => t.key !== 'breadth' && !t.needs).map((t) => ({ key: t.key, label: t.label }));
 export const DEFAULT_PATTERNS = ['breakout', 'insideBar', 'emaCross'];
 
 /** Which entry sources are on for a user. Settings saved before these switches existed have neither field: patterns on with the defaults, score entries on. */

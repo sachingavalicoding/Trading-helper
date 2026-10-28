@@ -2,7 +2,7 @@ import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { istParts } from '../market/marketHours.js';
 import { readNifty, FIRST_ENTRY_MIN, LAST_ENTRY_MIN } from '../options/signal.js';
 import { round2 } from '../utils/money.js';
-import { TECHNIQUES, prepare, findSignals, MIN_STOP_ATR, MAX_STOP_ATR } from './patterns.js';
+import { TECHNIQUES, available, prepare, findSignals, turnoverSeries, MIN_STOP_ATR, MAX_STOP_ATR } from './patterns.js';
 import { simulateTrade, summarize } from './simulate.js';
 
 // The options study: what each way of reading the Nifty chart would have earned on the last few weeks, as paper trades of one lot.
@@ -24,6 +24,8 @@ const LABELS = {
   ...Object.fromEntries(SCORE_FLOORS.map((floor) => [`patternScore${floor}`, { key: `patternScore${floor}`, label: `Patterns, score ${floor}+ agrees`, text: `The same three patterns, but only when the live score for that side is also at least ${floor}. The pattern decides, the score confirms.` }])),
   [BOT_KEY]: { key: BOT_KEY, label: 'Current bot (all checks)', text: 'What the live options trader does today: every chart check must agree and the score must reach the minimum. Shown to compare the others against.' },
 };
+
+const EXTRA = new Set(TECHNIQUES.filter((t) => t.extra).map((t) => t.key)); // added later: left out of the "together" rows so those keep their meaning
 
 const yieldTurn = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -232,12 +234,13 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   if (bars5.length && bars5.at(-1).time + 300 > complete.at(-1).time + 60) bars5 = bars5.slice(0, -1); // the last bucket is still forming
   onProgress('Working out the 50-stock breadth');
   const breadth = breadthSeries(bars5, stocks5);
-  const prep = prepare(bars5, breadth);
+  const flow = turnoverSeries(bars5, stocks5);
+  const prep = prepare(bars5, breadth, flow);
 
   onProgress('Looking for each pattern on the chart');
   const found = findSignals(prep).filter((s) => s.time - 300 >= fromTime);
-  const groups = Object.fromEntries(TECHNIQUES.filter((t) => t.key !== 'breadth' || breadth).map((t) => [t.key, found.filter((s) => s.technique === t.key)]));
-  groups.confluence = confluenceSignals(found.filter((x) => x.technique !== 'doubleBottomMid')); // the tighter-stop copy is the same pattern, not a second opinion
+  const groups = Object.fromEntries(TECHNIQUES.filter((t) => available(t, { breadth: Boolean(breadth), flow: Boolean(flow) })).map((t) => [t.key, found.filter((s) => s.technique === t.key)]));
+  groups.confluence = confluenceSignals(found.filter((x) => x.technique !== 'doubleBottomMid' && !EXTRA.has(x.technique))); // the tighter-stop copy is the same pattern, not a second opinion
   onProgress('Replaying the current bot logic');
   const bot = await botSignals({ prep, c1: complete, byTime, breadth, fromTime, minScore: params.minScore ?? 80 });
   groups[BOT_KEY] = bot.signals;
@@ -272,6 +275,7 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
     period: { from: dayKey(fromTime), to: dayKey(complete.at(-1).time), days: studyDays.length },
     params: { days: params.days, iv: params.iv, lossLimit: params.lossLimit ?? 0, maxLots: params.maxLots ?? 1, lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? null, lotSize: params.lotSize, exit: params.target > 0 ? 'target' : 'lock', target: params.target ?? 0, fixedLots: params.fixedLots ?? 0, exitMin: params.exitMin ?? 15 * 60 + 15, minScore: params.minScore ?? 80, maxStopAtr: MAX_STOP_ATR, maxPerDay: MAX_PER_DAY },
     haveBreadth: Boolean(breadth),
+    haveFlow: Boolean(flow),
     botBreakdown: botBreakdown(botTrades),
     techniques,
     breadth: breadthStudy(bars5, breadth, fromTime),

@@ -291,6 +291,7 @@ function PatternsTab({ day }) {
               </Chip>
             ))}
         </div>
+        {data.note && <p className="text-[11px] text-warn">{data.note}</p>}
         <p className="text-[11px] text-muted">The number is how many times it formed on this day. Arrows on the chart: up for a call, down for a put, grey when the bot would skip it.</p>
       </Card>
 

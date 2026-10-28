@@ -1,5 +1,6 @@
 import { NIFTY50 } from '../market/instruments.js';
 import { istParts } from '../market/marketHours.js';
+import { addDays } from '../market/days.js';
 import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { AutoLog, NewsItem, OptionSettings, Position, ScanIdea } from '../models/index.js';
 import { summarise, MARKET } from '../news/service.js';
@@ -155,9 +156,21 @@ export class ReviewService {
     };
   }
 
+  /** The 50 stocks' 5-minute candles around `day` from the saved history, or null when none are saved (the volume patterns then wait). */
+  async #savedStocks5(day) {
+    const history = this.market.history;
+    if (!history) return null;
+    const out = {};
+    for (const { symbol } of NIFTY50) {
+      const stored = await history.read(symbol, addDays(day, -9), addDays(day, 1)).catch(() => []);
+      if (stored.length) out[symbol] = aggregateCandles(stored.map((c) => ({ ...c })), '5m');
+    }
+    return Object.keys(out).length ? out : null;
+  }
+
   /** The Nifty chart of one day with every pattern that formed on it, and what a one-lot option buy at each would have done. */
   async patterns(userId, day) {
-    const [c1, rules, settings] = await Promise.all([this.market.getCandles(UNDERLYING, '1m').catch(() => []), loadRules(userId, 'OPT'), OptionSettings.findOne({ user: userId }).lean()]);
+    const [c1, rules, settings] = await Promise.all([this.market.getMinutes(UNDERLYING, day), loadRules(userId, 'OPT'), OptionSettings.findOne({ user: userId }).lean()]);
     const params = {
       iv: 0.14,
       lockStart: rules.lockStart || 1000,
@@ -171,14 +184,14 @@ export class ReviewService {
       exitMin: rules.exitMin,
     };
     if (!c1.length) return { day, candles: [], signals: [], patterns: [] };
-    return reviewPatterns({ c1, day, params });
+    return reviewPatterns({ c1, day, params, stocks5: await this.#savedStocks5(day) });
   }
 
   /** One stock on one day: its 5-minute chart, the news with what the price did after each headline, the ideas and the user's trades. */
   async stock(userId, symbol, day) {
     const inst = NIFTY50.find((s) => s.symbol === symbol) || (symbol === UNDERLYING ? { symbol, name: 'Nifty 50', sector: 'Index' } : null);
     if (!inst) return null;
-    const [daily, c1] = await Promise.all([this.#daily(symbol), this.market.getCandles(symbol, '1m').catch(() => [])]);
+    const [daily, c1] = await Promise.all([this.#daily(symbol), this.market.getMinutes(symbol, day)]);
     const candles = aggregateCandles(c1, '5m').filter((c) => istParts(new Date(c.time * 1000)).dateKey === day);
     const move = await this.moveOn(symbol, day, daily);
     const dayStart = new Date(`${day}T00:00:00+05:30`);

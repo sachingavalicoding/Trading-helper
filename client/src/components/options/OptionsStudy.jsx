@@ -10,9 +10,10 @@ import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 
 const DAYS = [
   { value: 1, label: 'Today' },
-  { value: 10, label: '10 days' },
-  { value: 20, label: '20 days' },
-  { value: 30, label: '30 days' },
+  { value: 10, label: '10d' },
+  { value: 20, label: '20d' },
+  { value: 30, label: '30d' },
+  { value: 62, label: '3mo' },
 ];
 
 function Technique({ t, bot }) {
@@ -203,8 +204,9 @@ export function OptionsStudy() {
         <Segmented className="w-full" size="sm" value={lots} onChange={setLots} options={[{ value: 0, label: 'Lots sized to my loss limit' }, { value: 1, label: '1 lot' }]} />
         <ExitTimeField time={time} />
         {targetBad && <p className="text-xs text-down">The target must be between ₹100 and ₹1,00,000.</p>}
-        <div className="flex items-center gap-2">
-          <Segmented className="flex-1" size="sm" value={days} onChange={setDays} options={DAYS} />
+        <Segmented className="w-full" size="sm" value={days} onChange={setDays} options={DAYS} />
+        {days > 30 && <p className="text-[11px] leading-snug text-muted">Longer than 30 days reads the saved candles (Account, Studies, Data tab), so download them first.</p>}
+        <div className="flex justify-end">
           <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Run study'}
           </button>
@@ -234,6 +236,7 @@ export function OptionsStudy() {
           <BotBreakdown cut={r.botBreakdown} />
           <Breadth rows={r.breadth} />
           {!r.haveBreadth && <p className="text-center text-[11px] text-muted">The 50 stocks did not load, so breadth was left out.</p>}
+          {!r.haveFlow && <p className="text-center text-[11px] text-muted">The 50 stocks had no volume, so the VWAP and volume patterns were left out.</p>}
           <p className="text-center text-[11px] leading-snug text-muted">{state.note}</p>
         </>
       )}

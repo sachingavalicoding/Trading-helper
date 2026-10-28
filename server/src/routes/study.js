@@ -9,14 +9,14 @@ export const STUDY_NOTE = 'This is a replay of past Nifty candles as paper trade
 
 const KINDS = ['options', 'shares'];
 const runSchema = z.object({
-  days: z.coerce.number().int().min(1).max(60).optional(),
+  days: z.coerce.number().int().min(1).max(65).optional(),
   iv: z.coerce.number().min(0.08).max(0.4).default(0.14),
   exit: z.enum(['lock', 'target']).default('lock'),
   target: z.coerce.number().min(100).max(100000).default(1000),
   fixedLots: z.coerce.number().int().min(0).max(20).default(0),
   exitMin: z.coerce.number().int().min(9 * 60 + 30).max(15 * 60 + 15).optional(), // the time everything is closed; left out = the one in Account Limits
 });
-const MAX_DAYS = { options: 60, shares: 15 }; // a share replay runs the whole scanner on 50 stocks, so it is kept short
+const MAX_DAYS = { options: 65, shares: 15 }; // a share replay runs the whole scanner on 50 stocks, so it is kept short; options can use the saved three months
 
 export function studyRoutes({ study }) {
   const router = Router();

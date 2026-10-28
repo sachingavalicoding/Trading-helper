@@ -428,7 +428,7 @@ test('a breakout of the last hour is bought once, with the pattern name in the l
   const s = (await OptionSettings.create({ user: uid, enabled: true, patterns: ['breakout'] })).toObject();
   assert.deepEqual(entryModes({}), { patterns: ['breakout', 'insideBar', 'emaCross'], score: true }, 'settings saved before these switches existed get the defaults');
   assert.deepEqual(entryModes({ patternEntries: false, scoreEntries: false }), { patterns: [], score: false });
-  assert.ok(LIVE_PATTERNS.length === 11 && !LIVE_PATTERNS.some((p) => p.key === 'breadth'));
+  assert.ok(LIVE_PATTERNS.length === 14 && !LIVE_PATTERNS.some((p) => p.key === 'breadth'));
 
   assert.match((await optionTrader.considerPatterns({ ...s, patterns: ['insideBar'] }, breakoutRead())).skipped, /no pattern/, 'a pattern that is not chosen is not traded');
   assert.match((await optionTrader.considerPatterns({ ...s, patternEntries: false }, breakoutRead())).skipped, /switched on/);
@@ -600,7 +600,7 @@ test('the options API: settings, the chart read, the log, and a manual buy', asy
   assert.equal(off.settings.enabled, false);
   assert.equal(off.settings.budget, 30000);
   assert.match(off.disclaimer, /paper/i);
-  assert.deepEqual(off.rules, { stopLoss: 1500, lockStart: 1000, lockGap: 250, steps: [{ at: 1000, keep: 750 }] }, 'the stop and lock come from the Account tab');
+  assert.deepEqual(off.rules, { stopLoss: 1500, lockStart: 1000, lockGap: 250, exitMin: 915, steps: [{ at: 1000, keep: 750 }] }, 'the stop and lock come from the Account tab');
   assert.equal(off.settings.lockLadder, undefined);
   assert.equal(off.settings.trailPct, undefined);
   const on = (await api().put('/api/options').set(fresh.auth).send({ enabled: true, maxLots: 1 }).expect(200)).body;
