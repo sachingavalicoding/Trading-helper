@@ -18,6 +18,8 @@ const LABELS = {
   ...Object.fromEntries(TECHNIQUES.map((t) => [t.key, t])),
   confluence: { key: 'confluence', label: 'Two or more agree', text: 'Two different techniques give the same direction within 15 minutes. Stop at the nearest of their stops.' },
   botFiltered: { key: 'botFiltered', label: 'Current bot, calls only in an up-day', text: 'The current bot, but a call is taken only when Nifty is above yesterday close and above the day average. Puts are unchanged.' },
+  breakoutMid: { key: 'breakoutMid', label: 'Breakout, tighter stop', text: 'The same breakout of the last hour, but the stop sits half way between the entry and the last-6-bar extreme, so far more of them fit the loss limit. It gives up some room.' },
+  breakoutEngulf: { key: 'breakoutEngulf', label: 'Breakout + Engulfing together', text: 'Breakout of the last hour and the engulfing candle, taken by one bot: one trade at a time and at most 3 a day, as live.' },
   patternsAll: { key: 'patternsAll', label: 'Patterns alone (Breakout, Pullback, Engulfing)', text: 'Any of the three patterns that worked, taken as soon as it appears, with no score check. The baseline for the three tests below.' },
   ...Object.fromEntries(SCORE_FLOORS.map((floor) => [`patternScore${floor}`, { key: `patternScore${floor}`, label: `Patterns, score ${floor}+ agrees`, text: `The same three patterns, but only when the live score for that side is also at least ${floor}. The pattern decides, the score confirms.` }])),
   [BOT_KEY]: { key: BOT_KEY, label: 'Current bot (all checks)', text: 'What the live options trader does today: every chart check must agree and the score must reach the minimum. Shown to compare the others against.' },
@@ -235,6 +237,8 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   groups[BOT_KEY] = bot.signals;
   groups.botFiltered = bot.signals.filter((x) => x.side === 'PE' || x.upDay);
   groups.patternsAll = patternsWithScore(found, bot.scores, null);
+  groups.breakoutMid = found.filter((s) => s.technique === 'breakout').map((s) => ({ ...s, technique: 'breakoutMid', stop: s.close + (s.stop - s.close) * 0.5 }));
+  groups.breakoutEngulf = found.filter((s) => s.technique === 'breakout' || s.technique === 'engulfing');
   for (const floor of SCORE_FLOORS) groups[`patternScore${floor}`] = patternsWithScore(found, bot.scores, floor);
 
   onProgress('Trading every signal on paper');

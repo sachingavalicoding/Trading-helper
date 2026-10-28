@@ -9,7 +9,7 @@ export const STUDY_NOTE = 'This is a replay of past Nifty candles as paper trade
 
 const KINDS = ['options', 'shares'];
 const runSchema = z.object({
-  days: z.coerce.number().int().min(3).max(60).optional(),
+  days: z.coerce.number().int().min(1).max(60).optional(),
   iv: z.coerce.number().min(0.08).max(0.4).default(0.14),
 });
 const MAX_DAYS = { options: 60, shares: 15 }; // a share replay runs the whole scanner on 50 stocks, so it is kept short
@@ -26,7 +26,7 @@ export function studyRoutes({ study }) {
 
   router.post('/:kind', validate(runSchema), (req, res) => {
     const { kind } = req.params;
-    if (req.body.days != null && (req.body.days > MAX_DAYS[kind] || (kind === 'options' && req.body.days < 5))) throw badRequest(`days must be ${kind === 'options' ? 5 : 3} to ${MAX_DAYS[kind]}`, 'VALIDATION');
+    if (req.body.days != null && req.body.days > MAX_DAYS[kind]) throw badRequest(`days must be 1 to ${MAX_DAYS[kind]}`, 'VALIDATION');
     study.start(req.userId, kind, req.body);
     res.status(202).json({ status: study.status(req.userId, kind) });
   });

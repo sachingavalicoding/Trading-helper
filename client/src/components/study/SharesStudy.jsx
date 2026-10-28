@@ -8,6 +8,7 @@ import { useStudy } from '../../lib/useStudy.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 
 const DAYS = [
+  { value: 1, label: 'Today' },
   { value: 5, label: '5 days' },
   { value: 10, label: '10 days' },
   { value: 15, label: '15 days' },

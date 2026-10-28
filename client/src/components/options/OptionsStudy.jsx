@@ -8,6 +8,7 @@ import { EXIT_WORD, hourRows, istStamp, sizingText, studyText, verdict } from '.
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 
 const DAYS = [
+  { value: 1, label: 'Today' },
   { value: 10, label: '10 days' },
   { value: 20, label: '20 days' },
   { value: 30, label: '30 days' },

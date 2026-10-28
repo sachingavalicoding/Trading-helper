@@ -211,6 +211,8 @@ test('the study trades every technique on the same candles, with one lot, charge
   assert.ok(filtered.trades <= bot.trades + 3 && filtered.signals <= bot.signals, 'the filtered bot only drops call entries');
   const keep = ['patternsAll', 'patternScore60', 'patternScore70', 'patternScore80'].map((k) => r.techniques.find((t) => t.key === k));
   assert.ok(keep.every(Boolean), 'the pattern + score tests are in the study');
+  for (const k of ['breakoutMid', 'breakoutEngulf']) assert.ok(r.techniques.some((t) => t.key === k), k);
+  assert.ok(r.techniques.find((t) => t.key === 'breakoutMid').signals === r.techniques.find((t) => t.key === 'breakout').signals, 'the tighter stop is the same signals');
   assert.ok(keep[1].signals <= keep[0].signals && keep[2].signals <= keep[1].signals && keep[3].signals <= keep[2].signals, 'a higher score floor never adds signals');
   const cut = r.botBreakdown;
   for (const k of ['byTrigger', 'byScore', 'bySide']) assert.ok(Array.isArray(cut[k]), k);
@@ -255,7 +257,8 @@ test('the study runs in the background, keeps its latest result, refuses a secon
   assert.equal(none.status.state, 'idle');
   assert.match(none.note, /estimated/);
 
-  await request(app).post('/api/study/options').set(u.auth).send({ days: 1 }).expect(400);
+  await request(app).post('/api/study/options').set(u.auth).send({ days: 0 }).expect(400);
+  await request(app).post('/api/study/options').set(u.auth).send({ days: 61 }).expect(400);
   await request(app).post('/api/study/options').set(u.auth).send({ days: 10, iv: 0.9 }).expect(400);
   await request(app).post('/api/study/options').set(u.auth).send({ days: 10 }).expect(202);
   await request(app).post('/api/study/options').set(u.auth).send({ days: 10 }).expect(409);
