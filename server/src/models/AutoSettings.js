@@ -8,11 +8,8 @@ const autoSettingsSchema = new mongoose.Schema(
     minScore: { type: Number, default: 70, min: 60, max: 100 },
     maxOpen: { type: Number, default: 2, min: 1, max: 10 },
     riskPct: { type: Number, default: 0.5, min: 0.1, max: 3 }, // % of capital lost if a stop is hit (used only when riskAmount is 0)
-    riskAmount: { type: Number, default: 200, min: 0 }, // rupees lost if a stop is hit; 0 = use riskPct
     dailyLossPct: { type: Number, default: 2, min: 0.5, max: 10 }, // stop opening trades after losing this much today
     maxShares: { type: Number, default: 0, min: 0 }, // most shares per auto trade; 0 = no cap, size from risk % and max amount
-    lockByRisk: { type: Boolean, default: true }, // climb each auto trade's stop along the percent ladder instead of keeping only the fixed rupee defaults
-    lockLadder: { type: [{ _id: false, at: Number, keep: Number }], default: [] }, // own rungs, in percent of the money put in: at +`at`% the stop keeps `keep`%; empty = the built-in ladder
     earlyNews: { type: Boolean, default: true }, // also take "News gap" ideas, which can start at 09:20 instead of 09:30
     maxTradeAmount: { type: Number, default: 30000, min: 1000 }, // most money put into one trade
   },

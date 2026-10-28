@@ -10,6 +10,12 @@ import { resultR } from './stats.js';
 import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { ema, sessionVwap } from '../signals/indicators.js';
 
+// Setups that lost money over the whole track record (Level retest -0.81R over 47 ideas, VWAP pullback -0.47R over 8): never traded.
+const ALWAYS_OFF = [
+  ['Level retest', 'Level retest is switched off: it averaged -0.81R over 47 ideas'],
+  ['VWAP pullback', 'VWAP pullback is switched off: it averaged -0.47R over 8 ideas'],
+];
+
 const PLAN_AT_MIN = 9 * 60; // the morning plan goes out at 09:00 IST
 const IDEA_TTL_MS = 2 * 60 * 60 * 1000;
 const MAX_WATCHING = 6;
@@ -48,7 +54,7 @@ export class ScannerService extends EventEmitter {
     this.perStockDay = null;
     this.daily = new Map(); // symbol -> about a month of daily candles
     this.dailyDay = null;
-    this.disabledSetups = new Map(); // setup -> why it is off
+    this.disabledSetups = new Map(ALWAYS_OFF); // setup -> why it is off
     this.setupCheckedAt = 0;
     this.marketStateAt = 0;
     this.marketState = null;
@@ -122,7 +128,7 @@ export class ScannerService extends EventEmitter {
       const avg = rs.reduce((a, b) => a + b, 0) / rs.length;
       if (avg < SETUP_MIN_AVG_R) off.set(setup, `${setup} is switched off: its last ${rs.length} ideas averaged ${avg.toFixed(2)}R`);
     }
-    this.disabledSetups = off;
+    this.disabledSetups = new Map([...ALWAYS_OFF, ...off]);
   }
 
   /** Nifty 50's own trend (VWAP and EMA 9/21 on 5-minute bars) and how many of the 50 stocks are up, read once a minute. */

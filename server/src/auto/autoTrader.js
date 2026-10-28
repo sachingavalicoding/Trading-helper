@@ -2,17 +2,14 @@ import { AutoLog, AutoSettings, Order, Position, Trade } from '../models/index.j
 import { getFunds } from '../services/walletService.js';
 import { roundTripCharges } from '../services/charges.js';
 import { sizePosition } from '../scanner/sizing.js';
-import { LADDER } from '../scanner/replay.js';
-import { effectiveLadder } from '../utils/ladder.js';
+import { loadRules } from '../models/TradeDefaults.js';
 import { logger } from '../utils/logger.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
 const MIN_PROFIT_TO_CHARGES = 3; // skip a trade whose profit at target 1 is under this many times its round-trip charges
-// There is no sale target. The stop climbs with the profit along the ladder in scanner/replay.js, as [profit, kept] in percent
-// of the money put in: on ₹1 lakh, +₹300 keeps ₹150, +₹450 keeps ₹320, +₹600 keeps ₹520, +₹1,000 keeps ₹900, and past each rung
-// the stop follows (profit - kept) behind the best profit. A trade ends at its stop or at the 15:15 square-off.
-const DEFAULT_RISK_AMOUNT = 200; // rupees one trade may lose when the user's settings do not say
+// There is no sale target. The order engine puts the user's profit lock (Account tab) on every new position: once the profit reaches
+// the lock start the stop follows a fixed gap behind the best profit. A trade ends at its stop or at the 15:15 square-off.
 const MAX_CHARGES_OF_RISK = 0.25; // skip a trade whose round-trip charges are more than this share of the money it risks: its stop is too tight for its size
 
 /**
@@ -173,7 +170,7 @@ export class AutoTrader {
     const size = sizePosition({
       capital: funds.balance,
       riskPct: settings.riskPct,
-      riskAmount: settings.riskAmount ?? DEFAULT_RISK_AMOUNT,
+      riskAmount: (await loadRules(userId, 'EQ')).stopLoss, // the most one trade may lose is the stop set in the Account tab
       entry: idea.entry,
       stopLoss: idea.stopLoss,
       available: funds.available,
@@ -204,20 +201,7 @@ export class AutoTrader {
     });
     // A rejected order (market closed, not enough funds) opened nothing, so it must not be logged as a placed trade.
     if (order.status !== 'FILLED') return { skipped: order.rejectReason || `order was ${String(order.status).toLowerCase()}` };
-    if (settings.lockByRisk !== false) await this.#climbingStop(userId, order, idea, settings);
     return { order };
-  }
-
-  /** Set the climbing stop from the money put in, so it works at any balance and share price. */
-  async #climbingStop(userId, order, idea, settings) {
-    const value = (order.avgFillPrice ?? idea.entry) * order.qty;
-    const lockSteps = effectiveLadder(settings.lockLadder, LADDER).map(([at, keep]) => ({ at: round2((value * at) / 100), keep: round2((value * keep) / 100) }));
-    if (!lockSteps.every((s) => s.keep > 0 && s.at > s.keep)) return;
-    try {
-      await this.engine.setExits(userId, idea.symbol, { lockSteps, lockTrigger: null, lockAmount: null, lockRatio: null }); // the percent ladder replaces the default rupee lock
-    } catch (e) {
-      logger.warn(`auto climbing stop for ${idea.symbol} not set: ${e.message}`);
-    }
   }
 
   async handle(idea) {

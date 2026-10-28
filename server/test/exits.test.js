@@ -16,6 +16,8 @@ beforeEach(async () => {
   user = await registerUser(ctx.app);
   ctx.provider.setPrice('RELIANCE', 1000);
   await settle();
+  // These tests set their own exits, so start from no automatic stop and no automatic lock.
+  await api().put('/api/trade-defaults').set(user.auth).send({ shares: { stopLoss: 0, lockStart: 0 } }).expect(200);
 });
 afterEach(() => teardown(ctx));
 after(closeDb);
@@ -80,29 +82,27 @@ test('a short position trails downwards, and a trail with no stop starts one', a
   assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 989.8);
 });
 
-test('profit lock: at the trigger profit the stop locks in the set amount, then climbs by half of every extra rupee', async () => {
-  await buy({ qty: 100 }).expect(201); // defaults: trigger Rs 1000, lock Rs 300, then 50% of the extra
+test('profit lock: at the start profit the stop keeps start minus gap, then follows the gap behind the best profit', async () => {
+  await api().put('/api/trade-defaults').set(user.auth).send({ shares: { lockStart: 1000, lockGap: 100 } }).expect(200);
+  await buy({ qty: 100 }).expect(201);
   assert.equal((await openLegs('STOPLOSS')).length, 0);
   ctx.provider.setPrice('RELIANCE', 1005); // Rs 500 profit: not yet
   await settle();
   assert.equal((await openLegs('STOPLOSS')).length, 0);
-  ctx.provider.setPrice('RELIANCE', 1010); // Rs 1000 profit: stop goes to cost + Rs 300
+  ctx.provider.setPrice('RELIANCE', 1010); // Rs 1000 profit: stop goes to +900
   await settle();
-  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1003);
-  ctx.provider.setPrice('RELIANCE', 1012); // Rs 200 more profit: Rs 100 more locked
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1009);
+  ctx.provider.setPrice('RELIANCE', 1011); // +1100: stop +1000
   await settle();
-  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1004);
-  ctx.provider.setPrice('RELIANCE', 1020); // Rs 2000 profit: Rs 800 locked
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1010);
+  ctx.provider.setPrice('RELIANCE', 1020);
   await settle();
-  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1008);
-  ctx.provider.setPrice('RELIANCE', 1015);
-  await settle();
-  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1008, 'never loosens');
-  ctx.provider.setPrice('RELIANCE', 1007);
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1019);
+  ctx.provider.setPrice('RELIANCE', 1018); // back through the stop at +1900
   await settle();
   const pos = (await api().get('/api/positions?status=ALL').set(user.auth).expect(200)).body.positions[0];
   assert.equal(pos.status, 'CLOSED');
-  assert.ok(pos.realizedPnl >= 700, `locked a profit, got ${pos.realizedPnl}`);
+  assert.ok(pos.realizedPnl >= 1800, `locked a profit, got ${pos.realizedPnl}`);
 });
 
 test('the profit lock can be edited per position and cleared, and is validated', async () => {
@@ -119,17 +119,39 @@ test('the profit lock can be edited per position and cleared, and is validated',
   assert.equal(cleared.lockTrigger, null);
 });
 
-test('your own defaults apply to new positions, and can be switched off', async () => {
+test('your stop and profit lock apply to every new position: a fixed rupee stop, and a lock that follows a set gap behind the profit', async () => {
   const d0 = (await api().get('/api/trade-defaults').set(user.auth).expect(200)).body;
-  assert.deepEqual(d0, { lockEnabled: true, lockTrigger: 1000, lockAmount: 300, lockRatio: 0.5 });
-  await api().put('/api/trade-defaults').set(user.auth).send({ lockTrigger: 300, lockAmount: 500 }).expect(400);
-  await api().put('/api/trade-defaults').set(user.auth).send({ lockTrigger: 300, lockAmount: 100 }).expect(200);
+  assert.deepEqual(d0.options, { stopLoss: 500, lockStart: 1000, lockGap: 100 });
+  await api().put('/api/trade-defaults').set(user.auth).send({ shares: { lockStart: 100, lockGap: 200 } }).expect(400);
+  const set = (await api().put('/api/trade-defaults').set(user.auth).send({ shares: { stopLoss: 200, lockStart: 250, lockGap: 50 } }).expect(200)).body;
+  assert.deepEqual(set.shares, { stopLoss: 200, lockStart: 250, lockGap: 50 });
+  assert.deepEqual(set.options, d0.options, 'options are kept apart from shares');
+
   await buy({ qty: 100 }).expect(201);
-  assert.equal((await exits({}).expect(200)).body.lockTrigger, 300);
+  const e = (await exits({}).expect(200)).body;
+  assert.equal(e.stopLoss, 998, 'a manual order without a stop gets one that loses 200 rupees: 2 a share on 100 shares');
+  assert.equal(e.lockTrigger, 250);
+  assert.equal(e.lockAmount, 200);
+
+  ctx.provider.setPrice('RELIANCE', 1003); // +300 profit: the stop keeps 250
+  await settle();
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1002.5);
+  ctx.provider.setPrice('RELIANCE', 1006); // +600: it follows 50 behind
+  await settle();
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1005.5);
   await api().post('/api/positions/RELIANCE/exit').set(user.auth).expect(200);
-  await api().put('/api/trade-defaults').set(user.auth).send({ lockEnabled: false }).expect(200);
+
+  // an order that brings its own stop keeps it, and a stop of 0 switches the automatic stop off
+  ctx.provider.setPrice('RELIANCE', 1000);
+  await settle();
+  await buy({ qty: 100, stopLoss: 990 }).expect(201);
+  assert.equal((await exits({}).expect(200)).body.stopLoss, 990);
+  await api().post('/api/positions/RELIANCE/exit').set(user.auth).expect(200);
+  await api().put('/api/trade-defaults').set(user.auth).send({ shares: { stopLoss: 0, lockStart: 0 } }).expect(200);
   await buy({ qty: 100 }).expect(201);
-  assert.equal((await exits({}).expect(200)).body.lockTrigger, null);
+  const none = (await exits({}).expect(200)).body;
+  assert.equal(none.stopLoss, null);
+  assert.equal(none.lockTrigger, null);
 });
 
 test('a profit lock never puts the stop where the trade would net a loss after charges', async () => {

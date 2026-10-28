@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { Order, Position, Trade, TradeDefaults } from '../models/index.js';
-import { TRADE_DEFAULTS } from '../models/TradeDefaults.js';
+import { rulesFor } from '../models/TradeDefaults.js';
 import { isTradable } from '../market/instruments.js';
 import { isOptionSymbol, DEFAULT_LOT_SIZE } from '../options/symbols.js';
 import { getMarketStatus } from '../market/marketHours.js';
@@ -560,11 +560,17 @@ export class OrderEngine extends EventEmitter {
           openedAt: now,
           tradingDay,
         });
-        const d = (await TradeDefaults.findOne({ user: userId }).lean()) ?? TRADE_DEFAULTS;
-        if (d.lockEnabled && d.lockTrigger > d.lockAmount) {
-          position.lockTrigger = d.lockTrigger;
-          position.lockAmount = d.lockAmount;
-          position.lockRatio = d.lockRatio ?? null;
+        // Every new position gets the user's stop and profit lock for its segment, whoever placed it: the stop is a fixed rupee loss
+        // (unless the order brought its own), and the lock follows `lockGap` behind the best profit once the profit reaches `lockStart`.
+        const d = rulesFor(await TradeDefaults.findOne({ user: userId }).lean(), segment);
+        if (d.lockStart > d.lockGap) {
+          position.lockTrigger = d.lockStart;
+          position.lockAmount = d.lockStart - d.lockGap;
+          position.lockRatio = 1;
+        }
+        if (!order.stopLoss && d.stopLoss > 0) {
+          const away = d.stopLoss / remaining;
+          order.stopLoss = side === 'BUY' ? roundToTick(Math.max(price - away, 0.05)) : roundToTick(price + away);
         }
       }
       this.#bookSide(position, side, remaining, price);

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { Order, Position, Trade, TradeDefaults } from '../models/index.js';
-import { TRADE_DEFAULTS } from '../models/TradeDefaults.js';
+import { rulesFor } from '../models/TradeDefaults.js';
 import { validate } from '../middleware/validate.js';
 import { addFunds, getFunds } from '../services/walletService.js';
 import { getDashboard } from '../services/analytics.js';
@@ -28,12 +28,12 @@ const exitsSchema = z.object({
   lockTrigger: z.coerce.number().positive().nullable().optional(),
   lockAmount: z.coerce.number().positive().nullable().optional(),
 });
-const defaultsSchema = z.object({
-  lockEnabled: z.boolean().optional(),
-  lockTrigger: z.coerce.number().min(1).max(10_000_000).optional(),
-  lockAmount: z.coerce.number().min(1).max(10_000_000).optional(),
-  lockRatio: z.coerce.number().min(0.1).max(1).optional(),
-}).refine((d) => d.lockTrigger == null || d.lockAmount == null || d.lockTrigger > d.lockAmount, { message: 'The profit trigger must be larger than the amount you lock in', path: ['lockAmount'] });
+const rulesSchema = z.object({
+  stopLoss: z.coerce.number().min(0).max(10_000_000),
+  lockStart: z.coerce.number().min(0).max(10_000_000),
+  lockGap: z.coerce.number().min(1).max(10_000_000),
+}).partial();
+const defaultsSchema = z.object({ shares: rulesSchema.optional(), options: rulesSchema.optional() });
 // Shares and Nifty options are kept apart on every list: shares by default, options with ?segment=OPT.
 const segment = z.enum(['EQ', 'OPT', 'ALL']).default('EQ');
 const bySegment = (seg) => (seg === 'OPT' ? { segment: 'OPT' } : seg === 'EQ' ? { segment: { $ne: 'OPT' } } : {});
@@ -107,17 +107,22 @@ export function tradingRoutes({ engine, market, config }) {
     res.json(await engine.setExits(req.userId, req.params.symbol.toUpperCase(), req.body));
   });
 
+  const defaultsView = (doc) => ({ shares: rulesFor(doc, 'EQ'), options: rulesFor(doc, 'OPT') });
+
   router.get('/trade-defaults', async (req, res) => {
-    const d = await TradeDefaults.findOne({ user: req.userId }).lean();
-    res.json({ lockEnabled: d?.lockEnabled ?? TRADE_DEFAULTS.lockEnabled, lockTrigger: d?.lockTrigger ?? TRADE_DEFAULTS.lockTrigger, lockAmount: d?.lockAmount ?? TRADE_DEFAULTS.lockAmount, lockRatio: d?.lockRatio ?? TRADE_DEFAULTS.lockRatio });
+    res.json(defaultsView(await TradeDefaults.findOne({ user: req.userId }).lean()));
   });
 
   router.put('/trade-defaults', validate(defaultsSchema), async (req, res) => {
-    const current = (await TradeDefaults.findOne({ user: req.userId }).lean()) ?? TRADE_DEFAULTS;
-    const next = { ...TRADE_DEFAULTS, ...current, ...req.body };
-    if (!(next.lockTrigger > next.lockAmount)) return res.status(400).json({ error: { code: 'VALIDATION', message: 'The profit trigger must be larger than the amount you lock in' } });
-    const doc = await TradeDefaults.findOneAndUpdate({ user: req.userId }, { $set: { lockEnabled: next.lockEnabled, lockTrigger: next.lockTrigger, lockAmount: next.lockAmount, lockRatio: next.lockRatio }, $setOnInsert: { user: req.userId } }, { upsert: true, new: true, runValidators: true });
-    res.json({ lockEnabled: doc.lockEnabled, lockTrigger: doc.lockTrigger, lockAmount: doc.lockAmount, lockRatio: doc.lockRatio });
+    const next = defaultsView(await TradeDefaults.findOne({ user: req.userId }).lean());
+    for (const key of ['shares', 'options']) {
+      Object.assign(next[key], req.body[key]);
+      if (next[key].lockStart > 0 && next[key].lockStart <= next[key].lockGap) {
+        return res.status(400).json({ error: { code: 'VALIDATION', message: `For ${key}, the profit where the lock starts must be larger than the gap it follows behind` } });
+      }
+    }
+    const doc = await TradeDefaults.findOneAndUpdate({ user: req.userId }, { $set: next, $setOnInsert: { user: req.userId } }, { upsert: true, new: true, runValidators: true });
+    res.json(defaultsView(doc));
   });
 
   router.get('/positions/:symbol/exits', async (req, res) => {

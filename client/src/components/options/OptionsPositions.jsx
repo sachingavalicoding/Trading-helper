@@ -38,11 +38,9 @@ function OpenRow({ p, onExit, onEdit, busy }) {
       </div>
       <div className="num mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted">
         <span>Stop {p.stopLoss != null ? formatPrice(p.stopLoss) : 'none'}</span>
-        <span>Final target {p.target != null ? formatPrice(p.target) : 'none'}</span>
-        <span>Ladder {p.stepPrices?.length ? p.stepPrices.map(formatPrice).join(' → ') : 'none'}</span>
         <span>
-          {p.trailPct ? `Trail ${p.trailPct}%` : 'No trail'}
-          {p.lockSteps?.length ? ` · lock ₹${Math.round(p.lockSteps[0].keep)} at ₹${Math.round(p.lockSteps[0].at)}` : p.lockTrigger ? ` · lock ₹${Math.round(p.lockAmount)} at ₹${Math.round(p.lockTrigger)}` : ''}
+          {p.lockTrigger ? `Lock: from +₹${Math.round(p.lockTrigger)} keeps ₹${Math.round(p.lockAmount)} and follows` : 'No profit lock'}
+          {p.trailPct ? ` · trail ${p.trailPct}%` : ''}
         </span>
       </div>
       <div className="mt-2 flex justify-end gap-2">
