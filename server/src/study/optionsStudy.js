@@ -12,10 +12,14 @@ const DAY = (t) => Math.floor((t + 19800) / 86400);
 const dayKey = (t) => istParts(new Date(t * 1000)).dateKey;
 const MAX_PER_DAY = 3; // the live options trader also stops after 3 entries a day
 const BOT_KEY = 'bot';
+const SCORE_PATTERNS = ['breakout', 'pullback', 'engulfing']; // the patterns that held up in the 30-day study
+const SCORE_FLOORS = [60, 70, 80];
 const LABELS = {
   ...Object.fromEntries(TECHNIQUES.map((t) => [t.key, t])),
   confluence: { key: 'confluence', label: 'Two or more agree', text: 'Two different techniques give the same direction within 15 minutes. Stop at the nearest of their stops.' },
   botFiltered: { key: 'botFiltered', label: 'Current bot, calls only in an up-day', text: 'The current bot, but a call is taken only when Nifty is above yesterday close and above the day average. Puts are unchanged.' },
+  patternsAll: { key: 'patternsAll', label: 'Patterns alone (Breakout, Pullback, Engulfing)', text: 'Any of the three patterns that worked, taken as soon as it appears, with no score check. The baseline for the three tests below.' },
+  ...Object.fromEntries(SCORE_FLOORS.map((floor) => [`patternScore${floor}`, { key: `patternScore${floor}`, label: `Patterns, score ${floor}+ agrees`, text: `The same three patterns, but only when the live score for that side is also at least ${floor}. The pattern decides, the score confirms.` }])),
   [BOT_KEY]: { key: BOT_KEY, label: 'Current bot (all checks)', text: 'What the live options trader does today: every chart check must agree and the score must reach the minimum. Shown to compare the others against.' },
 };
 
@@ -130,6 +134,7 @@ function confluenceSignals(signals) {
 /** The chart read the live trader uses, asked at every 5-minute close, and the trades it would have taken. */
 async function botSignals({ prep, c1, byTime, breadth, fromTime, minScore }) {
   const out = [];
+  const scores = new Map(); // bar index -> the live score of each side at that close, whether or not the bot would buy
   let n = 0;
   for (let i = 15; i < prep.bars.length; i++) {
     const bar = prep.bars[i];
@@ -142,6 +147,7 @@ async function botSignals({ prep, c1, byTime, breadth, fromTime, minScore }) {
     slice.push({ ...next, high: next.open, low: next.open, close: next.open }); // the forming minute, with nothing of it known yet
     const now = new Date((bar.time + 300) * 1000);
     const read = readNifty({ c1: slice, daily: null, tick: { ltp: next.open }, breadthUp: breadth ? breadth[i] : null }, { now, enforceWindows: true });
+    if (read.ready) scores.set(i, { CE: read.ce.score, PE: read.pe.score });
     if (read.ready && read.best && read.best.score >= minScore) {
       const day = prep.bars.slice(prep.dayStart[i], i + 1);
       const mean = day.reduce((sum, x) => sum + x.close, 0) / day.length;
@@ -162,7 +168,15 @@ async function botSignals({ prep, c1, byTime, breadth, fromTime, minScore }) {
     }
     if (++n % 25 === 0) await yieldTurn();
   }
-  return out;
+  return { signals: out, scores };
+}
+
+/** Patterns decide, the live score confirms: a pattern signal is kept only when the score of its side reached `floor` at that close. */
+export function patternsWithScore(signals, scores, floor) {
+  return signals
+    .filter((s) => SCORE_PATTERNS.includes(s.technique))
+    .map((s) => ({ ...s, score: scores.get(s.i)?.[s.side] }))
+    .filter((s) => floor == null || (s.score != null && s.score >= floor));
 }
 
 /** One trade at a time per technique, at most MAX_PER_DAY a day, a stop at least 0.8 ATR away and no more than MAX_STOP_ATR. */
@@ -217,8 +231,11 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   const groups = Object.fromEntries(TECHNIQUES.filter((t) => t.key !== 'breadth' || breadth).map((t) => [t.key, found.filter((s) => s.technique === t.key)]));
   groups.confluence = confluenceSignals(found.filter((x) => x.technique !== 'doubleBottomMid')); // the tighter-stop copy is the same pattern, not a second opinion
   onProgress('Replaying the current bot logic');
-  groups[BOT_KEY] = await botSignals({ prep, c1: complete, byTime, breadth, fromTime, minScore: params.minScore ?? 80 });
-  groups.botFiltered = groups[BOT_KEY].filter((x) => x.side === 'PE' || x.upDay);
+  const bot = await botSignals({ prep, c1: complete, byTime, breadth, fromTime, minScore: params.minScore ?? 80 });
+  groups[BOT_KEY] = bot.signals;
+  groups.botFiltered = bot.signals.filter((x) => x.side === 'PE' || x.upDay);
+  groups.patternsAll = patternsWithScore(found, bot.scores, null);
+  for (const floor of SCORE_FLOORS) groups[`patternScore${floor}`] = patternsWithScore(found, bot.scores, floor);
 
   onProgress('Trading every signal on paper');
   const techniques = [];

@@ -7,7 +7,7 @@ import { StudyService } from '../src/study/service.js';
 import { prepare, findSignals } from '../src/study/patterns.js';
 import { simulateTrade, summarize } from '../src/study/simulate.js';
 import { runSharesStudy } from '../src/study/sharesStudy.js';
-import { runOptionsStudy, breadthSeries, breadthStudy } from '../src/study/optionsStudy.js';
+import { runOptionsStudy, breadthSeries, breadthStudy, patternsWithScore } from '../src/study/optionsStudy.js';
 
 let ctx;
 before(async () => {
@@ -209,9 +209,27 @@ test('the study trades every technique on the same candles, with one lot, charge
   const bot = r.techniques.find((t) => t.key === 'bot');
   const filtered = r.techniques.find((t) => t.key === 'botFiltered');
   assert.ok(filtered.trades <= bot.trades + 3 && filtered.signals <= bot.signals, 'the filtered bot only drops call entries');
+  const keep = ['patternsAll', 'patternScore60', 'patternScore70', 'patternScore80'].map((k) => r.techniques.find((t) => t.key === k));
+  assert.ok(keep.every(Boolean), 'the pattern + score tests are in the study');
+  assert.ok(keep[1].signals <= keep[0].signals && keep[2].signals <= keep[1].signals && keep[3].signals <= keep[2].signals, 'a higher score floor never adds signals');
   const cut = r.botBreakdown;
   for (const k of ['byTrigger', 'byScore', 'bySide']) assert.ok(Array.isArray(cut[k]), k);
   assert.equal(cut.bySide.reduce((n, x) => n + x.trades, 0), bot.trades, 'every bot trade is in the cut');
+});
+
+test('patterns with a score keep only the chosen patterns whose side reached the floor', () => {
+  const signals = [
+    { technique: 'breakout', side: 'PE', i: 1 },
+    { technique: 'breakout', side: 'CE', i: 1 },
+    { technique: 'pinBar', side: 'PE', i: 1 },
+    { technique: 'pullback', side: 'PE', i: 2 },
+    { technique: 'engulfing', side: 'CE', i: 9 },
+  ];
+  const scores = new Map([[1, { CE: 50, PE: 75 }], [2, { CE: 10, PE: 65 }]]);
+  assert.equal(patternsWithScore(signals, scores, null).length, 4, 'no floor: the three patterns, hammer dropped');
+  assert.deepEqual(patternsWithScore(signals, scores, 70).map((s) => `${s.technique}${s.side}${s.score}`), ['breakoutPE75']);
+  assert.deepEqual(patternsWithScore(signals, scores, 60).map((s) => s.technique), ['breakout', 'pullback']);
+  assert.equal(patternsWithScore(signals, scores, 60).some((s) => s.i === 9), false, 'no score read for that bar, so it is dropped');
 });
 
 // ---------- the API ----------
