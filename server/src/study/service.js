@@ -27,11 +27,11 @@ export class StudyService {
   }
 
   /** Starts a run and returns at once; poll status(). Only one run per user and kind at a time. */
-  start(userId, kind, { days, iv = 0.14 } = {}) {
+  start(userId, kind, { days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0 } = {}) {
     if (this.status(userId, kind).state === 'running') throw conflict('A study is already running');
     const job = { state: 'running', step: 'Starting', startedAt: Date.now() };
     this.jobs.set(`${userId}|${kind}`, job);
-    const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8 }) : this.#runOptions(userId, job, { days: days ?? 20, iv });
+    const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8 }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots });
     run.catch((e) => {
       logger.warn(`${kind} study failed: ${e.message}`);
       Object.assign(job, { state: 'failed', error: e.message });
@@ -53,7 +53,7 @@ export class StudyService {
     return { nifty1, calendar };
   }
 
-  async #runOptions(userId, job, { days, iv }) {
+  async #runOptions(userId, job, { days, iv, target = 0, fixedLots = 0 }) {
     const { nifty1, calendar } = await this.#nifty(job, days);
     const stocks5 = {};
     let failed = 0;
@@ -78,6 +78,8 @@ export class StudyService {
       minScore: settings?.minScore ?? 80,
       lossLimit: rules.stopLoss ?? 0,
       maxLots: settings?.maxLots ?? 2,
+      target,
+      fixedLots,
     };
     const result = await runOptionsStudy({ nifty1, stocks5, params, onProgress: (step) => { job.step = step; } });
     await this.#save(userId, 'options', result);

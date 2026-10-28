@@ -31,9 +31,9 @@ export function useStudy(kind) {
   }, [running, state, load]);
 
   const run = useCallback(
-    async (days) => {
+    async (days, extra = {}) => {
       try {
-        await api(`/study/${kind}`, { method: 'POST', body: { days } });
+        await api(`/study/${kind}`, { method: 'POST', body: { days, ...extra } });
         await load();
       } catch (e) {
         toast.error(e.message || 'Could not start the study');

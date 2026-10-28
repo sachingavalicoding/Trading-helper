@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { verdict, studyText, hourRows, istStamp, sizingText, sharesText } from './study.js';
+import { verdict, studyText, hourRows, istStamp, sizingText, sharesText, exitText } from './study.js';
 
 const tech = (over = {}) => ({ key: 'x', label: 'Breakout', trades: 20, wins: 11, winRate: 55, net: 4000, avgWin: 900, avgLoss: -500, best: 2500, worst: -1300, maxDrawdown: 1800, profitFactor: 1.8, signals: 30, skippedWide: 4, bySide: { CE: { trades: 12, wins: 7, net: 3000 }, PE: { trades: 8, wins: 4, net: 1000 } }, byHour: { 11: { trades: 5, net: 900 }, 10: { trades: 7, net: 1200 } }, ...over });
 
@@ -54,4 +54,11 @@ describe('study helpers', () => {
     expect(text).toMatch(/1R: reached 40%, expectancy -0.2R/);
     expect(sharesText(null)).toBe('');
   });
+});
+
+it('the exit and the lots a study used are told in words', () => {
+  expect(exitText({ exit: 'lock', lockStart: 1000, lockGap: 250 })).toBe('Profit lock +1000 keeps 750');
+  expect(exitText({ exit: 'target', target: 1000 })).toMatch(/No profit lock.*\+₹1000 a lot/);
+  expect(sizingText({ fixedLots: 1, lossLimit: 1500, maxLots: 2 })).toMatch(/^1 lot each/);
+  expect(sizingText({ fixedLots: 0, lossLimit: 1500, maxLots: 2 })).toMatch(/sized/);
 });

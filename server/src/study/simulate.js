@@ -9,6 +9,7 @@ import { round2 } from '../utils/money.js';
 //
 // Exits follow the live options trader: sell when a 1-minute candle closes beyond the chart stop, once the profit reaches the
 // lock start the stop follows `lockGap` behind the best profit, and everything is closed at the 15:15 square-off.
+// With a `target` (rupees per lot) there is no profit lock: the trade is sold the moment its profit reaches the target, or at the stop.
 
 export const EXIT_MIN = 15 * 60 + 15; // the 15:15 square-off, as live
 export const HARD_STOP_MULT = 1.3; // the live trader's premium stop behind the chart stop, for a fast gap
@@ -19,11 +20,12 @@ export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread 
  * @param byTime  Map of bar time -> index in c1
  * @param signal  { side: 'CE'|'PE', time (entry minute, epoch s), stop (Nifty level) }
  * @param params  { iv, lockStart, lockGap, lotSize, holidays, expiryWeekday, lossLimit, maxLots }
+ *                `target` (rupees per lot, 0 = use the profit lock) and `fixedLots` (0 = size the lots to the loss limit) are for studying other exits.
  *                With a `lossLimit` (the Account stop) the lots are sized like the live trader: as many as keep the loss at the chart stop within
  *                the limit, up to `maxLots`, none when even one lot loses more. A hard stop sits at HARD_STOP_MULT times the limit. Without one, 1 lot.
  */
 export function simulateTrade({ c1, byTime, signal, params }) {
-  const { iv = 0.14, lockStart = 1000, lockGap = 250, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, lossLimit = 0, maxLots = 2 } = params;
+  const { iv = 0.14, lockStart = 1000, lockGap = 250, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0 } = params;
   const start = byTime.get(signal.time);
   if (start == null) return null;
   const long = signal.side === 'CE';
@@ -39,10 +41,12 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   if (lossLimit > 0) {
     const atStop = premiumAt(signal.stop, entryBar.time) * (1 - SLIPPAGE);
     const perLot = Math.max(paid - atStop, 0.05) * lotSize;
-    lots = Math.min(maxLots, Math.floor(lossLimit / perLot));
+    const fits = Math.floor(lossLimit / perLot);
+    lots = Math.min(fixedLots > 0 ? fixedLots : maxLots, fits);
     if (lots < 1) return { skipped: 'limit' };
-  }
+  } else if (fixedLots > 0) lots = fixedLots;
   const qty = lots * lotSize;
+  const targetProfit = target > 0 ? target * lots : 0;
   const hardLoss = lossLimit > 0 ? -HARD_STOP_MULT * lossLimit : -Infinity;
   const buyCharges = calculateCharges({ side: 'BUY', qty, price: paid, segment: 'OPT' }).total;
   const profitAt = (premium) => (premium * (1 - SLIPPAGE) - paid) * qty;
@@ -66,6 +70,13 @@ export function simulateTrade({ c1, byTime, signal, params }) {
     }
     const against = long ? bar.low : bar.high;
     const favour = long ? bar.high : bar.low;
+    if (targetProfit > 0) {
+      const gap = profitAt(premiumAt(bar.open, bar.time));
+      if (gap >= targetProfit) {
+        exit = { time: bar.time, spot: bar.open, profit: gap, reason: 'TARGET' };
+        break;
+      }
+    }
     if (lockLevel != null) {
       const open = profitAt(premiumAt(bar.open, bar.time));
       const low = profitAt(premiumAt(against, bar.time));
@@ -93,7 +104,20 @@ export function simulateTrade({ c1, byTime, signal, params }) {
       break;
     }
     best = Math.max(best, profitAt(premiumAt(favour, bar.time)));
-    if (best >= lockStart) lockLevel = Math.max(lockLevel ?? -Infinity, best - lockGap);
+    if (targetProfit > 0) {
+      if (best >= targetProfit) {
+        // the bar reached the target: find the index level where it was crossed (a stop in the same bar was checked first, the cautious order)
+        let lo = bar.open;
+        let hi = favour;
+        for (let k = 0; k < 30; k++) {
+          const mid = (lo + hi) / 2;
+          if (profitAt(premiumAt(mid, bar.time)) >= targetProfit) hi = mid;
+          else lo = mid;
+        }
+        exit = { time: bar.time + 60, spot: hi, profit: targetProfit, reason: 'TARGET' };
+        break;
+      }
+    } else if (best >= lockStart) lockLevel = Math.max(lockLevel ?? -Infinity, best - lockGap);
   }
   if (!exit) {
     const last = c1.at(-1);

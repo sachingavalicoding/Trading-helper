@@ -1,6 +1,6 @@
 import { formatPnl } from './format.js';
 
-export const EXIT_WORD = { STOP: 'Stop hit', LOCK: 'Profit lock', EOD: '15:15 close' };
+export const EXIT_WORD = { STOP: 'Stop hit', LOCK: 'Profit lock', EOD: '15:15 close', TARGET: 'Target hit' };
 export const FEW_TRADES = 10; // under this many trades a result is mostly luck
 
 /** "13 Oct 10:35" in IST, from epoch seconds. */
@@ -21,15 +21,21 @@ export function verdict(t) {
 
 const hourWord = (h) => `${h}:00`;
 
-/** The whole study as plain text, to paste into the chat. */
 /** How many lots each trade used, in words. */
-export const sizingText = (p) => (p.lossLimit > 0 ? `lots sized so the loss at the stop stays within ₹${p.lossLimit} (1 to ${p.maxLots} lots)` : 'one lot each');
+export const sizingText = (p) => {
+  if (p.fixedLots > 0) return `${p.fixedLots} lot${p.fixedLots > 1 ? 's' : ''} each, fewer if the loss at the stop would pass ₹${p.lossLimit}`;
+  return p.lossLimit > 0 ? `lots sized so the loss at the stop stays within ₹${p.lossLimit} (1 to ${p.maxLots} lots)` : 'one lot each';
+};
 
+/** The exit rule a study used, in words. */
+export const exitText = (p) => (p.exit === 'target' ? `No profit lock: sold when the profit reaches +₹${p.target} a lot, or at the stop` : `Profit lock +${p.lockStart} keeps ${p.lockStart - p.lockGap}`);
+
+/** The whole study as plain text, to paste into the chat. */
 export function studyText(r) {
   if (!r) return '';
   const lines = [
     `Options study ${r.period.from} to ${r.period.to} (${r.period.days} trading days), ${sizingText(r.params)}, charges and slippage included, premiums estimated at ${Math.round(r.params.iv * 100)}% volatility.`,
-    `Profit lock +${r.params.lockStart} keeps ${r.params.lockStart - r.params.lockGap}; stop is the chart level on a closed 1-minute candle; closed at 15:15; at most ${r.params.maxPerDay} trades a day; stops wider than ${r.params.maxStopAtr} ATR skipped.`,
+    `${exitText(r.params)}; stop is the chart level on a closed 1-minute candle; closed at 15:15; at most ${r.params.maxPerDay} trades a day; stops wider than ${r.params.maxStopAtr} ATR skipped.`,
     '',
   ];
   for (const t of r.techniques) {

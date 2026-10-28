@@ -130,6 +130,13 @@ export class UpstoxProvider extends BaseProvider {
       to = new Date(from);
       to.setUTCDate(to.getUTCDate() - 1);
     }
+    // The history API stops at the last finished session; today's candles come from the intraday endpoint, so a study can include today.
+    try {
+      const intraday = await this.#get(`/v3/historical-candle/intraday/${enc}/minutes/${unit}`);
+      rows.push(...(intraday?.data?.candles || []));
+    } catch (err) {
+      logger.warn(`Upstox intraday candles failed for ${symbol}: ${err.message}`);
+    }
     const seen = new Map();
     for (const [ts, open, high, low, close, volume] of rows) {
       const time = Math.floor(new Date(ts).getTime() / 1000);
