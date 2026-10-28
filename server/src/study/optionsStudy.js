@@ -2,7 +2,7 @@ import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { istParts } from '../market/marketHours.js';
 import { readNifty } from '../options/signal.js';
 import { round2 } from '../utils/money.js';
-import { TECHNIQUES, prepare, findSignals, MIN_STOP_ATR } from './patterns.js';
+import { TECHNIQUES, prepare, findSignals, MIN_STOP_ATR, MAX_STOP_ATR } from './patterns.js';
 import { simulateTrade, summarize } from './simulate.js';
 
 // The options study: what each way of reading the Nifty chart would have earned on the last few weeks, as paper trades of one lot.
@@ -10,12 +10,12 @@ import { simulateTrade, summarize } from './simulate.js';
 
 const DAY = (t) => Math.floor((t + 19800) / 86400);
 const dayKey = (t) => istParts(new Date(t * 1000)).dateKey;
-const MAX_STOP_ATR = 2.5;
 const MAX_PER_DAY = 3; // the live options trader also stops after 3 entries a day
 const BOT_KEY = 'bot';
 const LABELS = {
   ...Object.fromEntries(TECHNIQUES.map((t) => [t.key, t])),
   confluence: { key: 'confluence', label: 'Two or more agree', text: 'Two different techniques give the same direction within 15 minutes. Stop at the nearest of their stops.' },
+  botFiltered: { key: 'botFiltered', label: 'Current bot, calls only in an up-day', text: 'The current bot, but a call is taken only when Nifty is above yesterday close and above the day average. Puts are unchanged.' },
   [BOT_KEY]: { key: BOT_KEY, label: 'Current bot (all checks)', text: 'What the live options trader does today: every chart check must agree and the score must reach the minimum. Shown to compare the others against.' },
 };
 
@@ -85,6 +85,25 @@ export function breadthStudy(bars5, breadth, fromTime) {
   return rows;
 }
 
+const lite = (xs) => {
+  const m = summarize(xs);
+  return { trades: m.trades, winRate: m.winRate, net: m.net, avgNet: m.avgNet, avgWin: m.avgWin, avgLoss: m.avgLoss };
+};
+
+/** The current bot's trades cut three ways: by what triggered the entry, by its score, and by call or put. */
+export function botBreakdown(trades) {
+  const by = (keyOf) => {
+    const groups = new Map();
+    for (const t of trades) {
+      const k = keyOf(t);
+      groups.set(k, [...(groups.get(k) || []), t]);
+    }
+    return [...groups.entries()].map(([key, xs]) => ({ key, ...lite(xs) })).sort((a, b) => b.net - a.net);
+  };
+  const band = (score) => (score >= 90 ? '90 and above' : score >= 85 ? '85 to 89' : '80 to 84');
+  return { byTrigger: by((t) => t.tag || 'no trigger'), byScore: by((t) => band(t.score ?? 0)), bySide: by((t) => (t.side === 'CE' ? 'Calls' : 'Puts')) };
+}
+
 function confluenceSignals(signals) {
   const out = [];
   const lastAt = { CE: -99, PE: -99 };
@@ -124,7 +143,22 @@ async function botSignals({ prep, c1, byTime, breadth, fromTime, minScore }) {
     const now = new Date((bar.time + 300) * 1000);
     const read = readNifty({ c1: slice, daily: null, tick: { ltp: next.open }, breadthUp: breadth ? breadth[i] : null }, { now, enforceWindows: true });
     if (read.ready && read.best && read.best.score >= minScore) {
-      out.push({ technique: BOT_KEY, side: read.best.type, i, time: bar.time + 300, close: bar.close, stop: read.best.stop.price, note: `score ${read.best.score}${read.best.trigger ? `, ${read.best.trigger.kind}` : ''}`, atr: prep.atrAt[i] });
+      const day = prep.bars.slice(prep.dayStart[i], i + 1);
+      const mean = day.reduce((sum, x) => sum + x.close, 0) / day.length;
+      const prevClose = prep.dayStart[i] > 0 ? prep.bars[prep.dayStart[i] - 1].close : null;
+      out.push({
+        technique: BOT_KEY,
+        side: read.best.type,
+        i,
+        time: bar.time + 300,
+        close: bar.close,
+        stop: read.best.stop.price,
+        note: `score ${read.best.score}${read.best.trigger ? `, ${read.best.trigger.kind}` : ''}`,
+        tag: read.best.trigger?.kind || 'no trigger',
+        score: read.best.score,
+        upDay: prevClose != null && bar.close > prevClose && bar.close > mean,
+        atr: prep.atrAt[i],
+      });
     }
     if (++n % 25 === 0) await yieldTurn();
   }
@@ -149,6 +183,10 @@ function tradesFor(signals, { c1, byTime, params }) {
       continue;
     }
     const trade = simulateTrade({ c1, byTime, signal: { ...s, stop }, params });
+    if (trade?.skipped) {
+      skippedWide += 1; // the loss at its stop is more than the loss limit even for one lot
+      continue;
+    }
     if (!trade) continue;
     trades.push(trade);
     perDay.set(day, (perDay.get(day) || 0) + 1);
@@ -177,14 +215,17 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   onProgress('Looking for each pattern on the chart');
   const found = findSignals(prep).filter((s) => s.time - 300 >= fromTime);
   const groups = Object.fromEntries(TECHNIQUES.filter((t) => t.key !== 'breadth' || breadth).map((t) => [t.key, found.filter((s) => s.technique === t.key)]));
-  groups.confluence = confluenceSignals(found);
+  groups.confluence = confluenceSignals(found.filter((x) => x.technique !== 'doubleBottomMid')); // the tighter-stop copy is the same pattern, not a second opinion
   onProgress('Replaying the current bot logic');
   groups[BOT_KEY] = await botSignals({ prep, c1: complete, byTime, breadth, fromTime, minScore: params.minScore ?? 80 });
+  groups.botFiltered = groups[BOT_KEY].filter((x) => x.side === 'PE' || x.upDay);
 
   onProgress('Trading every signal on paper');
   const techniques = [];
+  let botRun = null;
   for (const [key, signals] of Object.entries(groups)) {
     const { trades, skippedWide } = tradesFor(signals, { c1: complete, byTime, params });
+    if (key === BOT_KEY) botRun = { trades };
     const summary = summarize(trades);
     techniques.push({
       key,
@@ -198,11 +239,13 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
     await yieldTurn();
   }
   techniques.sort((a, b) => b.net - a.net);
+  const botTrades = botRun ? botRun.trades : [];
   return {
     generatedAt: new Date().toISOString(),
     period: { from: dayKey(fromTime), to: dayKey(complete.at(-1).time), days: studyDays.length },
-    params: { days: params.days, iv: params.iv, lockStart: params.lockStart, lockGap: params.lockGap, lotSize: params.lotSize, minScore: params.minScore ?? 80, maxStopAtr: MAX_STOP_ATR, maxPerDay: MAX_PER_DAY },
+    params: { days: params.days, iv: params.iv, lossLimit: params.lossLimit ?? 0, maxLots: params.maxLots ?? 1, lockStart: params.lockStart, lockGap: params.lockGap, lotSize: params.lotSize, minScore: params.minScore ?? 80, maxStopAtr: MAX_STOP_ATR, maxPerDay: MAX_PER_DAY },
     haveBreadth: Boolean(breadth),
+    botBreakdown: botBreakdown(botTrades),
     techniques,
     breadth: breadthStudy(bars5, breadth, fromTime),
   };

@@ -1,24 +1,34 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
+import { badRequest, notFound } from '../utils/errors.js';
+
+export const SHARES_NOTE = 'This replays the scanner on past 1-minute candles of the Nifty 50, sized to your Account stop. There is no order book in the replay and its exits are an older percent ladder, so read it for which setups, hours and sides pay, not for exact rupees. Past results do not promise future ones.';
 
 export const STUDY_NOTE = 'This is a replay of past Nifty candles as paper trades of one lot. Option prices are estimated, not recorded, so the rupee amounts are a guide. Past results do not promise future ones.';
 
+const KINDS = ['options', 'shares'];
 const runSchema = z.object({
-  days: z.coerce.number().int().min(5).max(60).default(20),
+  days: z.coerce.number().int().min(3).max(60).optional(),
   iv: z.coerce.number().min(0.08).max(0.4).default(0.14),
 });
+const MAX_DAYS = { options: 60, shares: 15 }; // a share replay runs the whole scanner on 50 stocks, so it is kept short
 
 export function studyRoutes({ study }) {
   const router = Router();
 
-  router.get('/options', async (req, res) => {
-    res.json({ status: study.status(req.userId), result: await study.latest(req.userId), note: STUDY_NOTE });
+  router.param('kind', (req, _res, next, kind) => (KINDS.includes(kind) ? next() : next(notFound('No such study'))));
+
+  router.get('/:kind', async (req, res) => {
+    const { kind } = req.params;
+    res.json({ status: study.status(req.userId, kind), result: await study.latest(req.userId, kind), note: kind === 'shares' ? SHARES_NOTE : STUDY_NOTE });
   });
 
-  router.post('/options', validate(runSchema), (req, res) => {
-    study.start(req.userId, req.body);
-    res.status(202).json({ status: study.status(req.userId) });
+  router.post('/:kind', validate(runSchema), (req, res) => {
+    const { kind } = req.params;
+    if (req.body.days != null && (req.body.days > MAX_DAYS[kind] || (kind === 'options' && req.body.days < 5))) throw badRequest(`days must be ${kind === 'options' ? 5 : 3} to ${MAX_DAYS[kind]}`, 'VALIDATION');
+    study.start(req.userId, kind, req.body);
+    res.status(202).json({ status: study.status(req.userId, kind) });
   });
 
   return router;

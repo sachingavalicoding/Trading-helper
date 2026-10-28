@@ -2,6 +2,8 @@ import { AutoLog, OptionSettings, Order, Position, Trade } from '../models/index
 import { getFunds } from '../services/walletService.js';
 import { UNDERLYING, isOptionSymbol, optionLabel } from './symbols.js';
 import { readNifty } from './signal.js';
+import { TECHNIQUES, prepare, findSignals, MIN_STOP_ATR, MAX_STOP_ATR } from '../study/patterns.js';
+import { roundToTick } from '../utils/money.js';
 import { planTrade } from './plan.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { istParts } from '../market/marketHours.js';
@@ -14,6 +16,19 @@ const EXIT_MINUTE = 15 * 60; // all option trades are closed by 15:00 IST: the l
 const COOLDOWN_AFTER_STOP_MIN = 20;
 const SAME_SIDE_COOLDOWN_MIN = 15;
 const LOG_REPEAT_MS = 30 * 60000; // the same skip reason is written to the log at most this often
+const PATTERN_FRESH_MS = 4 * 60000; // a pattern is acted on only while the 5-minute bar that completed it closed under 4 minutes ago
+
+// The chart patterns the trader can buy on. The 30-day study (Options > Study) found these three made money on more than 12 trades each:
+// breakout of the last hour (+13.4k, 76% win), inside bar breakout (+6.4k) and the EMA 9/21 cross (+2.5k). The 50-stock breadth needs history the live feed lacks.
+export const LIVE_PATTERNS = TECHNIQUES.filter((t) => t.key !== 'breadth').map((t) => ({ key: t.key, label: t.label }));
+export const DEFAULT_PATTERNS = ['breakout', 'insideBar', 'emaCross'];
+
+/** Which entry sources are on for a user. Settings saved before these switches existed have neither field: patterns on with the defaults, score entries on. */
+export function entryModes(settings) {
+  const known = new Set(LIVE_PATTERNS.map((p) => p.key));
+  const chosen = (settings.patterns ?? DEFAULT_PATTERNS).filter((k) => known.has(k));
+  return { patterns: settings.patternEntries === false ? [] : chosen, score: settings.scoreEntries !== false };
+}
 
 /**
  * Paper options trader for Nifty 50 index options. Every 15 seconds it reads the Nifty chart; when one side (call or put)
@@ -35,6 +50,7 @@ export class OptionTrader {
     this.exiting = new Set();
     this.reasons = new Map(); // `${userId}|${symbol}` -> why we exited at market (STOP, TIME)
     this.logged = new Map(); // dedupe key -> time of the last log row
+    this.patternSeen = new Set(); // `${userId}|${technique}|${bar time}`: each pattern is acted on once
     this.lastRead = null;
     this.onTick = (t) => this.#onTick(t);
     this.onUpdate = (u) => {
@@ -121,6 +137,12 @@ export class OptionTrader {
       const read = await this.read();
       for (const s of all) {
         try {
+          const modes = entryModes(s);
+          if (modes.patterns.length) {
+            const p = await this.considerPatterns(s, read);
+            if (p.order) continue;
+          }
+          if (!modes.score) continue;
           const r = await this.consider(s, read);
           if (r.skipped) logger.info(`options skip for ${s.user}: ${r.skipped}`);
         } catch (e) {
@@ -194,6 +216,41 @@ export class OptionTrader {
     }
     if (side.score < settings.minScore) return side.score >= settings.minScore - 10 ? this.#skip(settings, side, `score ${side.score} is below ${settings.minScore}`) : { skipped: 'no setup' };
     return this.#enter(settings, read, side);
+  }
+
+  /**
+   * Buy when a chosen chart pattern was completed by the 5-minute bar that has just closed. The stop is the pattern's own chart level
+   * (never closer than 0.8 ATR; a pattern whose stop is further than 2.5 ATR is skipped), the lots, the hard stop and the profit lock
+   * are the same as for every other entry. Each pattern is acted on once.
+   */
+  async considerPatterns(settings, read) {
+    const keys = entryModes(settings).patterns;
+    if (!keys.length) return { skipped: 'no chart pattern is switched on' };
+    if (!read?.ready) return { skipped: 'the Nifty chart is not ready yet' };
+    const bars = read.market.done5;
+    const last = bars.at(-1);
+    if (!last || this.now() - (last.time + 300) * 1000 > PATTERN_FRESH_MS) return { skipped: 'no fresh bar' };
+    const hits = findSignals(prepare(bars), { only: keys, from: bars.length - 1, windows: this.config.enforceMarketHours }).sort((a, b) => keys.indexOf(a.technique) - keys.indexOf(b.technique));
+    let result = { skipped: 'no pattern' };
+    for (const hit of hits) {
+      const seen = `${settings.user}|${hit.technique}|${last.time}`;
+      if (this.patternSeen.has(seen)) continue;
+      if (this.patternSeen.size > 500) this.patternSeen.clear();
+      this.patternSeen.add(seen);
+      const d = hit.side === 'CE' ? 1 : -1;
+      const label = LIVE_PATTERNS.find((p) => p.key === hit.technique).label;
+      const spot = read.spot;
+      let stop = hit.stop;
+      if (d * (spot - stop) < MIN_STOP_ATR * hit.atr) stop = spot - d * MIN_STOP_ATR * hit.atr;
+      const side = { type: hit.side, d, score: undefined, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at Nifty ${roundToTick(stop)}`, ok: true }, pattern: hit.technique };
+      if (d * (spot - stop) > MAX_STOP_ATR * hit.atr) {
+        result = await this.#skip(settings, side, `${label} ${hit.side}: the stop (Nifty ${roundToTick(stop)}) is ${round2((d * (spot - stop)) / hit.atr)} ATR away, over the ${MAX_STOP_ATR} limit`);
+        continue;
+      }
+      result = await this.#enter(settings, read, side);
+      if (result.order) return result;
+    }
+    return result;
   }
 
   async #enter(settings, read, side, { manual = false, lots = null } = {}) {

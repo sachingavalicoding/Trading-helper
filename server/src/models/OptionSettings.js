@@ -10,6 +10,9 @@ const optionSettingsSchema = new mongoose.Schema(
     maxOpen: { type: Number, default: 1, min: 1, max: 3 },
     maxTrades: { type: Number, default: 3, min: 1, max: 10 }, // entries per day: options punish overtrading
     budget: { type: Number, default: 30000, min: 5000 }, // money set aside for options; premiums in open trades never exceed it
+    patternEntries: { type: Boolean, default: true }, // buy when one of the chosen chart patterns shows (see study/patterns.js)
+    patterns: { type: [String], default: () => ['breakout', 'insideBar', 'emaCross'] }, // the 30-day study's winners: more than 12 trades and a profit
+    scoreEntries: { type: Boolean, default: true }, // buy when the all-checks score reaches the minimum (the original entry)
     dailyLossPct: { type: Number, default: 10, min: 2, max: 30 }, // stop opening trades after losing this % of the budget today
   },
   { timestamps: true },

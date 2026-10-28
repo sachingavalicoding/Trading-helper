@@ -307,3 +307,22 @@ test('a news-gap idea is skipped when news-gap trades are switched off, and trad
   const on = await trader.consider(settings({ user: uid, maxOpen: 10, maxShares: 1 }), { ...gap, _id: `${gap._id}-b` });
   assert.ok(on.order, on.skipped);
 });
+
+test('a setup switched off in the Account tab is skipped by the auto trader, saved per user and checked on input', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  const first = (await request(app).get('/api/auto').set(fresh.auth).expect(200)).body;
+  assert.deepEqual(first.settings.skipSetups, []);
+  assert.deepEqual(first.setupChoices, ['Opening range breakout', 'Gap and go', 'News gap']);
+  const saved = (await request(app).put('/api/auto').set(fresh.auth).send({ skipSetups: ['Gap and go'] }).expect(200)).body;
+  assert.deepEqual(saved.settings.skipSetups, ['Gap and go']);
+  await request(app).put('/api/auto').set(fresh.auth).send({ skipSetups: ['Level retest'] }).expect(400);
+
+  ctx.provider.setPrice('TCS', 3000);
+  await settle();
+  const gap = { ...idea('TCS', 'BUY'), setup: 'Gap and go' };
+  const off = await trader.consider(settings({ user: uid, maxOpen: 10, maxShares: 1, skipSetups: ['Gap and go'] }), gap);
+  assert.match(off.skipped, /Gap and go is switched off in the Account tab/);
+  const on = await trader.consider(settings({ user: uid, maxOpen: 10, maxShares: 1, skipSetups: ['News gap'] }), { ...gap, _id: `${gap._id}-b` });
+  assert.ok(on.order, on.skipped);
+});

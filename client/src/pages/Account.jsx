@@ -12,6 +12,7 @@ import { formatINR, formatPnl, pnlClass } from '../lib/format.js';
 import { Card, Skeleton, Disclaimer } from '../components/ui.jsx';
 import { AutoLimits } from '../components/AutoCard.jsx';
 import { OptionsLimits } from '../components/options/OptionsAutoCard.jsx';
+import { EntryChoices, ReportsAndStudies } from '../components/study/ReportsStudies.jsx';
 
 function Row({ label, value, className = '' }) {
   return (
@@ -240,6 +241,8 @@ export default function Account() {
       </div>
 
       <TradingRules />
+      <EntryChoices />
+      <ReportsAndStudies />
 
       <Card className="divide-y divide-line">
         <button type="button" onClick={toggle} className="flex w-full items-center justify-between px-4 py-3.5 text-sm transition-colors hover:bg-surface-2">

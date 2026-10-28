@@ -5,6 +5,7 @@ import { AutoLog, OptionSettings } from '../models/index.js';
 import { summarizeLog } from '../auto/logSummary.js';
 import { UNDERLYING, optionLabel } from '../options/symbols.js';
 import { OPTION_WEIGHTS } from '../options/signal.js';
+import { LIVE_PATTERNS, DEFAULT_PATTERNS } from '../options/optionTrader.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { badRequest } from '../utils/errors.js';
 
@@ -19,6 +20,9 @@ const patch = z
     maxTrades: z.coerce.number().int().min(1).max(10),
     budget: z.coerce.number().min(5000).max(100_000_000),
     dailyLossPct: z.coerce.number().min(2).max(30),
+    patternEntries: z.boolean(),
+    scoreEntries: z.boolean(),
+    patterns: z.array(z.enum(LIVE_PATTERNS.map((p) => p.key))).max(LIVE_PATTERNS.length),
   })
   .partial();
 
@@ -33,7 +37,8 @@ export function optionRoutes({ optionTrader }) {
   const view = async (userId, doc) => {
     const s = doc || new OptionSettings({ user: userId });
     const { enabled, minScore, maxLots, maxOpen, maxTrades, budget, dailyLossPct } = s;
-    return { settings: { enabled, minScore, maxLots, maxOpen, maxTrades, budget, dailyLossPct }, rules: await loadRules(userId, 'OPT'), today: await optionTrader.todaySummary(userId), weights: OPTION_WEIGHTS, disclaimer: OPTIONS_DISCLAIMER };
+    const entries = { patternEntries: s.patternEntries !== false, scoreEntries: s.scoreEntries !== false, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)] };
+    return { settings: { enabled, minScore, maxLots, maxOpen, maxTrades, budget, dailyLossPct, ...entries }, patternChoices: LIVE_PATTERNS, rules: await loadRules(userId, 'OPT'), today: await optionTrader.todaySummary(userId), weights: OPTION_WEIGHTS, disclaimer: OPTIONS_DISCLAIMER };
   };
 
   router.get('/', async (req, res) => {

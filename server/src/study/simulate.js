@@ -11,16 +11,19 @@ import { round2 } from '../utils/money.js';
 // lock start the stop follows `lockGap` behind the best profit, and everything is closed at 15:00.
 
 export const EXIT_MIN = 15 * 60;
+export const HARD_STOP_MULT = 1.3; // the live trader's premium stop behind the chart stop, for a fast gap
 export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread you cross buying and selling at the market
 
 /**
  * @param c1      Nifty 1-minute bars, oldest first
  * @param byTime  Map of bar time -> index in c1
  * @param signal  { side: 'CE'|'PE', time (entry minute, epoch s), stop (Nifty level) }
- * @param params  { iv, lockStart, lockGap, lotSize, holidays, expiryWeekday }
+ * @param params  { iv, lockStart, lockGap, lotSize, holidays, expiryWeekday, lossLimit, maxLots }
+ *                With a `lossLimit` (the Account stop) the lots are sized like the live trader: as many as keep the loss at the chart stop within
+ *                the limit, up to `maxLots`, none when even one lot loses more. A hard stop sits at HARD_STOP_MULT times the limit. Without one, 1 lot.
  */
 export function simulateTrade({ c1, byTime, signal, params }) {
-  const { iv = 0.14, lockStart = 1000, lockGap = 250, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY } = params;
+  const { iv = 0.14, lockStart = 1000, lockGap = 250, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, lossLimit = 0, maxLots = 2 } = params;
   const start = byTime.get(signal.time);
   if (start == null) return null;
   const long = signal.side === 'CE';
@@ -32,8 +35,17 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   const premiumAt = (spot, time) => bsPrice({ type: signal.side, spot, strike, t: yearsToExpiry(expiry, new Date(time * 1000)), iv });
   const paid = premiumAt(entryBar.open, entryBar.time) * (1 + SLIPPAGE);
   if (paid < 1) return null;
-  const buyCharges = calculateCharges({ side: 'BUY', qty: lotSize, price: paid, segment: 'OPT' }).total;
-  const profitAt = (premium) => (premium * (1 - SLIPPAGE) - paid) * lotSize;
+  let lots = 1;
+  if (lossLimit > 0) {
+    const atStop = premiumAt(signal.stop, entryBar.time) * (1 - SLIPPAGE);
+    const perLot = Math.max(paid - atStop, 0.05) * lotSize;
+    lots = Math.min(maxLots, Math.floor(lossLimit / perLot));
+    if (lots < 1) return { skipped: 'limit' };
+  }
+  const qty = lots * lotSize;
+  const hardLoss = lossLimit > 0 ? -HARD_STOP_MULT * lossLimit : -Infinity;
+  const buyCharges = calculateCharges({ side: 'BUY', qty, price: paid, segment: 'OPT' }).total;
+  const profitAt = (premium) => (premium * (1 - SLIPPAGE) - paid) * qty;
   const day = istParts(entryAt).dateKey;
 
   let best = 0;
@@ -67,6 +79,14 @@ export function simulateTrade({ c1, byTime, signal, params }) {
       }
     }
     const closeProfit = profitAt(premiumAt(bar.close, bar.time));
+    if (hardLoss > -Infinity) {
+      const open = profitAt(premiumAt(bar.open, bar.time));
+      const low = profitAt(premiumAt(against, bar.time));
+      if (open <= hardLoss || low <= hardLoss) {
+        exit = { time: bar.time, spot: open <= hardLoss ? bar.open : against, profit: Math.min(open <= hardLoss ? open : hardLoss, hardLoss), reason: 'HARD' };
+        break;
+      }
+    }
     worst = Math.min(worst, profitAt(premiumAt(against, bar.time)));
     if (long ? bar.close < signal.stop : bar.close > signal.stop) {
       exit = { time: bar.time + 60, spot: bar.close, profit: closeProfit, reason: 'STOP' };
@@ -79,12 +99,15 @@ export function simulateTrade({ c1, byTime, signal, params }) {
     const last = c1.at(-1);
     exit = { time: last.time + 60, spot: last.close, profit: profitAt(premiumAt(last.close, last.time)), reason: 'EOD' };
   }
-  const sellPremium = (exit.profit / lotSize + paid) / (1 - SLIPPAGE);
-  const charges = round2(buyCharges + calculateCharges({ side: 'SELL', qty: lotSize, price: Math.max(sellPremium, 0.05), segment: 'OPT' }).total);
+  const sellPremium = (exit.profit / qty + paid) / (1 - SLIPPAGE);
+  const charges = round2(buyCharges + calculateCharges({ side: 'SELL', qty, price: Math.max(sellPremium, 0.05), segment: 'OPT' }).total);
   return {
     technique: signal.technique,
     side: signal.side,
     note: signal.note,
+    tag: signal.tag,
+    score: signal.score,
+    lots,
     entryTime: entryBar.time,
     exitTime: exit.time,
     entrySpot: round2(entryBar.open),

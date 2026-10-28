@@ -7,9 +7,11 @@ import { istParts } from '../market/marketHours.js';
 
 export const BUFFER_ATR = 0.15; // the stop sits this far beyond the level that proves the idea wrong
 export const MIN_STOP_ATR = 0.8; // a closer stop is hit by ordinary noise (same floor as the live options trader)
+export const MAX_STOP_ATR = 2.5; // a pattern whose stop is further than this is skipped: its loss would not fit the loss limit
 
 export const TECHNIQUES = [
   { key: 'doubleBottom', label: 'Double bottom / top', text: 'Price makes the same low twice, with a bounce of at least 1.5 ATR between them, then closes above the bounce high. Stop under the two lows.' },
+  { key: 'doubleBottomMid', label: 'Double bottom / top, tighter stop', text: 'The same double bottom, but the stop sits half way between the lows and the neckline, so it fits the loss limit. It gives up the room under the lows.' },
   { key: 'reversal', label: 'Sharp fall, then turn', text: 'A fall of 4 ATR or more, then price turns off the low: a higher low and a bar that closes above the previous bar high, within 2 ATR of the low. Stop under the low.' },
   { key: 'breakout', label: 'Breakout of the last hour', text: 'A 5-minute bar closes above the highest high of the last hour (12 bars). Stop under the lowest low of the last 6 bars.' },
   { key: 'orb', label: 'Opening range breakout', text: 'The first close beyond the 09:15-09:30 range after 09:30. Stop at the other end of that range.' },
@@ -58,7 +60,7 @@ const tradeable = (time) => {
 const lowest = (bars, from, to) => Math.min(...bars.slice(from, to + 1).map((b) => b.low));
 const highest = (bars, from, to) => Math.max(...bars.slice(from, to + 1).map((b) => b.high));
 
-function doubleBottom(v, i, ds, a) {
+function doubleBottom(v, i, ds, a, tight = false) {
   const b = v.bars;
   if (i - ds < 14) return null;
   const sw = [];
@@ -74,7 +76,7 @@ function doubleBottom(v, i, ds, a) {
   const floor = Math.min(b[k1].low, b[k2].low);
   if (neck - floor < 1.5 * a) return null;
   if (!(b[i].close > neck && b[i - 1].close <= neck && b[i].close < neck + a)) return null;
-  return { stop: floor - BUFFER_ATR * a, note: 'neckline of a double bottom or top broken' };
+  return { stop: tight ? (floor + neck) / 2 : floor - BUFFER_ATR * a, note: 'neckline of a double bottom or top broken' };
 }
 
 function reversal(v, i, ds, a) {
@@ -179,17 +181,18 @@ function breadthLed(v, i, ds, a) {
   return { stop: lowest(b, i - 5, i) - BUFFER_ATR * a, note: `${Math.round(br[i] * 100)}% of the 50 stocks on one side` };
 }
 
-const DETECTORS = { doubleBottom, reversal, breakout, orb, pullback, engulfing, pinBar, insideBar, supertrend: supertrendFlip, emaCross, breadth: breadthLed };
+const DETECTORS = { doubleBottom, doubleBottomMid: (v, i, ds, a) => doubleBottom(v, i, ds, a, true), reversal, breakout, orb, pullback, engulfing, pinBar, insideBar, supertrend: supertrendFlip, emaCross, breadth: breadthLed };
 
 /**
  * Every signal the techniques give over the prepared bars: { technique, side, i, time, close, stop, note, atr }.
- * `time` is when the bar closed. Only bars that close between 09:45 and 14:00 count, like the live trader.
+ * `time` is when the bar closed. Only bars that close between 09:45 and 14:00 count, like the live trader (`windows: false` lifts that).
+ * `from` is the first bar index to look at, so the live trader can look at the newest bar only.
  */
-export function findSignals(prep, { only = null } = {}) {
+export function findSignals(prep, { only = null, from = 15, windows = true } = {}) {
   const out = [];
-  for (let i = 15; i < prep.bars.length; i++) {
+  for (let i = Math.max(15, from); i < prep.bars.length; i++) {
     const a = prep.atrAt[i];
-    if (!a || !tradeable(prep.bars[i].time)) continue;
+    if (!a || (windows && !tradeable(prep.bars[i].time))) continue;
     const ds = prep.dayStart[i];
     for (const d of [1, -1]) {
       const v = prep.views[d];
