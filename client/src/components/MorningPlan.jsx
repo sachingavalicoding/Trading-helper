@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { Sunrise } from 'lucide-react';
 import { useApi } from '../lib/useApi.js';
 import { formatPrice } from '../lib/format.js';
-import { Badge, Card, Skeleton } from './ui.jsx';
+import { Badge, Fold, Skeleton } from './ui.jsx';
 
 /** Pre-market watch list: which stocks matter today and the price to wait for. */
 export function MorningPlan() {
@@ -11,13 +11,8 @@ export function MorningPlan() {
   if (!data || data.warming) return null;
 
   return (
-    <Card className="space-y-2 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="flex items-center gap-1.5 text-sm font-semibold">
-          <Sunrise className="h-4 w-4 text-accent" /> Today's plan
-        </h2>
-        {data.mood && <span className="text-[11px] text-muted">{data.mood.text}</span>}
-      </div>
+    <Fold id="scan-plan" title="Today's plan" icon={Sunrise} summary={[data.items.length ? `${data.items.length} stock${data.items.length > 1 ? 's' : ''} to watch` : 'Nothing stands out yet', data.mood?.text].filter(Boolean).join(' · ')}>
+      <div className="space-y-2">
       {data.items.length === 0 ? (
         <p className="text-sm text-muted">Nothing stands out yet: no strong news and no stock that closed at an extreme. That is a fine day to wait.</p>
       ) : (
@@ -47,6 +42,7 @@ export function MorningPlan() {
         </ul>
       )}
       <p className="text-[11px] leading-snug text-muted">A watch list, not a signal. Wait for the level to break, then the scanner decides.</p>
-    </Card>
+      </div>
+    </Fold>
   );
 }

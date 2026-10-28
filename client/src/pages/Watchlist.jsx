@@ -8,6 +8,7 @@ import { insightsOf, sortRows } from '../lib/insights.js';
 import { formatPrice, formatPct, formatQtyCompact, pnlClass } from '../lib/format.js';
 import { OrderSheet } from '../components/OrderSheet.jsx';
 import { StockInsightSheet } from '../components/StockInsightSheet.jsx';
+import { TodayStrip } from '../components/TodayStrip.jsx';
 import { Badge, Card, Skeleton, EmptyState } from '../components/ui.jsx';
 
 const COLUMNS = [
@@ -139,6 +140,7 @@ export default function Watchlist() {
 
   return (
     <div className="space-y-3">
+      <TodayStrip />
       <div className="relative">
         <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted" />
         <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search Nifty 50" className="field !py-2.5 !pr-9 !pl-9 !text-sm" aria-label="Search stocks" />
@@ -169,7 +171,7 @@ export default function Watchlist() {
             {filter === 'starred' && !query ? 'Tap the star next to a stock to pin it here.' : 'Try another filter. Only Nifty 50 stocks are listed.'}
           </EmptyState>
         ) : (
-          <div className="max-h-[calc(100dvh-15rem)] overflow-auto">
+          <div className="max-h-[calc(100dvh-22rem)] min-h-64 overflow-auto">
             <table className="grid-table">
               <thead>
                 <tr>

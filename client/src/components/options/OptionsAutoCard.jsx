@@ -13,7 +13,7 @@ const FIELDS = [
   { key: 'minScore', label: 'Minimum score', step: 5, min: 60, max: 100 },
 ];
 
-const STUDY_WINNERS = ['breakout', 'insideBar', 'emaCross']; // positive over 30 days on more than 12 trades in the Study tab
+const STUDY_WINNERS = ['breakout', 'engulfing']; // 30-day study: over 20 trades each and a win rate above the roughly 61% break-even (inside bar and EMA cross made money on only 6 and 7 trades)
 
 export function Switch({ on, onClick, disabled, label }) {
   return (

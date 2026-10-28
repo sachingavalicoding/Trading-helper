@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { useApi } from '../../lib/useApi.js';
 import { api } from '../../lib/api.js';
-import { Card, Segmented, Skeleton } from '../ui.jsx';
+import { FlaskConical, ListChecks } from 'lucide-react';
+import { Fold, Segmented, Skeleton } from '../ui.jsx';
 import { DayReportButton } from '../DayReportButton.jsx';
 import { OptionsStudy } from '../options/OptionsStudy.jsx';
 import { OptionsEntries, Switch } from '../options/OptionsAutoCard.jsx';
@@ -18,22 +19,19 @@ const STUDIES = [
 export function ReportsAndStudies() {
   const [tab, setTab] = useState('report');
   return (
-    <section className="space-y-3">
-      <div>
-        <h2 className="text-sm font-semibold">Reports and studies</h2>
-        <p className="text-[11px] leading-snug text-muted">Copy the day report, or replay past candles to see which entries pay. Then change the entries below.</p>
+    <Fold id="acct-studies" title="Reports and studies" icon={FlaskConical} summary="Day report to paste in the chat, and the options and shares studies that show which entries pay.">
+      <div className="space-y-3">
+        <Segmented className="w-full" size="sm" value={tab} onChange={setTab} options={STUDIES} />
+        {tab === 'report' && <DayReportButton />}
+        {tab === 'options' && <OptionsStudy />}
+        {tab === 'shares' && <SharesStudy />}
       </div>
-      <Segmented className="w-full" size="sm" value={tab} onChange={setTab} options={STUDIES} />
-      {tab === 'report' && <DayReportButton />}
-      {tab === 'options' && <OptionsStudy />}
-      {tab === 'shares' && <SharesStudy />}
-    </section>
+    </Fold>
   );
 }
 
 /** The share setups the auto trader may trade. A switched-off setup still shows in the scanner; it is just not bought. */
-function ShareSetups() {
-  const { data, reload } = useApi('/auto', []);
+function ShareSetups({ data, reload }) {
   const [busy, setBusy] = useState(false);
   if (!data) return <Skeleton className="h-24" />;
   const off = new Set(data.settings.skipSetups);
@@ -66,19 +64,37 @@ function ShareSetups() {
   );
 }
 
+/** One line of what is switched on, shown on the closed Entries section. */
+export function entrySummary(options, auto) {
+  if (!options && !auto) return 'Loading what the auto traders may buy…';
+  const parts = [];
+  if (options) {
+    const s = options.settings;
+    const chosen = new Set(s.patterns);
+    const labels = options.patternChoices.filter((p) => chosen.has(p.key)).map((p) => p.label.split(' (')[0]);
+    parts.push(`Options: ${s.patternEntries ? (labels.length ? labels.join(', ') : 'no pattern') : 'patterns off'}, score entries ${s.scoreEntries ? 'on' : 'off'}`);
+  }
+  if (auto) {
+    const off = new Set(auto.settings.skipSetups);
+    const on = auto.setupChoices.filter((x) => !off.has(x)).length;
+    parts.push(`Shares: ${on} of ${auto.setupChoices.length} setups on`);
+  }
+  return parts.join(' · ');
+}
+
 /** Account > Entries: what each auto trader buys on, so the findings of a study can be acted on in a tap. */
 export function EntryChoices() {
   const [tab, setTab] = useState('options');
   const options = useApi('/options', []);
+  const auto = useApi('/auto', []);
   return (
-    <Card className="space-y-3 p-4">
-      <div>
-        <h2 className="text-sm font-semibold">Entries</h2>
+    <Fold id="acct-entries" title="Entries" icon={ListChecks} summary={entrySummary(options.data, auto.data)}>
+      <div className="space-y-3">
         <p className="text-[11px] leading-snug text-muted">Switch on what the auto traders may buy, using what the studies show.</p>
+        <Segmented className="w-full" size="sm" value={tab} onChange={setTab} options={[{ value: 'options', label: 'Options' }, { value: 'shares', label: 'Shares' }]} />
+        {tab === 'options' && (options.data ? <OptionsEntries data={options.data} reload={options.reload} /> : <Skeleton className="h-24" />)}
+        {tab === 'shares' && <ShareSetups data={auto.data} reload={auto.reload} />}
       </div>
-      <Segmented className="w-full" size="sm" value={tab} onChange={setTab} options={[{ value: 'options', label: 'Options' }, { value: 'shares', label: 'Shares' }]} />
-      {tab === 'options' && (options.data ? <OptionsEntries data={options.data} reload={options.reload} /> : <Skeleton className="h-24" />)}
-      {tab === 'shares' && <ShareSetups />}
-    </Card>
+    </Fold>
   );
 }
