@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { useApi } from '../../lib/useApi.js';
 import { api } from '../../lib/api.js';
 import { FlaskConical, ListChecks } from 'lucide-react';
-import { Fold, Segmented, Skeleton } from '../ui.jsx';
+import { PopupTile, Segmented, Sheet, Skeleton } from '../ui.jsx';
 import { DayReportButton } from '../DayReportButton.jsx';
 import { OptionsStudy } from '../options/OptionsStudy.jsx';
 import { OptionsEntries, Switch } from '../options/OptionsAutoCard.jsx';
@@ -18,15 +18,21 @@ const STUDIES = [
 /** Account > Reports and studies: copy the day's report, or replay past candles to see what pays, for options and for shares. */
 export function ReportsAndStudies() {
   const [tab, setTab] = useState('report');
+  const [open, setOpen] = useState(false);
   return (
-    <Fold id="acct-studies" title="Reports and studies" icon={FlaskConical} summary="Day report to paste in the chat, and the options and shares studies that show which entries pay.">
-      <div className="space-y-3">
-        <Segmented className="w-full" size="sm" value={tab} onChange={setTab} options={STUDIES} />
-        {tab === 'report' && <DayReportButton />}
-        {tab === 'options' && <OptionsStudy />}
-        {tab === 'shares' && <SharesStudy />}
-      </div>
-    </Fold>
+    <>
+      <PopupTile icon={FlaskConical} label="Studies" hint="Reports, what pays" onClick={() => setOpen(true)} />
+      {open && (
+        <Sheet title="Reports and studies" subtitle="Day report to paste in the chat, and the options and shares studies that show which entries pay." onClose={() => setOpen(false)}>
+          <div className="space-y-3">
+            <Segmented className="w-full" size="sm" value={tab} onChange={setTab} options={STUDIES} />
+            {tab === 'report' && <DayReportButton />}
+            {tab === 'options' && <OptionsStudy />}
+            {tab === 'shares' && <SharesStudy />}
+          </div>
+        </Sheet>
+      )}
+    </>
   );
 }
 
@@ -87,14 +93,20 @@ export function EntryChoices() {
   const [tab, setTab] = useState('options');
   const options = useApi('/options', []);
   const auto = useApi('/auto', []);
+  const [open, setOpen] = useState(false);
   return (
-    <Fold id="acct-entries" title="Entries" icon={ListChecks} summary={entrySummary(options.data, auto.data)}>
-      <div className="space-y-3">
-        <p className="text-[11px] leading-snug text-muted">Switch on what the auto traders may buy, using what the studies show.</p>
-        <Segmented className="w-full" size="sm" value={tab} onChange={setTab} options={[{ value: 'options', label: 'Options' }, { value: 'shares', label: 'Shares' }]} />
-        {tab === 'options' && (options.data ? <OptionsEntries data={options.data} reload={options.reload} /> : <Skeleton className="h-24" />)}
-        {tab === 'shares' && <ShareSetups data={auto.data} reload={auto.reload} />}
-      </div>
-    </Fold>
+    <>
+      <PopupTile icon={ListChecks} label="Entries" hint="What the bots buy" onClick={() => setOpen(true)} />
+      {open && (
+        <Sheet title="Entries" subtitle={entrySummary(options.data, auto.data)} onClose={() => setOpen(false)}>
+          <div className="space-y-3">
+            <p className="text-[11px] leading-snug text-muted">Switch on what the auto traders may buy, using what the studies show.</p>
+            <Segmented className="w-full" size="sm" value={tab} onChange={setTab} options={[{ value: 'options', label: 'Options' }, { value: 'shares', label: 'Shares' }]} />
+            {tab === 'options' && (options.data ? <OptionsEntries data={options.data} reload={options.reload} /> : <Skeleton className="h-24" />)}
+            {tab === 'shares' && <ShareSetups data={auto.data} reload={auto.reload} />}
+          </div>
+        </Sheet>
+      )}
+    </>
   );
 }

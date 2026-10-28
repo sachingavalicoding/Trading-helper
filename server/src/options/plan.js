@@ -76,6 +76,7 @@ export function planTrade({ read, market: m, contract, premium, settings, rules,
       worstCase: stopLoss == null ? null : round2(qty * (premium - stopLoss)),
       lockStart: rules.lockStart,
       lockGap: rules.lockGap,
+      lockSteps: rules.steps ?? [],
       charges: roundTripCharges({ qty, price: premium, segment: 'OPT' }),
     },
   };

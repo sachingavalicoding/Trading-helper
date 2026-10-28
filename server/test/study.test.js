@@ -91,6 +91,22 @@ test('a call that keeps rising is held to 15:15, one that gives back a big gain 
   assert.ok(stopped.net < -500 && stopped.exitSpot <= 23980, JSON.stringify(stopped));
 });
 
+test('a typed lock ladder replaces lockStart and lockGap in the replay: an early first row sells a smaller gain, an empty ladder never locks', () => {
+  const start = Date.UTC(2026, 9, 12, 4, 30) / 1000;
+  const gaveBack = minutes(24000, [...Array.from({ length: 100 }, () => 0.8), ...Array.from({ length: 100 }, () => -0.8)]);
+  const signal = { side: 'CE', time: start, stop: 23960 };
+  const run = (steps) => simulateTrade({ c1: gaveBack, byTime: index(gaveBack), signal: { technique: 'x', note: '', ...signal }, params: { ...PARAMS, steps } });
+  const plain = sim(gaveBack, signal);
+  const same = run([{ at: 1000, keep: 750 }]);
+  assert.equal(same.gross, plain.gross, 'one row of 1000 / 750 is the old lockStart 1000 and lockGap 250');
+  const early = run([{ at: 300, keep: 250 }, { at: 1000, keep: 800 }]);
+  assert.equal(early.reason, 'LOCK');
+  assert.ok(early.best >= 1000, `best ${early.best}`);
+  assert.ok(early.gross >= 800, `the second row keeps 800: gross ${early.gross}`);
+  const none = run([]);
+  assert.notEqual(none.reason, 'LOCK', 'no rows, no lock');
+});
+
 test('a put gains when the index falls, and a stop is only hit by a candle that closes beyond it, not by a wick', () => {
   const start = Date.UTC(2026, 9, 12, 4, 30) / 1000;
   const down = minutes(24000, Array.from({ length: 300 }, () => -0.4));
@@ -360,4 +376,50 @@ test('with a target there is no profit lock: the trade is sold when the profit r
   const falls = minutes(24000, Array.from({ length: 100 }, () => -0.5));
   const stopped = simulateTrade({ c1: falls, byTime: index(falls), signal: { technique: 'x', note: '', side: 'CE', time: start, stop: 23980 }, params });
   assert.equal(stopped.reason, 'STOP');
+});
+
+// ---------- Review > Patterns ----------
+
+test('review patterns: every signal of a day comes with its stop, the index path after it and a lock exit and a target exit', async () => {
+  const { reviewPatterns } = await import('../src/review/patterns.js');
+  const c1 = walk(8);
+  const day = new Date(c1.at(-1).time * 1000 + 19800_000).toISOString().slice(0, 10);
+  let signals = [];
+  let seen = null;
+  for (const d of [...new Set(c1.map((b) => new Date(b.time * 1000 + 19800_000).toISOString().slice(0, 10)))].slice(3)) {
+    const r = reviewPatterns({ c1, day: d, params: { ...PARAMS, lossLimit: 1500, maxLots: 2 } });
+    if (r.signals.length > signals.length) {
+      signals = r.signals;
+      seen = r;
+    }
+  }
+  assert.ok(signals.length >= 2, 'the random chart forms a few patterns on some day');
+  assert.ok(seen.candles.length > 60 && seen.candles.every((c) => new Date(c.time * 1000 + 19800_000).toISOString().startsWith(seen.day)));
+  assert.ok(!seen.patterns.some((p) => p.key === 'breadth'));
+  assert.ok(seen.patterns.some((p) => p.key === 'breakout'));
+  const traded = signals.filter((s) => !s.skipped);
+  assert.ok(traded.length > 0);
+  for (const s of traded) {
+    const long = s.side === 'CE';
+    assert.ok(long ? s.stop < s.entry : s.stop > s.entry, 'the stop is on the wrong side of the entry for the direction');
+    assert.ok(s.best.pts >= 0 && s.worst.pts <= 0);
+    assert.ok(s.lock.exitTime > s.time - 1 && s.lock.lots >= 1);
+    assert.ok(Math.abs(s.lock.net - (s.lock.gross - s.lock.charges)) < 0.02);
+    assert.ok(s.target.reason === 'TARGET' ? s.target.gross >= 1000 * s.target.lots - 0.5 : ['STOP', 'HARD', 'EOD'].includes(s.target.reason));
+  }
+  for (const s of signals.filter((x) => x.skipped)) assert.ok(['far', 'limit', 'price'].includes(s.skipped));
+  const empty = reviewPatterns({ c1, day: '2026-01-01', params: PARAMS });
+  assert.deepEqual(empty.signals, []);
+  assert.deepEqual(empty.candles, []);
+  assert.ok(empty.patterns.length > 5, 'the pattern list is there even on a day without candles');
+});
+
+test('review patterns route: needs a login, rejects a bad day and answers for a day the chart has no history for', async () => {
+  const app = createApp(ctx);
+  await request(app).get('/api/review/patterns').expect(401);
+  const { auth } = await registerUser(app);
+  await request(app).get('/api/review/patterns?day=bad').set(auth).expect(400);
+  const r = (await request(app).get('/api/review/patterns?day=2020-01-01').set(auth).expect(200)).body;
+  assert.deepEqual(r.signals, []);
+  assert.ok(r.disclaimer);
 });

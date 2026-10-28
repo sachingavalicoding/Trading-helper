@@ -39,7 +39,7 @@ function OpenRow({ p, onExit, onEdit, busy }) {
       <div className="num mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted">
         <span>Stop {p.stopLoss != null ? formatPrice(p.stopLoss) : 'none'}</span>
         <span>
-          {p.lockTrigger ? `Lock: from +₹${Math.round(p.lockTrigger)} keeps ₹${Math.round(p.lockAmount)} and follows` : 'No profit lock'}
+          {p.lockSteps?.length ? `Lock ladder: ${p.lockSteps.length} rows, from +₹${Math.round(p.lockSteps[0].at)} keeps ₹${Math.round(p.lockSteps[0].keep)}` : p.lockTrigger ? `Lock: from +₹${Math.round(p.lockTrigger)} keeps ₹${Math.round(p.lockAmount)} and follows` : 'No profit lock'}
           {p.trailPct ? ` · trail ${p.trailPct}%` : ''}
         </span>
       </div>

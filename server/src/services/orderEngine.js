@@ -270,6 +270,7 @@ export class OrderEngine extends EventEmitter {
       trailPct: pos?.trailPct ?? null,
       lockTrigger: pos?.lockTrigger ?? null,
       lockAmount: pos?.lockAmount ?? null,
+      lockSteps: pos?.lockSteps ?? [],
     };
   }
 
@@ -561,13 +562,13 @@ export class OrderEngine extends EventEmitter {
           tradingDay,
         });
         // Every new position gets the user's stop and profit lock for its segment, whoever placed it: the stop is a fixed rupee loss
-        // (unless the order brought its own), and the lock follows `lockGap` behind the best profit once the profit reaches `lockStart`.
+        // (unless the order brought its own), and the lock is the user's ladder: one row follows its gap behind the best profit, several rows hand over to each other as the profit climbs.
         const d = rulesFor(await TradeDefaults.findOne({ user: userId }).lean(), segment);
-        if (d.lockStart > d.lockGap) {
-          position.lockTrigger = d.lockStart;
-          position.lockAmount = d.lockStart - d.lockGap;
+        if (d.steps.length === 1) {
+          position.lockTrigger = d.steps[0].at;
+          position.lockAmount = d.steps[0].keep;
           position.lockRatio = 1;
-        }
+        } else if (d.steps.length > 1) position.lockSteps = d.steps;
         if (!order.stopLoss && d.stopLoss > 0) {
           const away = d.stopLoss / remaining;
           order.stopLoss = side === 'BUY' ? roundToTick(Math.max(price - away, 0.05)) : roundToTick(price + away);
@@ -577,7 +578,7 @@ export class OrderEngine extends EventEmitter {
       position.charges = round2(position.charges + ch.total);
       position.margin = round2(position.margin + this.#marginFor(remaining, price, segment));
       await position.save();
-      if (position.lockTrigger != null) this.#watchTrail(position);
+      if (position.lockTrigger != null || position.lockSteps?.length) this.#watchTrail(position);
       trades.push(this.#trade(order, position, remaining, price, ch, 0, now, tradingDay));
     }
 

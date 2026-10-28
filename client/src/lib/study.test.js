@@ -58,6 +58,8 @@ describe('study helpers', () => {
 
 it('the exit and the lots a study used are told in words', () => {
   expect(exitText({ exit: 'lock', lockStart: 1000, lockGap: 250 })).toBe('Profit lock +1000 keeps 750');
+  expect(exitText({ exit: 'lock', steps: [{ at: 1000, keep: 750 }, { at: 2000, keep: 1700 }], lockStart: 1000, lockGap: 250 })).toBe('Profit lock ladder: +1000 keeps 750, +2000 keeps 1700');
+  expect(exitText({ exit: 'lock', steps: [], lockStart: 0, lockGap: 250 })).toBe('No profit lock');
   expect(exitText({ exit: 'target', target: 1000 })).toMatch(/No profit lock.*\+₹1000 a lot/);
   expect(sizingText({ fixedLots: 1, lossLimit: 1500, maxLots: 2 })).toMatch(/^1 lot each/);
   expect(sizingText({ fixedLots: 0, lossLimit: 1500, maxLots: 2 })).toMatch(/sized/);

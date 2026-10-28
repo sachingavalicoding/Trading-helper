@@ -121,10 +121,10 @@ test('the profit lock can be edited per position and cleared, and is validated',
 
 test('your stop and profit lock apply to every new position: a fixed rupee stop, and a lock that follows a set gap behind the profit', async () => {
   const d0 = (await api().get('/api/trade-defaults').set(user.auth).expect(200)).body;
-  assert.deepEqual(d0.options, { stopLoss: 1500, lockStart: 1000, lockGap: 250 });
+  assert.deepEqual(d0.options, { stopLoss: 1500, lockStart: 1000, lockGap: 250, steps: [{ at: 1000, keep: 750 }] });
   await api().put('/api/trade-defaults').set(user.auth).send({ shares: { lockStart: 100, lockGap: 200 } }).expect(400);
   const set = (await api().put('/api/trade-defaults').set(user.auth).send({ shares: { stopLoss: 200, lockStart: 250, lockGap: 50 } }).expect(200)).body;
-  assert.deepEqual(set.shares, { stopLoss: 200, lockStart: 250, lockGap: 50 });
+  assert.deepEqual(set.shares, { stopLoss: 200, lockStart: 250, lockGap: 50, steps: [{ at: 250, keep: 200 }] });
   assert.deepEqual(set.options, d0.options, 'options are kept apart from shares');
 
   await buy({ qty: 100 }).expect(201);
@@ -152,6 +152,37 @@ test('your stop and profit lock apply to every new position: a fixed rupee stop,
   const none = (await exits({}).expect(200)).body;
   assert.equal(none.stopLoss, null);
   assert.equal(none.lockTrigger, null);
+});
+
+test('a typed ladder: each row says the profit and the lock, rows hand over as the profit climbs, bad rows are refused, and clearing the rows removes the lock', async () => {
+  const put = (body) => api().put('/api/trade-defaults').set(user.auth).send(body);
+  await put({ shares: { steps: [{ at: 300, keep: 100 }, { at: 200, keep: 150 }] } }).expect(400); // rows must rise
+  await put({ shares: { steps: [{ at: 300, keep: 300 }] } }).expect(400); // the lock must be below the profit
+  const set = (await put({ shares: { stopLoss: 0, steps: [{ at: 400, keep: 300 }, { at: 800, keep: 500 }] } }).expect(200)).body.shares;
+  assert.deepEqual(set.steps, [{ at: 400, keep: 300 }, { at: 800, keep: 500 }]);
+  assert.equal(set.lockStart, 400, 'the first row also fills the single-row fields');
+  assert.equal(set.lockGap, 100);
+
+  await buy({ qty: 100 }).expect(201);
+  assert.deepEqual((await exits({}).expect(200)).body.lockSteps, set.steps);
+  ctx.provider.setPrice('RELIANCE', 1004); // +400: row 1, the stop keeps 300
+  await settle();
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1003);
+  ctx.provider.setPrice('RELIANCE', 1006); // +600: still row 1, it follows 100 behind
+  await settle();
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1005);
+  ctx.provider.setPrice('RELIANCE', 1008); // +800: row 2, the stop keeps 500
+  await settle();
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1005, 'row 2 keeps 500, the same as row 1 was already giving');
+  ctx.provider.setPrice('RELIANCE', 1012); // +1200: row 2 follows 300 behind
+  await settle();
+  assert.equal((await openLegs('STOPLOSS'))[0].triggerPrice, 1009);
+  await api().post('/api/positions/RELIANCE/exit').set(user.auth).expect(200);
+
+  await put({ shares: { steps: [] } }).expect(200);
+  const none = (await api().get('/api/trade-defaults').set(user.auth).expect(200)).body.shares;
+  assert.deepEqual(none.steps, [], 'no rows, no lock');
+  assert.equal(none.lockStart, 0);
 });
 
 test('a profit lock never puts the stop where the trade would net a loss after charges', async () => {

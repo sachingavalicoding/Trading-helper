@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { Order, Position, Trade, TradeDefaults } from '../models/index.js';
-import { rulesFor } from '../models/TradeDefaults.js';
+import { MAX_STEPS, ladderProblem, rulesFor } from '../models/TradeDefaults.js';
 import { validate } from '../middleware/validate.js';
 import { addFunds, getFunds } from '../services/walletService.js';
 import { getDashboard } from '../services/analytics.js';
@@ -32,6 +32,7 @@ const rulesSchema = z.object({
   stopLoss: z.coerce.number().min(0).max(10_000_000),
   lockStart: z.coerce.number().min(0).max(10_000_000),
   lockGap: z.coerce.number().min(1).max(10_000_000),
+  steps: z.array(z.object({ at: z.coerce.number().min(0).max(10_000_000), keep: z.coerce.number().min(0).max(10_000_000) })).max(MAX_STEPS),
 }).partial();
 const defaultsSchema = z.object({ shares: rulesSchema.optional(), options: rulesSchema.optional() });
 // Shares and Nifty options are kept apart on every list: shares by default, options with ?segment=OPT.
@@ -116,7 +117,16 @@ export function tradingRoutes({ engine, market, config }) {
   router.put('/trade-defaults', validate(defaultsSchema), async (req, res) => {
     const next = defaultsView(await TradeDefaults.findOne({ user: req.userId }).lean());
     for (const key of ['shares', 'options']) {
-      Object.assign(next[key], req.body[key]);
+      const body = req.body[key] ?? {};
+      if (body.steps) {
+        const problem = ladderProblem(body.steps);
+        if (problem) return res.status(400).json({ error: { code: 'VALIDATION', message: `For ${key}, ${problem[0].toLowerCase()}${problem.slice(1)}` } });
+        // the first row also fills the single-row fields, so everything that reads lockStart and lockGap sees the same lock
+        const first = body.steps[0];
+        Object.assign(next[key], { stopLoss: body.stopLoss ?? next[key].stopLoss, steps: body.steps, lockStart: first ? first.at : 0, lockGap: first ? Math.max(1, first.at - first.keep) : next[key].lockGap });
+        continue;
+      }
+      Object.assign(next[key], body, body.lockStart !== undefined || body.lockGap !== undefined ? { steps: [] } : {});
       if (next[key].lockStart > 0 && next[key].lockStart <= next[key].lockGap) {
         return res.status(400).json({ error: { code: 'VALIDATION', message: `For ${key}, the profit where the lock starts must be larger than the gap it follows behind` } });
       }

@@ -1,11 +1,13 @@
 import { NIFTY50 } from '../market/instruments.js';
 import { istParts } from '../market/marketHours.js';
 import { aggregateCandles } from '../market/providers/BaseProvider.js';
-import { AutoLog, NewsItem, Position, ScanIdea } from '../models/index.js';
+import { AutoLog, NewsItem, OptionSettings, Position, ScanIdea } from '../models/index.js';
 import { summarise, MARKET } from '../news/service.js';
 import { summarizeIdeas, resultR } from '../scanner/stats.js';
 import { summarizeLog } from '../auto/logSummary.js';
-import { UNDERLYING, optionLabel } from '../options/symbols.js';
+import { DEFAULT_LOT_SIZE, UNDERLYING, optionLabel } from '../options/symbols.js';
+import { loadRules } from '../models/TradeDefaults.js';
+import { reviewPatterns } from './patterns.js';
 import { candleDay, candleOn, dirOf, judge, moveOf, morningWindow, prevCloseBefore, sessionAfter, tally } from './day.js';
 
 const round = (n, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
@@ -30,8 +32,9 @@ const headline = (d) => ({ id: String(d._id), title: d.title, url: d.url, source
  * (the headline tags never change, and a scanner idea is frozen when raised).
  */
 export class ReviewService {
-  constructor({ market, now = () => new Date() }) {
+  constructor({ market, config = null, now = () => new Date() }) {
     this.market = market;
+    this.config = config;
     this.now = now;
     this.cache = new Map();
   }
@@ -148,6 +151,24 @@ export class ReviewService {
       },
       options: { summary: summarizeLog(optLog.filter((e) => e.decision === 'PLACED' || e.decision === 'SKIPPED')), entries: options },
     };
+  }
+
+  /** The Nifty chart of one day with every pattern that formed on it, and what a one-lot option buy at each would have done. */
+  async patterns(userId, day) {
+    const [c1, rules, settings] = await Promise.all([this.market.getCandles(UNDERLYING, '1m').catch(() => []), loadRules(userId, 'OPT'), OptionSettings.findOne({ user: userId }).lean()]);
+    const params = {
+      iv: 0.14,
+      lockStart: rules.lockStart || 1000,
+      lockGap: rules.lockGap || 250,
+      steps: rules.steps,
+      lotSize: this.config?.niftyLotSize ?? DEFAULT_LOT_SIZE,
+      holidays: this.config?.nseHolidays ?? [],
+      expiryWeekday: this.market.expiryWeekday,
+      lossLimit: rules.stopLoss ?? 0,
+      maxLots: settings?.maxLots ?? 2,
+    };
+    if (!c1.length) return { day, candles: [], signals: [], patterns: [] };
+    return reviewPatterns({ c1, day, params });
   }
 
   /** One stock on one day: its 5-minute chart, the news with what the price did after each headline, the ideas and the user's trades. */
