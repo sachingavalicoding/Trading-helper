@@ -5,8 +5,7 @@ import { AutoLog, OptionSettings } from '../models/index.js';
 import { summarizeLog } from '../auto/logSummary.js';
 import { UNDERLYING, optionLabel } from '../options/symbols.js';
 import { OPTION_WEIGHTS } from '../options/signal.js';
-import { OPTION_LADDER } from '../options/plan.js';
-import { effectiveLadder, ladderRows, ladderSchema } from '../utils/ladder.js';
+import { loadRules } from '../models/TradeDefaults.js';
 import { badRequest } from '../utils/errors.js';
 
 export const OPTIONS_DISCLAIMER = 'Options are paper (virtual) trades only. About 9 in 10 individual traders lose money in index options, so treat results here as a test, not a promise. Not investment advice.';
@@ -19,10 +18,7 @@ const patch = z
     maxOpen: z.coerce.number().int().min(1).max(3),
     maxTrades: z.coerce.number().int().min(1).max(10),
     budget: z.coerce.number().min(5000).max(100_000_000),
-    maxLossPct: z.coerce.number().min(1).max(20),
     dailyLossPct: z.coerce.number().min(2).max(30),
-    trailPct: z.coerce.number().min(0).max(60),
-    lockLadder: ladderSchema(1_000_000),
   })
   .partial();
 
@@ -36,8 +32,8 @@ export function optionRoutes({ optionTrader }) {
   const router = Router();
   const view = async (userId, doc) => {
     const s = doc || new OptionSettings({ user: userId });
-    const { enabled, minScore, maxLots, maxOpen, maxTrades, budget, maxLossPct, dailyLossPct, trailPct } = s;
-    return { settings: { enabled, minScore, maxLots, maxOpen, maxTrades, budget, maxLossPct, dailyLossPct, trailPct, lockLadder: ladderRows(effectiveLadder(s.lockLadder, OPTION_LADDER)) }, defaultLockLadder: ladderRows(OPTION_LADDER), today: await optionTrader.todaySummary(userId), weights: OPTION_WEIGHTS, disclaimer: OPTIONS_DISCLAIMER };
+    const { enabled, minScore, maxLots, maxOpen, maxTrades, budget, dailyLossPct } = s;
+    return { settings: { enabled, minScore, maxLots, maxOpen, maxTrades, budget, dailyLossPct }, rules: await loadRules(userId, 'OPT'), today: await optionTrader.todaySummary(userId), weights: OPTION_WEIGHTS, disclaimer: OPTIONS_DISCLAIMER };
   };
 
   router.get('/', async (req, res) => {
@@ -59,7 +55,7 @@ export function optionRoutes({ optionTrader }) {
     res.json({ ready: true, preview, underlying: UNDERLYING, spot: read.spot, atr5: read.atr5, snapshot: read.snapshot, best: read.best?.type ?? null, ce: slim(read.ce), pe: slim(read.pe), contracts: { CE: quote(ce), PE: quote(pe) }, at: new Date().toISOString() });
   });
 
-  // Buy one now by hand, with the chart's stop, the target ladder and the lock.
+  // Buy one now by hand, with the stop and profit lock from the Account tab.
   router.post('/buy', validate(buySchema), async (req, res) => {
     const r = await optionTrader.enterManually(req.userId, req.body.type, req.body.lots);
     if (r.skipped) throw badRequest(`Not bought: ${r.skipped}`, 'NOT_BOUGHT');

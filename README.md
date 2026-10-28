@@ -276,7 +276,7 @@ Tap SL / Target on an open position (on the Positions page or the stock's chart 
 
 ## Profit lock
 
-Every new trade starts with a profit lock, in rupees. Defaults: when the open profit reaches ₹1,000 the stop moves to lock in ₹300, and every extra ₹200 of profit lifts the lock by ₹100 (a 50% ratio), so at ₹2,000 profit ₹800 is locked. It never moves back. If the trade has no stop yet, one is created. Change the numbers on the Account page. Profit is before charges. Because it can close a trade on a dip after a spike, it protects gains but can also cut a trade that would have recovered.
+Every new trade, auto or by hand, starts with the stop and profit lock you set on the Account page, separately for shares and for options. Defaults: shares stop ₹200, lock starts at +₹250 and stays ₹50 behind (+₹250 keeps ₹200, +₹300 keeps ₹250, and so on); options stop ₹500, lock starts at +₹1,000 and stays ₹100 behind (+₹1,000 keeps ₹900, +₹1,100 keeps ₹1,000). The stop is a fixed rupee loss, placed for a manual order that has none (an order with its own stop keeps it), and it does not trail. A start of 0 means no lock, a stop of 0 means no automatic stop. The lock never moves back and never sits below cost plus 1.5x the charges. Profit is before charges. `GET/PUT /api/trade-defaults` takes `{ shares: { stopLoss, lockStart, lockGap }, options: {...} }`.
 
 ## Track record and replay
 
@@ -323,7 +323,7 @@ The backtest now also replays the **live exits** (the climbing stop with no sale
 
 ## Auto trades have no sale target
 
-An auto share trade is not sold at a target. It has only its stop, and the stop climbs as the profit grows; the trade ends when price falls back to the stop, or at the 15:15 square-off. The climb is in percent of the money put in, so it is the same at any size: at +0.30% the stop keeps 0.15%, at +0.45% it keeps 0.32%, at +0.60% it keeps 0.52%, at +1.00% it keeps 0.90%, and past each rung it follows (profit - kept) behind the best profit. On ₹1 lakh that is +₹300 keeps ₹150, +₹450 keeps ₹320, +₹600 keeps ₹520, +₹1,000 keeps ₹900. The stop only ever moves towards profit. Manual trades are unchanged. Change the rungs on the Scanner tab (Auto paper trading > Change limits > Profit lock ladder), or `lockLadder` on `PUT /api/auto`; an empty list goes back to the built-in ladder.
+An auto share trade is not sold at a target. It is sized so the stop loses the Account page's share stop (₹200 by default), and from then on only the profit lock from the Account page (see "Profit lock") moves the stop; the trade ends at its stop or at the 15:15 square-off. The old percent ladder was removed. `npm run backtest` still replays that old ladder, so treat its "live exits" numbers as a rough guide.
 
 ## Last month, entry quality, and a cap on open ideas
 
@@ -353,7 +353,7 @@ Account page > "Add paper money" tops up the virtual wallet (`POST /api/wallet/a
 ## Locks that survive charges
 
 - A profit lock or target-ladder stop never sits below cost plus 1.5x the round-trip charges, so a "locked profit" is still a gain after charges. If price is not yet far enough above that level, no lock stop is placed.
-- Auto trades use the climbing stop sized from the money put in (see "Auto trades have no sale target"). Switch it off per user with `lockByRisk: false` on `PUT /api/auto` to keep only the fixed rupee defaults.
+- Auto trades use the Account page's stop and lock (see "Profit lock"); there is no separate percent ladder any more.
 - Auto skips an idea whose profit at target 1 is under 3x its round-trip charges (the skip reason shows in the auto log).
 
 ## Slow stocks get smaller targets
@@ -369,11 +369,11 @@ A separate **Options** tab, paper money only. It buys Nifty 50 index calls (CE) 
 - **The chart read** (`options/signal.js`): the Nifty gets a score out of 100 for a call and for a put from the 5-minute and 15-minute trends, EMA 9/21/50, the day's average price (an index has no volume, so this stands in for VWAP), supertrend, ADX, RSI, MACD, the opening range and previous day levels, breadth of the Nifty 50, the last candle, Heikin-Ashi, stochastic, the pivot range and the choppiness index (four of these are new in `signals/indicators.js`). Hard checks block a trade whatever the score: outside 09:45-14:00, a sideways market (choppiness over 61.8 or ADX under 15), the 15-minute trend against, an extended move (3 ATR beyond the 21 EMA), RSI extremes, a day whose usual range is already used up, no fresh breakout or pullback-and-turn, and no chart level for a stop within 2 ATR.
 - **Stop from the chart.** The Nifty level where the idea is wrong (the nearest swing low or high, the supertrend line, the 21 EMA or the day's average, at least 0.8 ATR away, with a small buffer) is repriced into the premium with Black-Scholes, using the contract's own implied volatility. A stop that would cost under 10% of the premium is widened to 10% (inside that it is noise), and one that would cost over 30% means no trade. The trader sells when a 1-minute Nifty candle CLOSES beyond the chart stop (one tick through the level is not enough, so a wick does not shake out a good trade); the premium stop in the order engine stays as the backup for a fast move.
 - **Targets that fit the chart.** Target 1 is the nearest level ahead that pays at least 1.2x the premium at risk (capped at 2.5x), pulled in to about ₹1,500 per lot when the level is further; the sale aims at about ₹2,500 per lot (`AIM_FIRST_PER_LOT`, `AIM_SALE_PER_LOT` in `plan.js`). Every target, including the final sale, stays inside what the Nifty can still travel today: 0.8 of its usual daily range less what it has already moved (never under a quarter of the range), repriced into premium. The sale is as far past target 2 as 2 is past 1, but never beyond that reach. Nothing is sold at target 1 or 2: past each, the stop jumps to 80% of the way to it. Trades whose profit at target 1 is under 3x the charges are skipped.
-- **Lock ladder in rupees per lot, trail in % of the premium.** Defaults: once a trade is up ₹700 per lot the stop locks ₹400, at ₹1,000 it locks ₹700, at ₹1,500 ₹1,200, at ₹2,500 ₹2,200, and between rungs it follows (profit - kept) behind the best profit (two lots double every number). You can edit the rungs on the Options tab (Change limits > Profit lock ladder), or `lockLadder` on `PUT /api/options`; an empty list goes back to the built-in ladder. It never sits below cost plus 1.5x charges. A trailing stop also follows the best premium at 25% distance (0 turns it off). All settings are on the Options tab (`GET/PUT /api/options`).
+- **Stop and lock from the Account page.** The option stop is a fixed number of rupees (default ₹500) spread over the lots: the stop premium is entry minus that sum divided by the units, and the trader uses fewer lots when the stop would sit under 3% of the premium. There are no targets, no trailing stop and no chart-stop or stall exits any more; the lock starts at +₹1,000 and stays ₹100 behind the best profit. Limits (budget, lots, trades a day, minimum score) are on the Account page too (`GET/PUT /api/options`).
 - **Size.** Lots are limited by the most one trade may lose (default 7% of the Rs 30,000 set aside), the most lots (2), and the money left. The loss is measured at the Nifty chart stop (what the trade really loses when it sells), not at the wider backup premium stop, but even the backup stop may not lose more than 1.5x that limit.
 - **Time.** Everything is closed by 15:00 IST, and a trade that has gone nowhere for 30 minutes is closed (the premium melts every minute). After a losing trade it waits 20 minutes. At most 3 trades a day, one open at a time, and it stops for the day after losing 10% of the set-aside money.
 - **Log.** Every trade and every strong setup it turned down is written to `GET /api/options/log?day=` with the reason, the plan, the 15 score checks and how it ended (`STOP`, `LOCK`, `TARGET`, `TIME`, `MANUAL`, `SQUARE_OFF`).
-- **By hand.** The Signal tab shows both sides with their scores and reasons and a plan under each side (lots, when it sells, the loss, targets and lock ladder) and a Buy button that places exactly that plan.
+- **By hand.** The Signal tab shows both sides with their scores and reasons and a plan under each side (lots, the stop and the lock) and a Buy button that places exactly that plan.
 
 About 9 in 10 individual traders lose money in index options. This is a way to test the idea with paper money, not a promise. Real options orders are not built, and real auto orders would need broker and SEBI rules checked first.
 
@@ -391,7 +391,7 @@ Nothing trades before 09:15: the NSE pre-open session (09:00-09:15) is an auctio
 
 ## Options bought by hand
 
-The 15:00 cut-off and the 30-minute stall exit apply to the option trader's own trades only. An option you buy by hand (the Buy button on the Options tab) keeps its chart stop, targets, profit ladder, lock and trailing stop, but is not closed by those clock rules; the 15:15 square-off is its only time limit. Before this, a hand-bought option was sold within seconds whenever it was bought after 15:00.
+The 15:00 cut-off applies to the option trader's own trades only. An option you buy by hand keeps its stop and lock but is not closed by the clock; the 15:15 square-off is its only time limit.
 
 ## Look and menu
 
@@ -426,3 +426,8 @@ Nothing is predicted here: headline tags never change after they are stored and 
 ## Day report
 
 The Scanner tab has a **Day report** card. Tap **Copy report** (pick another day with the date field) to copy one text block of the day: the rules in force (including both lock ladders), every scanner idea and how it ended, the auto share trades and option trades with their exits, why trades were skipped, the morning news calls against what the stocks did, and the scanner's track record. Paste it into the chat to review a day. It contains prices, rules and results only. The same text is at `GET /api/report/day?day=2026-10-27`.
+
+
+## Setups that are off
+
+Level retest (−0.81R over 47 ideas) and VWAP pullback (−0.47R over 8) are switched off for good in `ALWAYS_OFF` in `server/src/scanner/service.js`, so the scanner no longer raises them as entries. Opening range breakout, Gap and go and News gap still run, and the 20-idea health check can switch those off on its own.

@@ -33,31 +33,22 @@ function ScoreBar({ score, minScore }) {
   );
 }
 
-/** The plan the trader would place if you bought now: size, the stop and when it sells, the loss, the targets and the lock ladder. */
-function PlanPreview({ preview, type }) {
+/** The plan the trader would place if you bought now: size, the stop and the profit lock from the Account tab. */
+function PlanPreview({ preview }) {
   if (!preview) return null;
   if (preview.skipped) return <p className="rounded-lg bg-surface-2 p-2 text-xs text-muted">Would not buy now: {preview.skipped}.</p>;
   const p = preview.plan;
   const rs = (v) => `₹${formatInt(v)}`;
-  const perLot = (price) => (price - p.premium) * p.lotSize;
-  const ladder = p.lockSteps.map((s) => `+${rs(s.at / p.lots)} keeps ${rs(s.keep / p.lots)}`).join(' · ');
-  const way = type === 'CE' ? 'at or below' : 'at or above';
   return (
     <div className="space-y-1 rounded-lg bg-surface-2 p-2 text-xs">
       <div className="font-semibold text-fg">
         If you buy now: {p.lots} lot{p.lots > 1 ? 's' : ''} at ₹{formatPrice(p.premium)} ({rs(p.lots * p.lotSize * p.premium)})
       </div>
-      <p className="text-muted">
-        <b className="text-fg">Exit:</b> sells when a 1-minute Nifty candle closes {way} {formatPrice(p.stopSpot)} ({p.stopNote}). Backup premium stop ₹{formatPrice(p.stopLoss)} (−{p.lossPct}%).
+      <p className="num text-muted">
+        <b className="text-fg">Stop:</b> {p.stopLoss != null ? `₹${formatPrice(p.stopLoss)} (−${p.lossPct}%), a loss of about ${rs(p.maxLoss)}` : 'none'}. It does not trail.
       </p>
       <p className="num text-muted">
-        <b className="text-fg">Loss:</b> about {rs(p.maxLoss)} at the Nifty stop, at most {rs(p.worstCase)} if only the backup stop works.
-      </p>
-      <p className="num text-muted">
-        <b className="text-fg">Targets (per lot):</b> {rs(perLot(p.target1))} at ₹{formatPrice(p.target1)}, sale {rs(perLot(p.target3))} at ₹{formatPrice(p.target3)}. {p.targetNote ? `First target: ${p.targetNote}.` : ''}
-      </p>
-      <p className="num text-muted">
-        <b className="text-fg">Lock (per lot):</b> {ladder}, then the stop trails behind the best profit.
+        <b className="text-fg">Lock:</b> {p.lockStart > 0 ? `from +${rs(p.lockStart)} the stop keeps ${rs(p.lockStart - p.lockGap)}, then follows ${rs(p.lockGap)} behind the best profit` : 'off'}. No sale target.
       </p>
     </div>
   );
@@ -108,7 +99,7 @@ function SideCard({ side, contract, preview, best, minScore, busy, gate, onBuy }
         <b className="text-fg">Chart stop:</b> Nifty {formatPrice(side.stop.price)} ({side.stop.note}).
         {side.levels.length > 0 && <> Next levels: {side.levels.map((l) => `${formatPrice(l.price)} ${l.kind}`).join(', ')}.</>}
       </p>
-      <PlanPreview preview={preview} type={side.type} />
+      <PlanPreview preview={preview} />
       <button type="button" onClick={() => setWhy((v) => !v)} className="flex items-center gap-1 text-xs text-accent">
         {why ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />} Why this score
       </button>
@@ -133,7 +124,7 @@ function SideCard({ side, contract, preview, best, minScore, busy, gate, onBuy }
   );
 }
 
-/** The Nifty chart read for both sides, with a way to take either one by hand using the same stop and ladder the auto trader uses. */
+/** The Nifty chart read for both sides, with a way to take either one by hand using the same stop and profit lock the auto trader uses. */
 export function OptionsSignal({ minScore, onBought }) {
   const { data, reload } = useApi('/options/read', []);
   const { refresh } = useMarket();
@@ -148,11 +139,11 @@ export function OptionsSignal({ minScore, onBought }) {
   async function buy(type, contract, preview) {
     const lots = preview?.plan?.lots ?? 1;
     const cost = formatINR(contract.lotCost * lots);
-    if (!window.confirm(`Buy ${lots} lot${lots > 1 ? 's' : ''} of ${contract.label} for about ${cost} (paper money)? The stop comes from the Nifty chart.`)) return;
+    if (!window.confirm(`Buy ${lots} lot${lots > 1 ? 's' : ''} of ${contract.label} for about ${cost} (paper money)? The stop and profit lock come from your Account tab.`)) return;
     setBusy(true);
     try {
       const { plan } = await api('/options/buy', { method: 'POST', body: { type, lots } });
-      toast.success(`Bought ${plan.lots} lot ${plan.type}: stop ₹${formatPrice(plan.stopLoss)} (−${plan.lossPct}%), target 1 ₹${formatPrice(plan.target1)}`);
+      toast.success(`Bought ${plan.lots} lot ${plan.type}: stop ₹${formatPrice(plan.stopLoss)} (−${plan.lossPct}%)`);
       refresh?.();
       onBought?.();
     } catch (e) {

@@ -37,7 +37,7 @@ const run = (legacy, skipDays, n, exits = 'target1', scale = 1) => symbols.flatM
 const money = (n) => (n == null ? '-' : `₹${n.toLocaleString('en-IN')}`);
 const line = (label, e) => `${label.padEnd(22)} ${String(e.trades).padStart(4)} trades  win ${String(e.winRate ?? '-').padStart(3)}%  avg win ${money(e.avgWin)}  avg loss ${money(e.avgLoss)}  expectancy ${money(e.expectancy)}  PF ${e.profitFactor ?? '-'}  net ${money(e.totalNet)}  charges ${money(e.totalCharges)}  max drawdown ${money(e.maxDrawdown)}`;
 
-console.log(`${symbols.length} stocks, risk ${money(opts.riskAmount)} per trade, slippage ${opts.slippagePct}% each way, charges included.\nNo order book in replay; a bar that touches both stop and target counts as the stop.\n"Live exits" replays what the auto trader does after buying: the climbing stop (no sale target) and the 15:15 square-off.${stopScale !== 1 ? ` Stops are scaled by ${stopScale}.` : ''}${breakeven > 0 ? ` An extra rung moves the stop up at +${breakeven}%.` : ''}\n`);
+console.log(`${symbols.length} stocks, risk ${money(opts.riskAmount)} per trade, slippage ${opts.slippagePct}% each way, charges included.\nNo order book in replay; a bar that touches both stop and target counts as the stop.\n"Live exits" replays what the auto trader does after buying: the earlier percent climbing stop (no sale target) and the 15:15 square-off. Live trading now uses the rupee lock from the Account tab, so this replay is a rough guide only.${stopScale !== 1 ? ` Stops are scaled by ${stopScale}.` : ''}${breakeven > 0 ? ` An extra rung moves the stop up at +${breakeven}%.` : ''}\n`);
 for (const [name, skip, n] of [['Tuning period', holdout, days], ['Unseen period', 0, holdout]]) {
   console.log(`${name}`);
   const old = run(true, skip, n);

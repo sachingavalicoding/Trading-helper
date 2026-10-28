@@ -32,8 +32,8 @@ test('the day report is one text block with the rules, ideas, trades, skips and 
   const t = r.body.text;
   assert.match(t, /# Nifty paper trader: day report for/);
   assert.match(t, /## Rules in force/);
-  assert.match(t, /lock ladder \(% of money\): \+0\.3% keeps 0\.15%/);
-  assert.match(t, /lock ladder \(₹ per lot\): \+700 keeps 400/);
+  assert.match(t, /Auto shares: .*stop ₹200 a trade; once the profit reaches ₹250 the stop follows ₹50 behind the best profit/);
+  assert.match(t, /Auto options: .*stop ₹500 a trade; once the profit reaches ₹1000 the stop follows ₹100 behind the best profit/);
   assert.match(t, /SBIN BUY ORB score 82: entry 800, SL 796, T1 806 -> STOPPED at 796 \(-1R\)/);
   assert.match(t, /## Auto share trades \(1 placed, 1 closed: 0 won, 1 lost, net -₹450/);
   assert.match(t, /SBIN BUY qty 100 ORB score 82: bought at 800\.1, stop 796 -> STOP at 796, net -₹450/);

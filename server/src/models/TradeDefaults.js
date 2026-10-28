@@ -1,16 +1,35 @@
 import mongoose from 'mongoose';
 
-// Per-user profit lock applied to every new position (manual or auto). Editable per position later.
+// Per-user stop and profit lock for every new position, auto or by hand, set apart for shares and for options.
+// The stop is the rupees one trade may lose; the lock starts once the profit reaches `lockStart`, keeps `lockStart - lockGap`,
+// and from then on follows `lockGap` behind the best profit, so +₹1,000 keeps ₹900, +₹1,100 keeps ₹1,000 and so on.
+const rules = (stopLoss, lockStart, lockGap) => ({
+  stopLoss: { type: Number, default: stopLoss, min: 0 }, // rupees lost if the stop is hit; 0 = no automatic stop
+  lockStart: { type: Number, default: lockStart, min: 0 }, // profit in rupees at which the lock starts; 0 = no profit lock
+  lockGap: { type: Number, default: lockGap, min: 1 }, // rupees the stop stays behind the best profit
+});
+
 const tradeDefaultsSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
-    lockEnabled: { type: Boolean, default: true },
-    lockTrigger: { type: Number, default: 1000, min: 1 }, // profit in rupees at which the stop starts protecting
-    lockAmount: { type: Number, default: 300, min: 1 }, // profit in rupees the stop then locks in
-    lockRatio: { type: Number, default: 0.5, min: 0.1, max: 1 }, // share of each extra rupee of profit that is also locked in
+    shares: rules(200, 250, 50),
+    options: rules(500, 1000, 100),
   },
   { timestamps: true },
 );
 
-export const TRADE_DEFAULTS = { lockEnabled: true, lockTrigger: 1000, lockAmount: 300, lockRatio: 0.5 };
+export const TRADE_DEFAULTS = { shares: { stopLoss: 200, lockStart: 250, lockGap: 50 }, options: { stopLoss: 500, lockStart: 1000, lockGap: 100 } };
 export const TradeDefaults = mongoose.model('TradeDefaults', tradeDefaultsSchema);
+
+/** The stop and lock rules for one segment ('EQ' or 'OPT'), with anything unset falling back to the built-in values. */
+export function rulesFor(doc, segment) {
+  const key = segment === 'OPT' ? 'options' : 'shares';
+  const base = TRADE_DEFAULTS[key];
+  const d = doc?.[key] ?? {};
+  return { stopLoss: d.stopLoss ?? base.stopLoss, lockStart: d.lockStart ?? base.lockStart, lockGap: d.lockGap ?? base.lockGap };
+}
+
+/** The same rules for the segment of a user, read from the database. */
+export async function loadRules(userId, segment) {
+  return rulesFor(await TradeDefaults.findOne({ user: userId }).lean(), segment);
+}

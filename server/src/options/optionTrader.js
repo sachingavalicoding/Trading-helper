@@ -3,6 +3,7 @@ import { getFunds } from '../services/walletService.js';
 import { UNDERLYING, isOptionSymbol, optionLabel } from './symbols.js';
 import { readNifty } from './signal.js';
 import { planTrade } from './plan.js';
+import { loadRules } from '../models/TradeDefaults.js';
 import { istParts } from '../market/marketHours.js';
 import { logger } from '../utils/logger.js';
 
@@ -10,16 +11,14 @@ const round2 = (n) => Math.round(n * 100) / 100;
 
 const SCAN_MS = 15000;
 const EXIT_MINUTE = 15 * 60; // all option trades are closed by 15:00 IST: the last half hour is where premiums melt and spreads widen
-const STALL_MINUTES = 30; // a trade that has gone nowhere for this long is closed: time decay works against it every minute
-const STALL_PROGRESS_R = 0.3; // "gone nowhere" = never got this far (in risk units) in our favour
 const COOLDOWN_AFTER_STOP_MIN = 20;
 const SAME_SIDE_COOLDOWN_MIN = 15;
 const LOG_REPEAT_MS = 30 * 60000; // the same skip reason is written to the log at most this often
 
 /**
  * Paper options trader for Nifty 50 index options. Every 15 seconds it reads the Nifty chart; when one side (call or put)
- * has a strong, unblocked case it buys one at-the-money contract with a stop taken from the chart, a target ladder and a
- * profit lock. It also closes trades the chart has proved wrong, trades that have stalled, and everything by 15:00.
+ * has a strong, unblocked case it buys one at-the-money contract. The stop and the profit lock are the user's rules from the
+ * Account tab, which the order engine puts on every new position. It closes everything by 15:00.
  * It only ever calls the paper order engine.
  */
 export class OptionTrader {
@@ -47,7 +46,6 @@ export class OptionTrader {
     for (const log of await AutoLog.find({ segment: 'OPT', status: 'OPEN' }).lean()) {
       this.#watch(log.user, log.symbol, {
         type: log.detail?.type,
-        stopSpot: log.detail?.stopSpot,
         entry: log.fillPrice ?? log.entry,
         risk: Math.abs((log.fillPrice ?? log.entry) - log.stopLoss),
         openedAt: log.decidedAt,
@@ -82,7 +80,7 @@ export class OptionTrader {
   /** What one lot (or the lots the settings allow) of each side would be, shown before you buy: the same plan the trader would place. */
   async preview(userId, read, contracts) {
     const settings = (await OptionSettings.findOne({ user: userId }).lean()) || new OptionSettings({ user: userId }).toObject();
-    const [today, funds] = await Promise.all([this.todaySummary(userId), getFunds(userId, this.config.startingBalance)]);
+    const [today, funds, rules] = await Promise.all([this.todaySummary(userId), getFunds(userId, this.config.startingBalance), loadRules(userId, 'OPT')]);
     const out = {};
     for (const type of ['CE', 'PE']) {
       const contract = contracts[type];
@@ -91,7 +89,7 @@ export class OptionTrader {
         out[type] = { skipped: 'no live premium for the contract' };
         continue;
       }
-      const planned = planTrade({ read: side, market: read.market, contract, premium: contract.ltp, settings, available: funds.available, spentBudget: today.spent, now: this.now() });
+      const planned = planTrade({ market: read.market, contract, premium: contract.ltp, settings, rules, available: funds.available, spentBudget: today.spent, now: this.now() });
       out[type] = planned.skipped ? { skipped: planned.skipped } : { plan: planned.plan };
     }
     return out;
@@ -212,27 +210,20 @@ export class OptionTrader {
     const contract = await this.market.pickOption({ type: side.type, now: this.now() });
     if (!contract?.ltp) return stop('no option contract with a live price');
     const funds = await getFunds(userId, this.config.startingBalance);
-    const planned = planTrade({ read: side, market: read.market, contract, premium: contract.ltp, settings, available: funds.available, spentBudget: today.spent, now: this.now(), lots });
+    const planned = planTrade({ market: read.market, contract, premium: contract.ltp, settings, rules: await loadRules(userId, 'OPT'), available: funds.available, spentBudget: today.spent, now: this.now(), lots });
     if (planned.skipped) return stop(planned.skipped);
     const plan = planned.plan;
 
     let order;
     try {
-      ({ order } = await this.engine.placeOrder(userId, { symbol: plan.symbol, side: 'BUY', orderType: 'MARKET', qty: plan.qty, stopLoss: plan.stopLoss, target: plan.target3, source: manual ? 'MANUAL' : 'AUTO' }));
+      ({ order } = await this.engine.placeOrder(userId, { symbol: plan.symbol, side: 'BUY', orderType: 'MARKET', qty: plan.qty, stopLoss: plan.stopLoss ?? undefined, source: manual ? 'MANUAL' : 'AUTO' }));
     } catch (e) {
       return stop(`order not placed: ${e.message}`);
     }
     if (order.status !== 'FILLED') return stop(order.rejectReason || `order was ${String(order.status).toLowerCase()}`);
-    await this.engine.setSteps(userId, plan.symbol, [plan.target1, plan.target2]);
-    try {
-      await this.engine.setExits(userId, plan.symbol, { ...(plan.lockSteps.length ? { lockSteps: plan.lockSteps } : {}), ...(plan.trailPct ? { trailPct: plan.trailPct } : {}) });
-    } catch (e) {
-      logger.warn(`options lock for ${plan.symbol} not set: ${e.message}`);
-    }
-
     const position = await Position.findOne({ user: userId, symbol: plan.symbol, status: 'OPEN' }, '_id').lean();
     const fill = order.avgFillPrice ?? plan.premium;
-    this.#watch(userId, plan.symbol, { type: plan.type, stopSpot: plan.stopSpot, entry: fill, risk: Math.max(fill - plan.stopLoss, 0.05), openedAt: this.now(), manual, bestR: 0, worstR: 0 });
+    this.#watch(userId, plan.symbol, { type: plan.type, entry: fill, risk: Math.max(fill - (plan.stopLoss ?? 0), 0.05), openedAt: this.now(), manual, bestR: 0, worstR: 0 });
     await this.#record(settings, {
       symbol: plan.symbol,
       side: 'BUY',
@@ -242,9 +233,6 @@ export class OptionTrader {
       status: 'OPEN',
       entry: plan.premium,
       stopLoss: plan.stopLoss,
-      target1: plan.target1,
-      target2: plan.target2,
-      riskReward: plan.riskReward,
       ltp: contract.ltp,
       qty: order.qty,
       fillPrice: fill,
@@ -256,7 +244,7 @@ export class OptionTrader {
     return { order, plan };
   }
 
-  /** Buy now by hand, with the same chart stop, ladder and lock as the automatic trader. `type` is 'CE' or 'PE'. */
+  /** Buy now by hand, with the same stop and profit lock as the automatic trader. `type` is 'CE' or 'PE'. */
   async enterManually(userId, type, lots = 1) {
     const read = await this.read();
     if (!read.ready) return { skipped: 'the Nifty chart is not ready yet' };
@@ -294,7 +282,6 @@ export class OptionTrader {
   }
 
   #onTick({ symbol, ltp }) {
-    if (symbol === UNDERLYING) this.#indexMinute(ltp);
     if (!this.open.size) return;
     for (const w of this.open.values()) {
       if (symbol === w.symbol && w.risk) {
@@ -306,32 +293,13 @@ export class OptionTrader {
   }
 
   /**
-   * The chart says the idea is wrong when a 1-minute candle of the index CLOSES beyond the stop level, even if the premium has not
-   * fallen that far yet. One tick through the level (a wick) does not count: that is how a good trade gets shaken out. The premium
-   * stop in the order engine stays as the backup for a fast move.
-   */
-  #indexMinute(ltp) {
-    const minute = Math.floor(this.now().getTime() / 60000);
-    if (this.bar && this.bar.minute !== minute) {
-      const close = this.bar.last;
-      for (const w of this.open.values()) {
-        if (w.stopSpot != null && (w.type === 'CE' ? close <= w.stopSpot : close >= w.stopSpot)) this.#exit(w.user, w.symbol, 'STOP').catch(() => {});
-      }
-    }
-    this.bar = { minute, last: ltp };
-  }
-
-  /**
-   * Time exits for one user's open option trades: the 15:00 cut-off, and trades that have stalled.
-   * A trade you bought by hand is never closed by these clock rules: it keeps its stop, targets, ladder and lock,
-   * and the 15:15 square-off is the only time limit. Closing it a few seconds after you bought it was a surprise.
+   * The 15:00 cut-off for the auto trader's open option trades.
+   * A trade you bought by hand is never closed by it: it keeps its stop and lock, and the 15:15 square-off is the only time limit.
    */
   async manage(userId) {
     const { minutes } = istParts(this.now());
     for (const w of [...this.open.values()].filter((x) => x.user === String(userId) && !x.manual)) {
-      const held = (this.now() - new Date(w.openedAt)) / 60000;
       if (minutes >= EXIT_MINUTE) await this.#exit(w.user, w.symbol, 'TIME');
-      else if (held >= STALL_MINUTES && w.bestR < STALL_PROGRESS_R && (this.market.getLtp(w.symbol) ?? w.entry) <= w.entry) await this.#exit(w.user, w.symbol, 'TIME');
     }
   }
 

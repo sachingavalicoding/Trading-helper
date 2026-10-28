@@ -3,10 +3,8 @@ import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { AutoLog, AutoSettings, OptionSettings, ScanIdea } from '../models/index.js';
 import { buildDayReport } from '../report/dayReport.js';
-import { LADDER } from '../scanner/replay.js';
-import { OPTION_LADDER } from '../options/plan.js';
 import { summarizeIdeas } from '../scanner/stats.js';
-import { effectiveLadder, ladderRows } from '../utils/ladder.js';
+import { loadRules } from '../models/TradeDefaults.js';
 import { logger } from '../utils/logger.js';
 
 const query = z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
@@ -34,8 +32,9 @@ export function reportRoutes({ engine, market, review }) {
       generatedAt: new Date(),
       market: { provider: status.feed?.provider, simulated: status.feed?.simulated },
       settings: {
-        auto: { ...auto, lockLadder: ladderRows(effectiveLadder(auto.lockLadder, LADDER)) },
-        options: { ...opt, lockLadder: ladderRows(effectiveLadder(opt.lockLadder, OPTION_LADDER)) },
+        auto,
+        options: opt,
+        rules: { shares: await loadRules(req.userId, 'EQ'), options: await loadRules(req.userId, 'OPT') },
       },
       ideas,
       eqLog,

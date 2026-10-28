@@ -9,7 +9,9 @@ import { useApi } from '../lib/useApi.js';
 import { api } from '../lib/api.js';
 import { useStartingBalance } from '../lib/useStartingBalance.js';
 import { formatINR, formatPnl, pnlClass } from '../lib/format.js';
-import { Badge, Card, Skeleton, Disclaimer } from '../components/ui.jsx';
+import { Card, Skeleton, Disclaimer } from '../components/ui.jsx';
+import { AutoLimits } from '../components/AutoCard.jsx';
+import { OptionsLimits } from '../components/options/OptionsAutoCard.jsx';
 
 function Row({ label, value, className = '' }) {
   return (
@@ -20,64 +22,85 @@ function Row({ label, value, className = '' }) {
   );
 }
 
-/** The profit lock every new trade starts with (you can still change it per trade). */
-function ProfitLockDefaults() {
-  const { data, reload } = useApi('/trade-defaults', []);
-  const [trigger, setTrigger] = useState(null);
-  const [amount, setAmount] = useState(null);
-  const [ratio, setRatio] = useState(null);
-  if (!data) return <Skeleton className="h-28" />;
-  const t = trigger ?? String(data.lockTrigger);
-  const a = amount ?? String(data.lockAmount);
-  const r = ratio ?? String(Math.round((data.lockRatio ?? 0.5) * 100));
-  const bad = !(Number(a) > 0 && Number(t) > Number(a)) || !(Number(r) >= 10 && Number(r) <= 100);
+const NUM = 'field num mt-1 !py-2';
 
-  async function save(patch) {
-    try {
-      await api('/trade-defaults', { method: 'PUT', body: patch });
-      toast.success('Saved. New trades use this.');
-      setTrigger(null);
-      setAmount(null);
-      setRatio(null);
-      reload();
-    } catch (e) {
-      toast.error(e.message || 'Could not save');
-    }
-  }
-
-  const input = 'field num mt-1 !py-2';
+/** One segment's stop and profit lock: three numbers, kept as text while typing. */
+function RulesForm({ title, rules, onSave, saved }) {
+  const [draft, setDraft] = useState(null);
+  const v = draft ?? { stopLoss: String(rules.stopLoss), lockStart: String(rules.lockStart), lockGap: String(rules.lockGap) };
+  const n = (k) => Number(v[k]);
+  const bad = !(n('stopLoss') >= 0) || !(n('lockStart') >= 0) || !(n('lockGap') >= 1) || (n('lockStart') > 0 && n('lockStart') <= n('lockGap'));
+  const set = (k) => (e) => setDraft({ ...v, [k]: e.target.value });
   return (
-    <Card className="space-y-3 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            Profit lock <Badge tone={data.lockEnabled ? 'up' : 'muted'}>{data.lockEnabled ? 'On' : 'Off'}</Badge>
-          </div>
-          <p className="text-xs text-muted">Protects profit on every new trade, manual or auto.</p>
-        </div>
-        <button type="button" role="switch" aria-checked={data.lockEnabled} aria-label="Profit lock" onClick={() => save({ lockEnabled: !data.lockEnabled })} className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${data.lockEnabled ? 'bg-accent' : 'bg-surface-3'}`}>
-          <span className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white transition-transform ${data.lockEnabled ? 'translate-x-5' : ''}`} />
-        </button>
-      </div>
+    <div className="space-y-2">
+      <div className="text-sm font-semibold">{title}</div>
       <div className="grid grid-cols-3 gap-3">
         <label className="text-xs text-muted">
-          When profit reaches (₹)
-          <input className={input} inputMode="numeric" value={t} onChange={(e) => setTrigger(e.target.value)} />
+          Stop loss (₹ a trade)
+          <input className={NUM} inputMode="numeric" value={v.stopLoss} onChange={set('stopLoss')} />
         </label>
         <label className="text-xs text-muted">
-          Lock in profit of (₹)
-          <input className={input} inputMode="numeric" value={a} onChange={(e) => setAmount(e.target.value)} />
+          Lock starts at profit (₹)
+          <input className={NUM} inputMode="numeric" value={v.lockStart} onChange={set('lockStart')} />
         </label>
         <label className="text-xs text-muted">
-          Then lock % of extra
-          <input className={input} inputMode="numeric" value={r} onChange={(e) => setRatio(e.target.value)} />
+          Stays behind by (₹)
+          <input className={NUM} inputMode="numeric" value={v.lockGap} onChange={set('lockGap')} />
         </label>
       </div>
-      {bad && <p className="text-xs text-down">The trigger must be larger than the amount you lock in.</p>}
-      <button type="button" disabled={bad || (trigger == null && amount == null && ratio == null)} onClick={() => save({ lockTrigger: Number(t), lockAmount: Number(a), lockRatio: Number(r) / 100 })} className="btn btn-primary w-full">
-        Save
+      {bad && <p className="text-xs text-down">The lock start must be larger than the gap it stays behind (or 0 for no lock).</p>}
+      <button type="button" disabled={bad || draft == null} onClick={async () => { if (await onSave({ stopLoss: n('stopLoss'), lockStart: n('lockStart'), lockGap: n('lockGap') })) setDraft(null); }} className="btn btn-primary w-full">
+        {saved ? 'Saved' : `Save ${title.toLowerCase()}`}
       </button>
-      <p className="text-[11px] leading-snug text-muted">Example: at ₹1,000 profit the stop locks in ₹300. Every extra ₹200 of profit then lifts the lock by ₹100 (50%), so at ₹2,000 profit ₹800 is locked. It never moves back, and it can close a trade early if price dips after a spike.</p>
+      <p className="text-[11px] leading-snug text-muted">
+        {n('lockStart') > 0 && n('lockGap') > 0 && n('lockStart') > n('lockGap')
+          ? `Example: at +₹${n('lockStart')} the stop keeps ₹${n('lockStart') - n('lockGap')}; at +₹${n('lockStart') + n('lockGap')} it keeps ₹${n('lockStart')}, and so on. It never moves back.`
+          : 'No profit lock.'}{' '}
+        {n('stopLoss') > 0 ? `Every trade starts with a stop that loses at most ₹${n('stopLoss')}.` : 'No automatic stop.'}
+      </p>
+    </div>
+  );
+}
+
+/** Stop loss, profit lock and limits for shares and options. These apply to every new trade, auto or by hand. */
+function TradingRules() {
+  const { data, reload } = useApi('/trade-defaults', []);
+  const options = useApi('/options', []);
+  const [saved, setSaved] = useState('');
+  if (!data) return <Skeleton className="h-40" />;
+
+  const save = (key) => async (rules) => {
+    try {
+      await api('/trade-defaults', { method: 'PUT', body: { [key]: rules } });
+      toast.success('Saved. New trades use this.');
+      setSaved(key);
+      reload();
+      options.reload();
+      return true;
+    } catch (e) {
+      toast.error(e.message || 'Could not save');
+      return false;
+    }
+  };
+
+  return (
+    <Card className="space-y-5 p-4">
+      <div>
+        <div className="text-sm font-semibold">Stop loss and profit lock</div>
+        <p className="text-xs text-muted">One set of rules for auto and manual trades. A trade placed with its own stop keeps that stop.</p>
+      </div>
+      <RulesForm key={`s${JSON.stringify(data.shares)}`} title="Shares" rules={data.shares} onSave={save('shares')} saved={saved === 'shares'} />
+      <RulesForm key={`o${JSON.stringify(data.options)}`} title="Options" rules={data.options} onSave={save('options')} saved={saved === 'options'} />
+      <div className="space-y-2 border-t border-line pt-3">
+        <div className="text-sm font-semibold">Auto shares: limits</div>
+        <AutoLimits />
+      </div>
+      {options.data && (
+        <div className="space-y-2 border-t border-line pt-3">
+          <div className="text-sm font-semibold">Auto options: limits</div>
+          <OptionsLimits data={options.data} reload={options.reload} />
+        </div>
+      )}
     </Card>
   );
 }
@@ -158,7 +181,7 @@ export default function Account() {
         ))}
       </div>
 
-      <ProfitLockDefaults />
+      <TradingRules />
 
       <Card className="divide-y divide-line">
         <button type="button" onClick={toggle} className="flex w-full items-center justify-between px-4 py-3.5 text-sm transition-colors hover:bg-surface-2">
