@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 
 export function Skeleton({ className = '' }) {
   return <div className={`skeleton ${className}`} aria-hidden="true" />;
@@ -74,4 +75,71 @@ export function Badge({ tone = 'muted', children, className = '' }) {
 
 export function Disclaimer({ className = '' }) {
   return <p className={`text-center text-[11px] text-muted ${className}`}>Paper trading for learning. Not investment advice.</p>;
+}
+
+const FOLD_KEY = 'npt_fold_';
+
+/** An open/closed choice that is remembered per section on this phone. Without storage (private mode) it just starts as `fallback`. */
+export function useFold(id, fallback = false) {
+  const [open, setOpen] = useState(() => {
+    try {
+      const v = localStorage.getItem(FOLD_KEY + id);
+      return v == null ? fallback : v === '1';
+    } catch {
+      return fallback;
+    }
+  });
+  const set = (next) => {
+    setOpen(next);
+    try {
+      localStorage.setItem(FOLD_KEY + id, next ? '1' : '0');
+    } catch {
+      /* the choice is simply not remembered */
+    }
+  };
+  return [open, set];
+}
+
+/**
+ * A section you can show or hide. The header always tells what is inside (`summary`), so a closed section still gives the picture.
+ * `plain` drops the card and shows only a heading row, for lists of cards.
+ */
+export function Fold({ id, title, summary, hint, icon: Icon, badge, defaultOpen = false, plain = false, className = '', children }) {
+  const [open, setOpen] = useFold(id, defaultOpen);
+  const body = useId();
+  const header = (
+    <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-controls={body} className={`flex w-full items-center gap-3 text-left ${plain ? 'py-1' : 'px-4 py-3.5'}`}>
+      {Icon && !plain && (
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent2-soft text-accent2">
+          <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
+        </span>
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-2">
+          <span className={plain ? 'text-sm font-semibold' : 'text-[15px] font-semibold'}>{title}</span>
+          {badge}
+        </span>
+        {(summary || hint) && <span className={`block text-xs leading-snug text-muted ${open && !plain ? '' : 'line-clamp-2'}`}>{summary || hint}</span>}
+      </span>
+      <ChevronDown className={`h-5 w-5 shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+    </button>
+  );
+  if (plain) {
+    return (
+      <section className={`space-y-2 ${className}`}>
+        {header}
+        <div id={body} hidden={!open} className="space-y-2">
+          {open && children}
+        </div>
+      </section>
+    );
+  }
+  return (
+    <Card className={className}>
+      {header}
+      <div id={body} hidden={!open} className="border-t border-line px-4 py-3">
+        {open && children}
+      </div>
+    </Card>
+  );
 }
