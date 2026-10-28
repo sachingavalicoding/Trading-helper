@@ -114,7 +114,7 @@ export function OptionsAutoCard({ data, reload }) {
         </button>
       </div>
       <p className="text-[11px] leading-snug text-muted">
-        Buys one Nifty at-the-money call or put when the chart is clear. The stop and the profit lock are the ones in your Account tab, and everything the auto trader bought is closed by 15:00.
+        Buys one Nifty at-the-money call or put when the chart is clear. The stop and the profit lock are the ones in your Account tab, and everything the auto trader bought is closed at the 15:15 square-off.
       </p>
       <p className="text-[11px] leading-snug text-muted">
         Buys on: {s.patternEntries ? `${s.patterns.length} chart patterns` : 'no chart patterns'}, score entries {s.scoreEntries ? 'on' : 'off'}. Change this in Account &gt; Entries.

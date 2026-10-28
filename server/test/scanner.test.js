@@ -163,14 +163,14 @@ test('a market moving hard against the trade lowers the score', () => {
   assert.ok(against.penalties.some((p) => /Nifty 50/.test(p)));
 });
 
-test('entries are only suggested between 09:30 and 14:30 IST when hours are enforced', () => {
+test('entries are only suggested between 09:30 and 15:15 IST when hours are enforced', () => {
   const { c1 } = orbLong();
   const at = (h, m) => new Date(Date.UTC(2026, 9, 22, h, m) - 330 * 60000);
   assert.ok(run(c1, { enforceWindows: true, now: at(10, 15) }).length > 0);
   assert.equal(run(c1, { enforceWindows: true, now: at(9, 20) }).length, 0);
-  assert.equal(run(c1, { enforceWindows: true, now: at(14, 40) }).length, 0);
+  assert.ok(run(c1, { enforceWindows: true, now: at(14, 40) }).length > 0);
   assert.ok(run(c1, { enforceWindows: true, now: at(14, 40), legacy: true }).length > 0, 'the old rules allowed entries until 14:45');
-  assert.equal(run(c1, { enforceWindows: true, now: at(15, 0) }).length, 0);
+  assert.equal(run(c1, { enforceWindows: true, now: at(15, 20) }).length, 0);
   assert.ok(run(c1, { enforceWindows: false, now: at(15, 0) }).length > 0);
 });
 

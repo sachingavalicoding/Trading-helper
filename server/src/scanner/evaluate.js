@@ -7,7 +7,7 @@ export const MAX_STOP_PCT = 1.2; // a stop wider than this risks too much on one
 export const MIN_SCORE = 70; // only strong ideas are shown or alerted
 const FIRST_ENTRY_MIN = 9 * 60 + 30; // opening range is only complete at 09:30
 export const EARLY_ENTRY_MIN = 9 * 60 + 20; // the news-gap setup may start once the first 5-minute bar has closed
-const LAST_ENTRY_MIN = 14 * 60 + 30; // late entries have little time to reach target 1 before the 15:15 square-off
+const LAST_ENTRY_MIN = 15 * 60 + 15; // no new idea after the 15:15 square-off (the reach gate already rejects targets too far for the time left)
 const LEGACY_LAST_ENTRY_MIN = 14 * 60 + 45;
 export const MAX_TARGET_VS_DAILY_RANGE = 0.8; // target 1 further than this share of the stock's usual daily range is unlikely to be reached
 export const MIN_ADAPTED_RR = 1.2; // a target pulled in to fit a slow stock must still pay at least this many times the risk
@@ -213,13 +213,13 @@ export function scoreCandidate(ctx, c, { legacy = false } = {}) {
   return { ...c, score: Math.max(0, Math.min(100, score)), checks, penalties, gates, blocked: gates.filter((g) => !g.pass).map((g) => g.text), news: ctx.news ?? null };
 }
 
-/** Only suggest entries between 09:30 and 14:30 IST. */
+/** Only suggest entries between 09:30 and 15:15 IST. */
 function inEntryWindow(now, legacy = false) {
   const { minutes } = istParts(now);
   return minutes >= FIRST_ENTRY_MIN && minutes < (legacy ? LEGACY_LAST_ENTRY_MIN : LAST_ENTRY_MIN);
 }
 
-/** 'open' for normal entries (09:30-14:30), 'early' from 09:20 when only the news-gap setup may fire, else 'closed'. */
+/** 'open' for normal entries (09:30-15:15), 'early' from 09:20 when only the news-gap setup may fire, else 'closed'. */
 export function entryWindow(now, legacy = false) {
   if (inEntryWindow(now, legacy)) return 'open';
   const { minutes } = istParts(now);

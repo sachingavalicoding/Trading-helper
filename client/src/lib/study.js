@@ -1,6 +1,6 @@
 import { formatPnl } from './format.js';
 
-export const EXIT_WORD = { STOP: 'Stop hit', LOCK: 'Profit lock', EOD: '15:00 close' };
+export const EXIT_WORD = { STOP: 'Stop hit', LOCK: 'Profit lock', EOD: '15:15 close' };
 export const FEW_TRADES = 10; // under this many trades a result is mostly luck
 
 /** "13 Oct 10:35" in IST, from epoch seconds. */
@@ -29,7 +29,7 @@ export function studyText(r) {
   if (!r) return '';
   const lines = [
     `Options study ${r.period.from} to ${r.period.to} (${r.period.days} trading days), ${sizingText(r.params)}, charges and slippage included, premiums estimated at ${Math.round(r.params.iv * 100)}% volatility.`,
-    `Profit lock +${r.params.lockStart} keeps ${r.params.lockStart - r.params.lockGap}; stop is the chart level on a closed 1-minute candle; closed at 15:00; at most ${r.params.maxPerDay} trades a day; stops wider than ${r.params.maxStopAtr} ATR skipped.`,
+    `Profit lock +${r.params.lockStart} keeps ${r.params.lockStart - r.params.lockGap}; stop is the chart level on a closed 1-minute candle; closed at 15:15; at most ${r.params.maxPerDay} trades a day; stops wider than ${r.params.maxStopAtr} ATR skipped.`,
     '',
   ];
   for (const t of r.techniques) {
