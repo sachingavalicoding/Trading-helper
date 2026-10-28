@@ -12,7 +12,6 @@ import { logger } from '../utils/logger.js';
 const round2 = (n) => Math.round(n * 100) / 100;
 
 const SCAN_MS = 15000;
-const EXIT_MINUTE = 15 * 60 + 15; // auto option trades are closed at the 15:15 IST square-off
 const COOLDOWN_AFTER_STOP_MIN = 20;
 const SAME_SIDE_COOLDOWN_MIN = 15;
 const LOG_REPEAT_MS = 30 * 60000; // the same skip reason is written to the log at most this often
@@ -135,8 +134,10 @@ export class OptionTrader {
       const status = this.engine.marketStatus();
       if (this.config.enforceMarketHours && !status.isOpen) return;
       const read = await this.read();
+      const nowMin = istParts(this.now()).minutes;
       for (const s of all) {
         try {
+          if (this.config.enforceMarketHours && nowMin >= (await loadRules(s.user, 'OPT')).exitMin) continue; // past the time you close: no new trade
           const modes = entryModes(s);
           if (modes.patterns.length) {
             const p = await this.considerPatterns(s, read);
@@ -369,13 +370,16 @@ export class OptionTrader {
   }
 
   /**
-   * The 15:15 close for the auto trader's open option trades.
+   * The time close for the auto trader's open option trades: the exit time set in the Account tab, 15:15 unless you changed it.
    * A trade you bought by hand is never closed by it: it keeps its stop and lock, and the 15:15 square-off is the only time limit.
    */
   async manage(userId) {
     const { minutes } = istParts(this.now());
-    for (const w of [...this.open.values()].filter((x) => x.user === String(userId) && !x.manual)) {
-      if (minutes >= EXIT_MINUTE) await this.#exit(w.user, w.symbol, 'TIME');
+    const mine = [...this.open.values()].filter((x) => x.user === String(userId) && !x.manual);
+    if (!mine.length) return;
+    const { exitMin } = await loadRules(userId, 'OPT');
+    for (const w of mine) {
+      if (minutes >= exitMin) await this.#exit(w.user, w.symbol, 'TIME');
     }
   }
 

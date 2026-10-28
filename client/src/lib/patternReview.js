@@ -1,5 +1,6 @@
 import { formatPnl } from './format.js';
 import { EXIT_WORD } from './study.js';
+import { DEFAULT_EXIT_MIN, timeText } from './ladder.js';
 
 const KEY = 'npt_watch_patterns';
 export const DEFAULT_WATCH = ['breakout', 'engulfing']; // the two that paid in the 30-day study
@@ -37,6 +38,7 @@ export const watched = (signals, watch) => signals.filter((s) => watch.includes(
 export function skipText(s, exits) {
   if (s.skipped === 'far') return 'Its stop is too far from the entry, so the bot skips it.';
   if (s.skipped === 'limit') return `Even one lot loses more than the ₹${exits?.lossLimit ?? ''} loss limit at its stop, so the bot skips it.`;
+  if (s.skipped === 'late') return `It formed at or after the ${timeText(exits?.exitMin ?? DEFAULT_EXIT_MIN)} exit time, so no trade is taken.`;
   if (s.skipped === 'price') return 'No option price could be worked out for that moment.';
   return '';
 }

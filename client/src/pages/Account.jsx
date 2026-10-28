@@ -7,7 +7,7 @@ import { useTheme } from '../context/ThemeContext.jsx';
 import { useMarket } from '../context/MarketContext.jsx';
 import { useApi } from '../lib/useApi.js';
 import { api } from '../lib/api.js';
-import { MAX_ROWS, ladderLines, ladderSummary, nextRow, rowsFromRules, rowsProblem, stepsOf } from '../lib/ladder.js';
+import { DEFAULT_EXIT_MIN, MAX_ROWS, ladderLines, ladderSummary, minOfTime, nextRow, rowsFromRules, rowsProblem, stepsOf, timeText } from '../lib/ladder.js';
 import { useStartingBalance } from '../lib/useStartingBalance.js';
 import { formatINR, formatPnl, pnlClass } from '../lib/format.js';
 import { Card, Skeleton, Disclaimer, PopupTile, Sheet, useFold } from '../components/ui.jsx';
@@ -29,11 +29,12 @@ const NUM = 'field num mt-1 !py-2';
 /** One segment's stop and its profit ladder: a stop in rupees, then rows of "profit reaches X, the stop keeps Y" that you type. */
 function RulesForm({ title, rules, onSave, saved, stopLabel = 'Stop loss (₹ a trade)', stopNote }) {
   const [draft, setDraft] = useState(null);
-  const v = draft ?? { stopLoss: String(rules.stopLoss), rows: rowsFromRules(rules) };
+  const v = draft ?? { stopLoss: String(rules.stopLoss), rows: rowsFromRules(rules), exitTime: timeText(rules.exitMin ?? DEFAULT_EXIT_MIN) };
   const edit = (next) => setDraft({ ...v, ...next });
   const setRow = (i, k) => (e) => edit({ rows: v.rows.map((r, j) => (j === i ? { ...r, [k]: e.target.value } : r)) });
   const problem = rowsProblem(v.rows);
-  const bad = !(Number(v.stopLoss) >= 0) || problem != null;
+  const exitMin = minOfTime(v.exitTime);
+  const bad = !(Number(v.stopLoss) >= 0) || problem != null || exitMin == null;
   const steps = stepsOf(v.rows);
   return (
     <div className="space-y-2">
@@ -41,6 +42,10 @@ function RulesForm({ title, rules, onSave, saved, stopLabel = 'Stop loss (₹ a 
       <label className="block text-xs text-muted">
         {stopLabel}
         <input className={NUM} inputMode="numeric" value={v.stopLoss} onChange={(e) => edit({ stopLoss: e.target.value })} />
+      </label>
+      <label className="block text-xs text-muted">
+        Close the auto trader's trades at (IST, 09:30 to 15:15)
+        <input type="time" min="09:30" max="15:15" className={NUM} value={v.exitTime} onChange={(e) => edit({ exitTime: e.target.value })} />
       </label>
       <div className="pt-1 text-xs font-semibold">Profit ladder</div>
       {v.rows.length === 0 ? (
@@ -69,12 +74,13 @@ function RulesForm({ title, rules, onSave, saved, stopLabel = 'Stop loss (₹ a 
         </button>
       )}
       {problem && <p className="text-xs text-down">{problem}</p>}
-      <button type="button" disabled={bad || draft == null} onClick={async () => { if (await onSave({ stopLoss: Number(v.stopLoss), steps })) setDraft(null); }} className="btn btn-primary w-full">
+      <button type="button" disabled={bad || draft == null} onClick={async () => { if (await onSave({ stopLoss: Number(v.stopLoss), steps, exitMin })) setDraft(null); }} className="btn btn-primary w-full">
         {saved && draft == null ? 'Saved' : `Save ${title.toLowerCase()}`}
       </button>
       <div className="space-y-1 text-[11px] leading-snug text-muted">
         {steps.length > 0 && !problem ? ladderLines(steps).map((l) => <p key={l.at}>{l.text}</p>) : null}
         {steps.length > 0 && !problem && <p>The stop never moves back. When the profit reaches the next row, that row takes over.</p>}
+        <p>{exitMin == null ? 'Enter a time from 09:30 to 15:15.' : `The auto trader closes its trades at ${v.exitTime} and takes no new one after it. The studies use this time too. A trade you place by hand is only closed by the 15:15 square-off.`}</p>
         <p>{stopNote ?? (Number(v.stopLoss) > 0 ? `Every trade starts with a stop that loses at most ₹${Number(v.stopLoss)}.` : 'No automatic stop.')}</p>
       </div>
     </div>
@@ -105,11 +111,11 @@ function TradingRules() {
     }
   };
 
-  const line = (r, stopWord) => `${r.stopLoss > 0 ? `${stopWord} ${rs(r.stopLoss)}` : 'no stop'} · ${ladderSummary(r.steps)}`;
+  const line = (r, stopWord) => `${r.stopLoss > 0 ? `${stopWord} ${rs(r.stopLoss)}` : 'no stop'} · ${ladderSummary(r.steps)} · close ${timeText(r.exitMin ?? DEFAULT_EXIT_MIN)}`;
 
   return (
     <>
-      <PopupTile icon={SlidersHorizontal} label="Limits" hint="Stop and profit lock" onClick={() => setOpen(true)} />
+      <PopupTile icon={SlidersHorizontal} label="Limits" hint="Stop, lock and exit time" onClick={() => setOpen(true)} />
       {open && (
         <Sheet title="Limits" subtitle={`Shares: ${line(data.shares, 'stop')}. Options: ${line(data.options, 'loss limit')}`} onClose={() => setOpen(false)}>
       <div className="space-y-5">

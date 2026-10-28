@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ExitTimeField, useExitTime } from '../study/ExitTimeField.jsx';
 import { ChevronDown, ClipboardCopy, FlaskConical, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { copyText } from '../../lib/copyText.js';
@@ -171,6 +172,7 @@ export function OptionsStudy() {
   const [target, setTarget] = useState('1000');
   const [lots, setLots] = useState(0);
   const { state, error, running, run } = useStudy('options');
+  const time = useExitTime('options');
   const targetValue = Number(target);
   const targetBad = exit === 'target' && !(targetValue >= 100 && targetValue <= 100000);
 
@@ -188,7 +190,7 @@ export function OptionsStudy() {
           <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
           <div>
             <h3 className="text-sm font-semibold">Which way of reading the chart pays?</h3>
-            <p className="text-[11px] leading-snug text-muted">Replays past Nifty candles. Each technique buys a call or put when its pattern shows, with the chart stop, closed at 15:15. Choose how a winning trade is sold below. This does not change the live trading.</p>
+            <p className="text-[11px] leading-snug text-muted">Replays past Nifty candles. Each technique buys a call or put when its pattern shows, with the chart stop, closed at the time you choose below. Choose how a winning trade is sold below. This does not change the live trading.</p>
           </div>
         </div>
         <Segmented className="w-full" size="sm" value={exit} onChange={setExit} options={[{ value: 'lock', label: 'Profit lock (your Account rule)' }, { value: 'target', label: 'Fixed target' }]} />
@@ -199,10 +201,11 @@ export function OptionsStudy() {
           </label>
         )}
         <Segmented className="w-full" size="sm" value={lots} onChange={setLots} options={[{ value: 0, label: 'Lots sized to my loss limit' }, { value: 1, label: '1 lot' }]} />
+        <ExitTimeField time={time} />
         {targetBad && <p className="text-xs text-down">The target must be between ₹100 and ₹1,00,000.</p>}
         <div className="flex items-center gap-2">
           <Segmented className="flex-1" size="sm" value={days} onChange={setDays} options={DAYS} />
-          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots })} disabled={running || targetBad} className="btn btn-primary btn-sm shrink-0">
+          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Run study'}
           </button>
         </div>

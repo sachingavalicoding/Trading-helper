@@ -33,6 +33,7 @@ const rulesSchema = z.object({
   lockStart: z.coerce.number().min(0).max(10_000_000),
   lockGap: z.coerce.number().min(1).max(10_000_000),
   steps: z.array(z.object({ at: z.coerce.number().min(0).max(10_000_000), keep: z.coerce.number().min(0).max(10_000_000) })).max(MAX_STEPS),
+  exitMin: z.coerce.number().int().min(9 * 60 + 30).max(15 * 60 + 15), // the time the auto trader closes its trades, in minutes after midnight IST
 }).partial();
 const defaultsSchema = z.object({ shares: rulesSchema.optional(), options: rulesSchema.optional() });
 // Shares and Nifty options are kept apart on every list: shares by default, options with ?segment=OPT.
@@ -118,6 +119,7 @@ export function tradingRoutes({ engine, market, config }) {
     const next = defaultsView(await TradeDefaults.findOne({ user: req.userId }).lean());
     for (const key of ['shares', 'options']) {
       const body = req.body[key] ?? {};
+      if (body.exitMin !== undefined) next[key].exitMin = body.exitMin;
       if (body.steps) {
         const problem = ladderProblem(body.steps);
         if (problem) return res.status(400).json({ error: { code: 'VALIDATION', message: `For ${key}, ${problem[0].toLowerCase()}${problem.slice(1)}` } });

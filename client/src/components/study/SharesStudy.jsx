@@ -6,6 +6,7 @@ import { formatPnl, formatPrice, pnlClass } from '../../lib/format.js';
 import { FEW_TRADES, istStamp, sharesExitText, sharesText } from '../../lib/study.js';
 import { useStudy } from '../../lib/useStudy.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
+import { ExitTimeField, useExitTime } from './ExitTimeField.jsx';
 
 const DAYS = [
   { value: 1, label: 'Today' },
@@ -58,6 +59,7 @@ export function SharesStudy() {
   const [exit, setExit] = useState('lock');
   const [target, setTarget] = useState('300');
   const { state, error, running, run } = useStudy('shares');
+  const time = useExitTime('shares');
   const targetValue = Number(target);
   const targetBad = exit === 'target' && !(targetValue >= 100 && targetValue <= 100000);
   const r = state?.result;
@@ -85,10 +87,11 @@ export function SharesStudy() {
             <input className="field num !w-24 !px-2 !py-1.5 text-right !text-sm" inputMode="numeric" value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Target profit per trade in rupees" />
           </label>
         )}
+        <ExitTimeField time={time} />
         {targetBad && <p className="text-xs text-down">The target must be between ₹100 and ₹1,00,000.</p>}
         <div className="flex items-center gap-2">
           <Segmented className="flex-1" size="sm" value={days} onChange={setDays} options={DAYS} />
-          <button type="button" onClick={() => run(days, { exit, target: targetValue || 300 })} disabled={running || targetBad} className="btn btn-primary btn-sm shrink-0">
+          <button type="button" onClick={() => run(days, { exit, target: targetValue || 300, exitMin: time.exitMin })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Run study'}
           </button>
         </div>

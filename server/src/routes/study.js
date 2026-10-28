@@ -14,6 +14,7 @@ const runSchema = z.object({
   exit: z.enum(['lock', 'target']).default('lock'),
   target: z.coerce.number().min(100).max(100000).default(1000),
   fixedLots: z.coerce.number().int().min(0).max(20).default(0),
+  exitMin: z.coerce.number().int().min(9 * 60 + 30).max(15 * 60 + 15).optional(), // the time everything is closed; left out = the one in Account Limits
 });
 const MAX_DAYS = { options: 60, shares: 15 }; // a share replay runs the whole scanner on 50 stocks, so it is kept short
 
