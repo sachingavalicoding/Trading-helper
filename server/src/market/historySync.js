@@ -66,7 +66,7 @@ export class HistorySync {
       }
       job.done = n + 1;
     }
-    job.step = 'Removing days older than a year';
+    job.step = 'Removing days older than three months';
     await this.store.prune();
   }
 
@@ -92,7 +92,7 @@ export class HistorySync {
     return Boolean(cov) && cov.to < this.store.lastCompleteDay();
   }
 
-  /** Every few minutes: after the close, add the day to the saved history, and trim it to a year. */
+  /** Every few minutes: after the close, add the day to the saved history, and trim it to three months. */
   schedule() {
     const tick = async () => {
       try {

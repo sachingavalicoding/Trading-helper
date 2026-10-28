@@ -313,12 +313,18 @@ Candle history (daily, minute and intraday) leaves for Upstox at most 5 requests
 
 ## Saved candle history
 
-Studies and Review read a year of 1-minute candles (Nifty and the 50 stocks) from your own MongoDB instead of calling Upstox again each time. Charts, option charts, trading and live prices still use Upstox directly.
+Studies and Review read three months of 1-minute candles (Nifty and the 50 stocks) from your own MongoDB instead of calling Upstox again each time. Charts, option charts, trading and live prices still use Upstox directly.
 
-- **First fill:** log in to Upstox, then Account > Studies > Data > "Download last 1 year" (or `POST /api/history/sync`). About 700 paced history requests, a few minutes; it resumes where it stopped if interrupted or rate limited. The sample (mock) feed has no history, so the button is refused there.
-- **Storage:** one packed, gzipped document per symbol per day (`CandleDay`, about 3 KB), plus a coverage record per symbol (`CandleCoverage`). Roughly 40 MB a year for 51 symbols, well inside the free Atlas tier. Only finished days are stored (a day counts as finished after 15:35 IST).
-- **Every evening** after 15:40 IST on weekdays the server adds the new day and deletes anything older than 366 days, but only once a first download exists.
-- **Reading:** a study over N days uses the saved days plus today's live candles. Before anything is saved it falls back to asking Upstox, as before. The Options study now offers up to 1 year (250 trading days); the Shares study stays at 15 days.
+- **One button:** log in to Upstox, then Account > Studies > Data > "Download last 3 months" (or `POST /api/history/sync`). It fetches only the days that are not saved yet, so pressing it again costs nothing, and it resumes where it stopped if it is interrupted or rate limited. The sample (mock) feed has no history, so the button is refused there.
+- **Storage:** one packed, gzipped document per symbol per day (`CandleDay`, about 3 KB) plus a coverage record per symbol (`CandleCoverage`). Roughly 10 MB for 51 symbols. Only finished days are stored (a day counts as finished after 15:35 IST).
+- **Every evening** after 15:40 IST on weekdays the server adds the new day and deletes anything older than 92 days, but only once a first download exists.
+- **Reading:** a study over N days uses the saved days plus today's live candles. Before anything is saved it falls back to asking Upstox, as before. The Options study offers up to 62 trading days (about 3 months); the Shares study stays at 15 days.
+
+## Options patterns
+
+The Options study and Review > Patterns test these on the Nifty 5-minute chart (a put is the mirror of a call): double bottom/top, sharp fall then turn, breakout of the last hour, opening range breakout (15 and 30 minutes), pullback to the 21 EMA, engulfing, hammer/shooting star, inside bar, supertrend flip, EMA 9/21 cross, 50-stock breadth, break of yesterday's high/low, strong momentum bar, and four that use volume: VWAP reclaim, VWAP pullback, breakout on high volume and volume climax.
+
+The index has no volume of its own, so VWAP and volume are built from the traded value (price times shares) of the 50 stocks. These four are tested only when the 50 stocks' candles are available (in Review, once they are saved) and are not offered to the live trader until a study shows they pay. The win rate and profit of each pattern depend on the days studied: read them in the study, not from this list.
 
 ## Honest limitations
 

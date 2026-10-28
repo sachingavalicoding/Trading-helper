@@ -5,10 +5,10 @@ import { addDays } from './days.js';
 
 // Saved 1-minute candles for the studies and Review, so they do not ask Upstox again and again.
 // A day of a symbol is one document: six columns of whole numbers (time, open, high, low, close in paise, volume), each stored as
-// the change from the row before it, then gzipped. About 3 KB a day, so a year of 51 symbols is in the tens of megabytes.
+// the change from the row before it, then gzipped. About 3 KB a day, so three months of 51 symbols is only a few megabytes.
 
 const CLOSE_MIN = 15 * 60 + 35; // after this a session's candles are all in and the day can be saved
-export const RETAIN_DAYS = 366;
+export const RETAIN_DAYS = 92; // three months
 
 /** Candles of one day -> Buffer. */
 export function packCandles(candles) {
@@ -41,7 +41,7 @@ export function unpackCandles(buf, count) {
 
 const dayOf = (t) => istParts(new Date(t * 1000)).dateKey;
 
-/** The saved history: read it, add to it, and trim it to the last year. */
+/** The saved history: read it, add to it, and trim it to the last three months. */
 export class HistoryStore {
   constructor({ now = () => new Date(), retainDays = RETAIN_DAYS } = {}) {
     this.now = now;

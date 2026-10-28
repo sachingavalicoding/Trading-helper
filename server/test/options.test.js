@@ -428,7 +428,7 @@ test('a breakout of the last hour is bought once, with the pattern name in the l
   const s = (await OptionSettings.create({ user: uid, enabled: true, patterns: ['breakout'] })).toObject();
   assert.deepEqual(entryModes({}), { patterns: ['breakout', 'insideBar', 'emaCross'], score: true }, 'settings saved before these switches existed get the defaults');
   assert.deepEqual(entryModes({ patternEntries: false, scoreEntries: false }), { patterns: [], score: false });
-  assert.ok(LIVE_PATTERNS.length === 11 && !LIVE_PATTERNS.some((p) => p.key === 'breadth'));
+  assert.ok(LIVE_PATTERNS.length === 14 && !LIVE_PATTERNS.some((p) => p.key === 'breadth'));
 
   assert.match((await optionTrader.considerPatterns({ ...s, patterns: ['insideBar'] }, breakoutRead())).skipped, /no pattern/, 'a pattern that is not chosen is not traded');
   assert.match((await optionTrader.considerPatterns({ ...s, patternEntries: false }, breakoutRead())).skipped, /switched on/);

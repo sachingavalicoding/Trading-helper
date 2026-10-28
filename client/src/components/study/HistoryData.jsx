@@ -3,13 +3,13 @@ import { Database, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
-import { jobPercent, savedText, syncLabel } from '../../lib/history.js';
+import { jobPercent, savedText, SYNC_LABEL } from '../../lib/history.js';
 import { Badge, Card, Skeleton } from '../ui.jsx';
 
 const JOB_TONE = { running: 'accent', done: 'up', partial: 'warn', failed: 'down' };
 const JOB_WORD = { running: 'Downloading', done: 'Finished', partial: 'Finished, some failed', failed: 'Failed' };
 
-/** Account > Studies > Data: the year of 1-minute candles saved in the database, which the studies and Review read. */
+/** Account > Studies > Data: the three months of 1-minute candles saved in the database, which the studies and Review read. */
 export function HistoryData() {
   const { data, error, reload } = useApi('/history');
   const [starting, setStarting] = useState(false);
@@ -25,7 +25,7 @@ export function HistoryData() {
   async function start() {
     setStarting(true);
     try {
-      await api('/history/sync', { method: 'POST', body: { days: 365 } });
+      await api('/history/sync', { method: 'POST', body: {} });
       reload();
     } catch (e) {
       toast.error(e.message || 'Could not start the download');
@@ -49,9 +49,9 @@ export function HistoryData() {
         {data.simulated && <p className="text-[11px] text-warn">The sample feed has no real history. Log in to Upstox, then download.</p>}
         <button type="button" onClick={start} disabled={starting || running || data.simulated} className="btn btn-primary w-full">
           <Download size={16} aria-hidden />
-          {running ? 'Downloading…' : syncLabel(data.saved)}
+          {running ? 'Downloading…' : SYNC_LABEL}
         </button>
-        <p className="text-[11px] leading-snug text-muted">The first full download makes about 700 requests to Upstox, paced to stay under its limit, so it takes several minutes. You can close this and it carries on. If it stops, press the button again and it resumes where it left off.</p>
+        <p className="text-[11px] leading-snug text-muted">The first full download asks Upstox for about 3 months of candles, paced to stay under its limit, so it takes a few minutes. Days already saved are never fetched again, so pressing it twice only fetches what is missing. After 15:40 each weekday the day is added on its own.</p>
       </Card>
 
       {job && job.state !== 'idle' && (

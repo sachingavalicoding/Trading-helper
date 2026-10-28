@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayText, jobPercent, savedText, sizeText, syncLabel } from './history.js';
+import { dayText, jobPercent, savedText, sizeText, SYNC_LABEL } from './history.js';
 
 describe('history helpers', () => {
   it('writes sizes in KB and MB', () => {
@@ -17,8 +17,7 @@ describe('history helpers', () => {
   });
 
   it('labels the button and counts progress', () => {
-    expect(syncLabel(null)).toBe('Download last 1 year');
-    expect(syncLabel({ days: 3 })).toBe('Update now');
+    expect(SYNC_LABEL).toBe('Download last 3 months');
     expect(jobPercent({ done: 17, total: 51 })).toBe(33);
     expect(jobPercent({ done: 0, total: 0 })).toBe(0);
   });

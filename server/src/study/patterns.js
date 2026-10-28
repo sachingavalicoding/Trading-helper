@@ -23,13 +23,27 @@ export const TECHNIQUES = [
   { key: 'supertrend', label: 'Supertrend flip', text: 'The supertrend (10, 3) turns from down to up. Stop at the supertrend line.' },
   { key: 'emaCross', label: 'EMA 9 / 21 cross', text: 'The 9 EMA crosses above the 21 EMA with price above both. Stop under the last 6 bars.' },
   { key: 'breadth', label: 'Nifty 50 breadth', text: 'At least 70% of the 50 stocks are above (call) or below (put) yesterday close and the index is on the same side of its day average. Stop under the last 6 bars.' },
+  // Added 29 Oct. `extra` keeps them out of the "together" rows, which keep their old meaning. `needs: 'flow'` means the 50 stocks' traded value is needed.
+  { key: 'orb30', label: 'Opening range breakout (30 min)', extra: true, text: 'The first close beyond the 09:15-09:45 range after 09:45, a wider and slower cousin of the 15-minute range. Stop at the other end of the range.' },
+  { key: 'pdBreak', label: "Yesterday's high / low break", extra: true, text: "The first 5-minute close of the day beyond the previous day's high (call) or low (put), after 09:30. Stop under the last 6 bars." },
+  { key: 'momentumBar', label: 'Strong momentum bar', extra: true, text: 'A big bar (1.5 ATR or more) that closes in its top 15% and above the highest high of the last 6 bars. Stop under the bar.' },
+  { key: 'vwapReclaim', label: 'VWAP reclaim / rejection', extra: true, needs: 'flow', text: 'Price closed under the volume-weighted average for 3 bars, then closes back above it on 1.2 times the usual volume. Stop under the last 6 bars. The index has no volume of its own, so VWAP and volume are built from the traded value of the 50 stocks.' },
+  { key: 'vwapPullback', label: 'VWAP pullback in a trend', extra: true, needs: 'flow', text: 'The index has held above a rising VWAP (8 of the last 12 bars), dips to touch it and closes above the previous bar high. Stop under the dip.' },
+  { key: 'volumeBreakout', label: 'Breakout on high volume', extra: true, needs: 'flow', text: 'The breakout of the last hour, on at least 1.5 times the usual volume (traded value of the 50 stocks). Stop under the last 6 bars.' },
+  { key: 'volumeClimax', label: 'Volume climax at a low / high', extra: true, needs: 'flow', text: 'A bar at the 20-bar low on 2.5 times the usual volume that closes in its top half: sellers look exhausted. Stop under the bar.' },
 ];
+
+/** Techniques that can be tested with the data at hand: the ones that need the 50 stocks' volume wait until it is known. */
+export const available = (t, { breadth = false, flow = false } = {}) => (t.key !== 'breadth' || breadth) && (t.needs !== 'flow' || flow);
 
 const mirror = (b) => ({ ...b, open: -b.open, high: -b.low, low: -b.high, close: -b.close });
 
 /** The chart seen as a call (d = 1) or mirrored as a put (d = -1), with its indicators, ready for the detectors. */
-export function prepare(bars, breadth = null) {
+export function prepare(bars, breadth = null, flow = null) {
   const out = {};
+  const dayOf0 = bars.map((b) => Math.floor((b.time + 19800) / 86400));
+  const hasFlow = Array.isArray(flow) && flow.length === bars.length && flow.some((x) => x > 0);
+  const vwap = hasFlow ? vwapSeries(bars, flow, dayOf0) : null;
   for (const d of [1, -1]) {
     const view = d > 0 ? bars : bars.map(mirror);
     const closes = view.map((b) => b.close);
@@ -40,6 +54,7 @@ export function prepare(bars, breadth = null) {
       e21: emaValues(closes, 21),
       e50: emaValues(closes, 50),
       breadth: breadth ? breadth.map((v) => (v == null ? null : d > 0 ? v : 1 - v)) : null,
+      vwap: vwap ? vwap.map((x) => (x == null ? null : d > 0 ? x : -x)) : null,
     };
   }
   const dayOf = bars.map((b) => Math.floor((b.time + 19800) / 86400));
@@ -50,7 +65,53 @@ export function prepare(bars, breadth = null) {
     dayStart.push(start);
   }
   const atrAt = bars.map((_, i) => (i >= 15 ? atr(bars.slice(Math.max(0, i - 40), i + 1), 14) : null));
-  return { bars, views: out, dayStart, atrAt };
+  const turn = hasFlow ? flow : null;
+  const turnAvg = turn ? turn.map((_, i) => meanOf(turn.slice(Math.max(0, i - 20), i))) : null; // the 20 bars before this one
+  return { bars, views: out, dayStart, atrAt, turn, turnAvg };
+}
+
+const meanOf = (xs) => (xs.length >= 10 && xs.every((x) => x != null) ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
+
+/**
+ * What the 50 stocks traded in each Nifty 5-minute bar (price times shares, summed), or null for a bar where fewer than 30 of them
+ * have a candle. The index has no volume of its own, so this stands in for it. `stocks5` is { SYMBOL: 5-minute candles }.
+ */
+export function turnoverSeries(bars5, stocks5) {
+  const lists = Object.values(stocks5 || {}).filter((c) => c && c.length > 10);
+  if (lists.length < 30) return null;
+  const sums = new Map();
+  for (const candles of lists) {
+    for (const c of candles) {
+      const slot = sums.get(c.time) || { total: 0, n: 0 };
+      slot.total += c.close * (c.volume || 0);
+      slot.n += 1;
+      sums.set(c.time, slot);
+    }
+  }
+  const out = bars5.map((b) => {
+    const slot = sums.get(b.time);
+    return slot && slot.n >= 30 ? slot.total : null;
+  });
+  return out.some((x) => x > 0) ? out : null;
+}
+
+/** Volume-weighted average price of the index through each day, weighted by the 50 stocks' traded value. Null once a bar of that day has no volume. */
+export function vwapSeries(bars, flow, dayOf) {
+  let weight = 0;
+  let value = 0;
+  let broken = false;
+  return bars.map((b, i) => {
+    if (i === 0 || dayOf[i] !== dayOf[i - 1]) {
+      weight = 0;
+      value = 0;
+      broken = false;
+    }
+    if (flow[i] == null || !(flow[i] > 0)) broken = true;
+    if (broken) return null;
+    weight += flow[i];
+    value += ((b.high + b.low + b.close) / 3) * flow[i];
+    return value / weight;
+  });
 }
 
 const tradeable = (time) => {
@@ -182,7 +243,71 @@ function breadthLed(v, i, ds, a) {
   return { stop: lowest(b, i - 5, i) - BUFFER_ATR * a, note: `${Math.round(br[i] * 100)}% of the 50 stocks on one side` };
 }
 
-const DETECTORS = { doubleBottom, doubleBottomMid: (v, i, ds, a) => doubleBottom(v, i, ds, a, true), reversal, breakout, orb, pullback, engulfing, pinBar, insideBar, supertrend: supertrendFlip, emaCross, breadth: breadthLed };
+function orb30(v, i, ds, a) {
+  const b = v.bars;
+  if (i - ds < 6) return null;
+  const hi = highest(b, ds, ds + 5);
+  const lo = lowest(b, ds, ds + 5);
+  if (!(b[i].close > hi)) return null;
+  for (let k = ds + 6; k < i; k++) if (b[k].close > hi) return null;
+  return { stop: lo - BUFFER_ATR * a, note: 'closed beyond the 30-minute opening range' };
+}
+
+function pdBreak(v, i, ds, a, p) {
+  const b = v.bars;
+  if (ds === 0 || i - ds < 3) return null;
+  const hi = highest(b, p.dayStart[ds - 1], ds - 1);
+  if (!(b[i].close > hi)) return null;
+  for (let k = ds; k < i; k++) if (b[k].close > hi) return null; // only the first break of the day
+  return { stop: lowest(b, i - 5, i) - BUFFER_ATR * a, note: "closed beyond yesterday's extreme" };
+}
+
+function momentumBar(v, i, ds, a) {
+  const b = v.bars;
+  if (i - ds < 6) return null;
+  const c = b[i];
+  const range = c.high - c.low;
+  if (range < 1.5 * a || c.close <= c.open || c.close < c.high - 0.15 * range || !(c.close > highest(b, i - 6, i - 1))) return null;
+  return { stop: c.low - BUFFER_ATR * a, note: 'a big bar closing at its high' };
+}
+
+const heavy = (p, i, times) => p.turn && p.turn[i] != null && p.turnAvg[i] != null && p.turn[i] >= times * p.turnAvg[i];
+
+function vwapReclaim(v, i, ds, a, p) {
+  const b = v.bars;
+  const w = v.vwap;
+  if (!w || i - ds < 8 || w[i] == null || [1, 2, 3].some((k) => w[i - k] == null)) return null;
+  if (!(b[i].close > w[i] && b[i].close < w[i] + a && [1, 2, 3].every((k) => b[i - k].close <= w[i - k]))) return null;
+  if (!heavy(p, i, 1.2)) return null;
+  return { stop: lowest(b, i - 5, i) - BUFFER_ATR * a, note: 'closed back above VWAP on heavy volume' };
+}
+
+function vwapPullback(v, i, ds, a) {
+  const b = v.bars;
+  const w = v.vwap;
+  if (!w || i - ds < 12 || w[i] == null || w[i - 6] == null || !(w[i] > w[i - 6])) return null;
+  const above = b.slice(i - 12, i).filter((x, k) => w[i - 12 + k] != null && x.close > w[i - 12 + k]).length;
+  if (above < 8 || !(b[i].close > w[i]) || !(lowest(b, i - 3, i) <= w[i] + 0.25 * a) || !(b[i].close > b[i - 1].high)) return null;
+  return { stop: lowest(b, i - 3, i) - BUFFER_ATR * a, note: 'pulled back to VWAP and resumed' };
+}
+
+function volumeBreakout(v, i, ds, a, p) {
+  if (!heavy(p, i, 1.5)) return null;
+  const hit = breakout(v, i, ds, a);
+  return hit && { stop: hit.stop, note: 'breakout of the last hour on heavy volume' };
+}
+
+function volumeClimax(v, i, ds, a, p) {
+  const b = v.bars;
+  if (i - ds < 8 || !heavy(p, i, 2.5)) return null;
+  const c = b[i];
+  const range = c.high - c.low;
+  if (range < 0.8 * a || c.close < c.low + 0.5 * range || !(c.low <= lowest(b, Math.max(ds, i - 20), i - 1) + 0.25 * a)) return null;
+  return { stop: c.low - BUFFER_ATR * a, note: 'heavy volume at a low, closed off it' };
+}
+
+const NEEDS_FLOW = new Set(TECHNIQUES.filter((t) => t.needs === 'flow').map((t) => t.key));
+const DETECTORS = { doubleBottom: (v, i, ds, a) => doubleBottom(v, i, ds, a), doubleBottomMid: (v, i, ds, a) => doubleBottom(v, i, ds, a, true), reversal, breakout, orb, pullback, engulfing, pinBar, insideBar, supertrend: supertrendFlip, emaCross, breadth: breadthLed, orb30, pdBreak, momentumBar, vwapReclaim, vwapPullback, volumeBreakout, volumeClimax };
 
 /**
  * Every signal the techniques give over the prepared bars: { technique, side, i, time, close, stop, note, atr }.
@@ -200,7 +325,8 @@ export function findSignals(prep, { only = null, from = 15, windows = true } = {
       for (const [key, detect] of Object.entries(DETECTORS)) {
         if (only && !only.includes(key)) continue;
         if (key === 'breadth' && !v.breadth) continue;
-        const hit = detect(v, i, ds, a);
+        if (!prep.turn && NEEDS_FLOW.has(key)) continue;
+        const hit = detect(v, i, ds, a, prep);
         if (!hit) continue;
         out.push({
           technique: key,

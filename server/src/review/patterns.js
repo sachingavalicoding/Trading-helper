@@ -1,6 +1,6 @@
 import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { istParts } from '../market/marketHours.js';
-import { TECHNIQUES, prepare, findSignals } from '../study/patterns.js';
+import { TECHNIQUES, available, prepare, findSignals, turnoverSeries } from '../study/patterns.js';
 import { fitStop } from '../study/optionsStudy.js';
 import { simulateTrade, EXIT_MIN } from '../study/simulate.js';
 import { round2 } from '../utils/money.js';
@@ -13,8 +13,10 @@ const WATCH_MIN = 60; // how long after the entry the index path is followed
 
 const dayOf = (t) => istParts(new Date(t * 1000)).dateKey;
 
-/** The patterns that can be drawn on the Nifty chart alone (breadth needs the 50 stocks, so it is left out). */
-export const CHART_PATTERNS = TECHNIQUES.filter((t) => t.key !== 'breadth');
+/** The patterns that can be drawn on the Nifty chart alone (breadth needs the 50 stocks, so it is left out). The volume and VWAP ones join when `flow` is known. */
+export const chartPatterns = (flow = false) => TECHNIQUES.filter((t) => available(t, { breadth: false, flow }));
+export const CHART_PATTERNS = chartPatterns(false);
+export const FLOW_NOTE = 'Volume and VWAP patterns need the 50 stocks saved. Download them in Account > Studies > Data and they appear here.';
 
 const outcome = (t) =>
   t && !t.skipped
@@ -46,15 +48,18 @@ function pathAfter(c1, startIdx, long) {
  * @param c1      Nifty 1-minute bars, several sessions, oldest first (the earlier sessions give the indicators their context)
  * @param day     'YYYY-MM-DD' (IST)
  * @param params  as `simulateTrade`: { iv, lockStart, lockGap, lotSize, holidays, expiryWeekday, lossLimit, maxLots }
+ * @param stocks5 { SYMBOL: 5-minute candles } of the 50 stocks when saved, which unlocks the volume and VWAP patterns
  */
-export function reviewPatterns({ c1, day, params }) {
+export function reviewPatterns({ c1, day, params, stocks5 = null }) {
   let bars5 = aggregateCandles(c1, '5m');
   if (bars5.length && bars5.at(-1).time + 300 > c1.at(-1).time + 60) bars5 = bars5.slice(0, -1); // the last bucket is still forming
   const candles = bars5.filter((b) => dayOf(b.time) === day);
-  if (!candles.length) return { day, candles: [], signals: [], patterns: CHART_PATTERNS.map(({ key, label, text }) => ({ key, label, text })) };
+  const flow = turnoverSeries(bars5, stocks5);
+  const patterns = chartPatterns(Boolean(flow)).map(({ key, label, text }) => ({ key, label, text }));
+  if (!candles.length) return { day, candles: [], signals: [], patterns };
 
   const byTime = new Map(c1.map((b, i) => [b.time, i]));
-  const found = findSignals(prepare(bars5)).filter((s) => dayOf(s.time - 300) === day && s.technique !== 'doubleBottomMid');
+  const found = findSignals(prepare(bars5, null, flow)).filter((s) => dayOf(s.time - 300) === day && s.technique !== 'doubleBottomMid');
   const signals = [];
   for (const s of found.sort((a, b) => a.time - b.time || a.technique.localeCompare(b.technique))) {
     const startIdx = byTime.get(s.time);
@@ -94,7 +99,8 @@ export function reviewPatterns({ c1, day, params }) {
     day,
     candles,
     open: candles[0].open,
-    patterns: CHART_PATTERNS.map(({ key, label, text }) => ({ key, label, text })),
+    patterns,
+    note: flow ? null : FLOW_NOTE,
     signals,
     exits: { lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? [{ at: params.lockStart, keep: params.lockStart - params.lockGap }], lossLimit: params.lossLimit, target: TARGET_PER_LOT },
   };

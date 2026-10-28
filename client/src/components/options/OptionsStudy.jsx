@@ -12,8 +12,7 @@ const DAYS = [
   { value: 10, label: '10d' },
   { value: 20, label: '20d' },
   { value: 30, label: '30d' },
-  { value: 125, label: '6mo' },
-  { value: 250, label: '1yr' },
+  { value: 62, label: '3mo' },
 ];
 
 function Technique({ t, bot }) {
@@ -234,6 +233,7 @@ export function OptionsStudy() {
           <BotBreakdown cut={r.botBreakdown} />
           <Breadth rows={r.breadth} />
           {!r.haveBreadth && <p className="text-center text-[11px] text-muted">The 50 stocks did not load, so breadth was left out.</p>}
+          {!r.haveFlow && <p className="text-center text-[11px] text-muted">The 50 stocks had no volume, so the VWAP and volume patterns were left out.</p>}
           <p className="text-center text-[11px] leading-snug text-muted">{state.note}</p>
         </>
       )}

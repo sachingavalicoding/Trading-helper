@@ -18,10 +18,8 @@ export function savedText(saved) {
   return `${saved.symbols} symbols, ${saved.days} trading days, ${dayText(saved.from)} to ${dayText(saved.to)}, ${sizeText(saved.bytes)}.`;
 }
 
-/** The download button label: first full year, or a top-up when something is saved already. */
-export function syncLabel(saved) {
-  return saved?.days ? 'Update now' : 'Download last 1 year';
-}
+/** The one download button: it fetches only the days that are not saved yet. */
+export const SYNC_LABEL = 'Download last 3 months';
 
 /** Progress of a running download as a 0-100 number. */
 export function jobPercent(job) {

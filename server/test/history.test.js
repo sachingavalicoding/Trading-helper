@@ -167,7 +167,7 @@ test('the history routes need a login, report what is saved, and refuse a downlo
   assert.equal(res.saved.symbols >= 0, true);
   assert.equal(res.job.state, 'idle');
   assert.equal(res.simulated, true);
-  assert.match(res.note, /year/);
+  assert.match(res.note, /three months/);
   const refused = await request(app).post('/api/history/sync').set(auth).send({}).expect(400);
   assert.match(refused.body.error.message, /Upstox/);
   await request(app).post('/api/history/sync').set(auth).send({ days: 2 }).expect(400);

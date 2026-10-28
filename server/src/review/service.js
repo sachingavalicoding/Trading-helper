@@ -1,5 +1,6 @@
 import { NIFTY50 } from '../market/instruments.js';
 import { istParts } from '../market/marketHours.js';
+import { addDays } from '../market/days.js';
 import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { AutoLog, NewsItem, OptionSettings, Position, ScanIdea } from '../models/index.js';
 import { summarise, MARKET } from '../news/service.js';
@@ -153,6 +154,18 @@ export class ReviewService {
     };
   }
 
+  /** The 50 stocks' 5-minute candles around `day` from the saved history, or null when none are saved (the volume patterns then wait). */
+  async #savedStocks5(day) {
+    const history = this.market.history;
+    if (!history) return null;
+    const out = {};
+    for (const { symbol } of NIFTY50) {
+      const stored = await history.read(symbol, addDays(day, -9), addDays(day, 1)).catch(() => []);
+      if (stored.length) out[symbol] = aggregateCandles(stored.map((c) => ({ ...c })), '5m');
+    }
+    return Object.keys(out).length ? out : null;
+  }
+
   /** The Nifty chart of one day with every pattern that formed on it, and what a one-lot option buy at each would have done. */
   async patterns(userId, day) {
     const [c1, rules, settings] = await Promise.all([this.market.getMinutes(UNDERLYING, day), loadRules(userId, 'OPT'), OptionSettings.findOne({ user: userId }).lean()]);
@@ -168,7 +181,7 @@ export class ReviewService {
       maxLots: settings?.maxLots ?? 2,
     };
     if (!c1.length) return { day, candles: [], signals: [], patterns: [] };
-    return reviewPatterns({ c1, day, params });
+    return reviewPatterns({ c1, day, params, stocks5: await this.#savedStocks5(day) });
   }
 
   /** One stock on one day: its 5-minute chart, the news with what the price did after each headline, the ideas and the user's trades. */

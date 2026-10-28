@@ -5,7 +5,7 @@ const KEY = 'npt_watch_patterns';
 export const DEFAULT_WATCH = ['breakout', 'engulfing']; // the two that paid in the 30-day study
 
 /** The tag drawn on the chart beside a pattern's arrow. */
-export const CODE = { doubleBottom: 'DB', reversal: 'REV', breakout: 'BO', orb: 'ORB', pullback: 'PB', engulfing: 'ENG', pinBar: 'PIN', insideBar: 'IB', supertrend: 'ST', emaCross: 'EMA' };
+export const CODE = { doubleBottom: 'DB', reversal: 'REV', breakout: 'BO', orb: 'ORB', pullback: 'PB', engulfing: 'ENG', pinBar: 'PIN', insideBar: 'IB', supertrend: 'ST', emaCross: 'EMA', orb30: 'ORB30', pdBreak: 'PDH', momentumBar: 'MOM', vwapReclaim: 'VWR', vwapPullback: 'VWP', volumeBreakout: 'VBO', volumeClimax: 'VCL' };
 
 export function loadWatch() {
   try {
