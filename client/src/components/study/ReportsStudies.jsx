@@ -8,11 +8,13 @@ import { DayReportButton } from '../DayReportButton.jsx';
 import { OptionsStudy } from '../options/OptionsStudy.jsx';
 import { OptionsEntries, Switch } from '../options/OptionsAutoCard.jsx';
 import { SharesStudy } from './SharesStudy.jsx';
+import { HistoryData } from './HistoryData.jsx';
 
 const STUDIES = [
   { value: 'report', label: 'Day report' },
   { value: 'options', label: 'Options' },
   { value: 'shares', label: 'Shares' },
+  { value: 'data', label: 'Data' },
 ];
 
 /** Account > Reports and studies: copy the day's report, or replay past candles to see what pays, for options and for shares. */
@@ -23,12 +25,13 @@ export function ReportsAndStudies() {
     <>
       <PopupTile icon={FlaskConical} label="Studies" hint="Reports, what pays" onClick={() => setOpen(true)} />
       {open && (
-        <Sheet title="Reports and studies" subtitle="Day report to paste in the chat, and the options and shares studies that show which entries pay." onClose={() => setOpen(false)}>
+        <Sheet title="Reports and studies" subtitle="Day report to paste in the chat, the options and shares studies that show which entries pay, and the saved candles they read." onClose={() => setOpen(false)}>
           <div className="space-y-3">
             <Segmented className="w-full" size="sm" value={tab} onChange={setTab} options={STUDIES} />
             {tab === 'report' && <DayReportButton />}
             {tab === 'options' && <OptionsStudy />}
             {tab === 'shares' && <SharesStudy />}
+            {tab === 'data' && <HistoryData />}
           </div>
         </Sheet>
       )}

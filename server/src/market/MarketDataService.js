@@ -1,7 +1,9 @@
 import { EventEmitter } from 'node:events';
 import { ALL_SYMBOLS, INDICES, NIFTY50 } from './instruments.js';
 import { getMarketStatus } from './marketHours.js';
-import { INTERVAL_SECONDS } from './providers/BaseProvider.js';
+import { INTERVAL_SECONDS, aggregateCandles } from './providers/BaseProvider.js';
+import { istParts } from './marketHours.js';
+import { addDays, daysBetween } from './days.js';
 import { UNDERLYING, atmStrike, chooseExpiry, weeklyExpiries } from '../options/symbols.js';
 
 const HISTORY_TTL_MS = 30000;
@@ -21,6 +23,7 @@ export class MarketDataService extends EventEmitter {
     this.holidays = holidays;
     this.expiryWeekday = expiryWeekday;
     this.enforceHours = enforceHours; // tells the app whether the order engine refuses orders outside market hours
+    this.history = null; // the saved candle history (HistoryStore), set by HistorySync; studies and Review read it first
     this.latest = new Map();
     this.historyCache = new Map();
     this.feedStatus = { connected: false, message: 'Not started' };
@@ -123,6 +126,30 @@ export class MarketDataService extends EventEmitter {
     const candles = await this.provider.getRangeHistory(symbol, unit, days);
     this.historyCache.set(key, { at: Date.now(), candles });
     return candles;
+  }
+
+  /**
+   * `days` calendar days of `unit`-minute candles for a study. From the saved history when the symbol has some (plus whatever came after it,
+   * today included, from the broker); otherwise straight from the broker as `getRange`.
+   */
+  async getStudyRange(symbol, unit, days) {
+    const cov = this.history ? await this.history.coverage(symbol).catch(() => null) : null;
+    if (!cov) return this.getRange(symbol, unit, days);
+    const today = istParts(new Date()).dateKey;
+    const stored = await this.history.read(symbol, addDays(today, -days), cov.to);
+    const since = daysBetween(cov.to, today);
+    const tail = since >= 1 ? (await this.getRange(symbol, 1, since + 1)).filter((c) => istParts(new Date(c.time * 1000)).dateKey > cov.to) : [];
+    const merged = [...new Map([...stored, ...tail].map((c) => [c.time, c])).values()].sort((a, b) => a.time - b.time);
+    return unit === 1 ? merged : aggregateCandles(merged.map((c) => ({ ...c })), `${unit}m`);
+  }
+
+  /** The 1-minute candles around `day` for Review: the broker's last sessions plus the saved days before and after it, so an older day has its chart. */
+  async getMinutes(symbol, day) {
+    const live = await this.getCandles(symbol, '1m').catch(() => []);
+    if (!this.history) return live;
+    const stored = await this.history.read(symbol, addDays(day, -9), addDays(day, 1)).catch(() => []);
+    if (!stored.length) return live;
+    return [...new Map([...stored, ...live].map((c) => [c.time, c])).values()].sort((a, b) => a.time - b.time);
   }
 
   async getCandles(symbol, interval) {

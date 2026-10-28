@@ -153,6 +153,19 @@ export class UpstoxProvider extends BaseProvider {
     return [...seen.values()].sort((a, b) => a.time - b.time);
   }
 
+  /** One window of `unit`-minute candles between two dates (the API allows a month at most), oldest first. Throws on a refused or failed call, so a caller knows the window was not read. */
+  async getCandlesBetween(symbol, unit, fromDay, toDay) {
+    const key = this.keyBySymbol.get(symbol);
+    if (!key) return [];
+    const hist = await this.#get(`/v3/historical-candle/${encodeURIComponent(key)}/minutes/${unit}/${toDay}/${fromDay}`);
+    const seen = new Map();
+    for (const [ts, open, high, low, close, volume] of hist?.data?.candles || []) {
+      const time = Math.floor(new Date(ts).getTime() / 1000);
+      seen.set(time, { time, open, high, low, close, volume: volume || 0 });
+    }
+    return [...seen.values()].sort((a, b) => a.time - b.time);
+  }
+
   async getDailyHistory(symbol, days = 45) {
     const key = this.keyBySymbol.get(symbol);
     if (!key) return [];

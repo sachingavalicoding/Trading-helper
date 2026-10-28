@@ -11,3 +11,4 @@ export { TradeDefaults } from './TradeDefaults.js';
 export { AutoLog } from './AutoLog.js';
 export { OptionSettings } from './OptionSettings.js';
 export { StudyRun } from './StudyRun.js';
+export { CandleDay, CandleCoverage } from './CandleDay.js';

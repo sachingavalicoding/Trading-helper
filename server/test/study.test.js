@@ -274,7 +274,7 @@ test('the study runs in the background, keeps its latest result, refuses a secon
   assert.match(none.note, /estimated/);
 
   await request(app).post('/api/study/options').set(u.auth).send({ days: 0 }).expect(400);
-  await request(app).post('/api/study/options').set(u.auth).send({ days: 61 }).expect(400);
+  await request(app).post('/api/study/options').set(u.auth).send({ days: 251 }).expect(400);
   await request(app).post('/api/study/options').set(u.auth).send({ days: 10, iv: 0.9 }).expect(400);
   await request(app).post('/api/study/options').set(u.auth).send({ days: 10, exit: 'target', target: 5 }).expect(400);
   await request(app).post('/api/study/options').set(u.auth).send({ days: 10, exit: 'sometimes' }).expect(400);

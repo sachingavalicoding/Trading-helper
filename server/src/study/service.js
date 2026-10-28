@@ -45,10 +45,15 @@ export class StudyService {
     this.jobs.delete(`${userId}|${kind}`);
   }
 
+  /** Candles for a study: from the saved history when there is one, else from the broker. */
+  #range(symbol, unit, days) {
+    return typeof this.market.getStudyRange === 'function' ? this.market.getStudyRange(symbol, unit, days) : this.market.getRange(symbol, unit, days);
+  }
+
   async #nifty(job, days) {
     const calendar = Math.ceil((days * 7) / 5) + WARMUP_DAYS;
     job.step = 'Reading Nifty candles';
-    const nifty1 = await this.market.getRange(UNDERLYING, 1, calendar);
+    const nifty1 = await this.#range(UNDERLYING, 1, calendar);
     if (nifty1.length < 400) throw new Error('Not enough Nifty history came back. On Upstox, log in again (the token lasts one day) and retry.');
     return { nifty1, calendar };
   }
@@ -60,7 +65,7 @@ export class StudyService {
     for (const [n, { symbol }] of NIFTY50.entries()) {
       job.step = `Reading the 50 stocks (${n + 1}/50)`;
       try {
-        stocks5[symbol] = await this.market.getRange(symbol, 5, calendar);
+        stocks5[symbol] = await this.#range(symbol, 5, calendar);
       } catch {
         failed += 1;
         if (failed >= 5 && !Object.keys(stocks5).length) break; // the broker is refusing: stop asking
@@ -93,7 +98,7 @@ export class StudyService {
     for (const [n, { symbol }] of NIFTY50.entries()) {
       job.step = `Reading the 50 stocks (${n + 1}/50)`;
       try {
-        history[symbol] = await this.market.getRange(symbol, 1, calendar);
+        history[symbol] = await this.#range(symbol, 1, calendar);
       } catch {
         failed += 1;
         if (failed >= 5 && !Object.keys(history).length) break;

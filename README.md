@@ -311,6 +311,15 @@ The web app is prebuilt in `phone-app/`. After changing the client, run `npm run
 
 Candle history (daily, minute and intraday) leaves for Upstox at most 5 requests a second, queued in order, so a restart or a study over the 50 stocks cannot flood the gateway. If Upstox answers HTTP 429 (Cloudflare "Error 1015: You are being rate limited"), all history waits 15 seconds (or the server's `Retry-After`, up to 60 s) and the refused call is sent once more; a second 429 is logged as a failed candle load as before. A block that has already started lasts a few minutes: wait, then reload, and avoid repeated study runs meanwhile. Live prices and orders are not paced.
 
+## Saved candle history
+
+Studies and Review read a year of 1-minute candles (Nifty and the 50 stocks) from your own MongoDB instead of calling Upstox again each time. Charts, option charts, trading and live prices still use Upstox directly.
+
+- **First fill:** log in to Upstox, then Account > Studies > Data > "Download last 1 year" (or `POST /api/history/sync`). About 700 paced history requests, a few minutes; it resumes where it stopped if interrupted or rate limited. The sample (mock) feed has no history, so the button is refused there.
+- **Storage:** one packed, gzipped document per symbol per day (`CandleDay`, about 3 KB), plus a coverage record per symbol (`CandleCoverage`). Roughly 40 MB a year for 51 symbols, well inside the free Atlas tier. Only finished days are stored (a day counts as finished after 15:35 IST).
+- **Every evening** after 15:40 IST on weekdays the server adds the new day and deletes anything older than 366 days, but only once a first download exists.
+- **Reading:** a study over N days uses the saved days plus today's live candles. Before anything is saved it falls back to asking Upstox, as before. The Options study now offers up to 1 year (250 trading days); the Shares study stays at 15 days.
+
 ## Honest limitations
 
 - Fills are idealized. They happen at LTP with no slippage, no partial fills and no queue position, so real results will be worse.

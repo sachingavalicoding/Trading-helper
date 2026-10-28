@@ -60,6 +60,11 @@ export class BaseProvider extends EventEmitter {
     return this.getHistory(symbol, `${unit}m`);
   }
 
+  /** `unit`-minute candles from `fromDay` to `toDay` (YYYY-MM-DD, at most about a month apart), oldest first. Only providers with a real history API have it. */
+  async getCandlesBetween(_symbol, _unit, _fromDay, _toDay) {
+    throw new Error('This feed has no candle history to save');
+  }
+
   /** Daily candles for roughly the last `days` calendar days, oldest first; [] when the feed has none. */
   async getDailyHistory(_symbol, _days) {
     return [];
