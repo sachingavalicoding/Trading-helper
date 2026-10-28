@@ -344,6 +344,8 @@ test('the trader buys a call with the chart stop, the ladder, the lock and a tra
   assert.deepEqual(pos.lockSteps.map((x) => [x.at, x.keep]), r.plan.lockSteps.map((x) => [x.at, x.keep]));
   assert.equal(pos.lockSteps[0].at, r.plan.lots * 700);
   assert.equal(pos.trailPct, 25);
+  assert.equal(pos.lockTrigger, null, 'the default rupee lock must not sit on top of the ladder');
+  assert.equal(pos.lockAmount, null);
   const sl = await Order.findOne({ user: uid, symbol: sym, role: 'STOPLOSS', status: 'OPEN' });
   assert.equal(sl.triggerPrice, r.plan.stopLoss);
   const tg = await Order.findOne({ user: uid, symbol: sym, role: 'TARGET', status: 'OPEN' });

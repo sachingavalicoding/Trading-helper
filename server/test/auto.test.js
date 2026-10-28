@@ -276,6 +276,7 @@ test('the climbing stop of an auto trade is sized from the money put in, and can
   const pos = await Position.findOne({ user: sa.user, symbol: 'SBIN', status: 'OPEN' }).lean();
   const value = r.order.avgFillPrice * r.order.qty;
   assert.deepEqual(pos.lockSteps.map((s) => [s.at, s.keep]), [[0.3, 0.15], [0.45, 0.32], [0.6, 0.52], [1, 0.9]].map(([at, keep]) => [Math.round(value * at) / 100, Math.round(value * keep) / 100]));
+  assert.equal(pos.lockTrigger, null, 'the default rupee lock is replaced by the percent ladder');
 
   const b = await registerUser(app);
   const sb = settings({ user: b.user.id || b.user._id, maxOpen: 10, lockByRisk: false });

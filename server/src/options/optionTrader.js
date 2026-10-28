@@ -225,7 +225,8 @@ export class OptionTrader {
     if (order.status !== 'FILLED') return stop(order.rejectReason || `order was ${String(order.status).toLowerCase()}`);
     await this.engine.setSteps(userId, plan.symbol, [plan.target1, plan.target2]);
     try {
-      await this.engine.setExits(userId, plan.symbol, { ...(plan.lockSteps.length ? { lockSteps: plan.lockSteps } : {}), ...(plan.trailPct ? { trailPct: plan.trailPct } : {}) });
+      // The ladder replaces the engine's default ₹1,000 lock, which would otherwise pull the stop up long before the first rung.
+      await this.engine.setExits(userId, plan.symbol, { ...(plan.lockSteps.length ? { lockSteps: plan.lockSteps, lockTrigger: null, lockAmount: null, lockRatio: null } : {}), ...(plan.trailPct ? { trailPct: plan.trailPct } : {}) });
     } catch (e) {
       logger.warn(`options lock for ${plan.symbol} not set: ${e.message}`);
     }

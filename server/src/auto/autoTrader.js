@@ -214,7 +214,7 @@ export class AutoTrader {
     const lockSteps = effectiveLadder(settings.lockLadder, LADDER).map(([at, keep]) => ({ at: round2((value * at) / 100), keep: round2((value * keep) / 100) }));
     if (!lockSteps.every((s) => s.keep > 0 && s.at > s.keep)) return;
     try {
-      await this.engine.setExits(userId, idea.symbol, { lockSteps });
+      await this.engine.setExits(userId, idea.symbol, { lockSteps, lockTrigger: null, lockAmount: null, lockRatio: null }); // the percent ladder replaces the default rupee lock
     } catch (e) {
       logger.warn(`auto climbing stop for ${idea.symbol} not set: ${e.message}`);
     }
