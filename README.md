@@ -326,6 +326,8 @@ The Options study and Review > Patterns test these on the Nifty 5-minute chart (
 
 The index has no volume of its own, so VWAP and volume are built from the traded value (price times shares) of the 50 stocks. These four are tested only when the 50 stocks' candles are available (in Review, once they are saved) and are not offered to the live trader until a study shows they pay. The win rate and profit of each pattern depend on the days studied: read them in the study, not from this list.
 
+Two "pattern score" rows test agreement: any 2 of Breakout, Engulfing and Strong momentum bar, and all 3, giving the same direction within 15 minutes. Study only; nothing live uses them yet.
+
 ## Honest limitations
 
 - Fills are idealized. They happen at LTP with no slippage, no partial fills and no queue position, so real results will be worse.

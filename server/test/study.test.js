@@ -216,7 +216,8 @@ test('the study trades every technique on the same candles, with one lot, charge
   assert.equal(r.period.days, 10);
   assert.equal(r.haveBreadth, false);
   const keys = r.techniques.map((t) => t.key);
-  for (const k of ['doubleBottom', 'doubleBottomMid', 'botFiltered', 'reversal', 'breakout', 'orb', 'pullback', 'engulfing', 'pinBar', 'insideBar', 'supertrend', 'emaCross', 'confluence', 'bot']) assert.ok(keys.includes(k), k);
+  for (const k of ['doubleBottom', 'doubleBottomMid', 'botFiltered', 'reversal', 'breakout', 'orb', 'pullback', 'engulfing', 'pinBar', 'insideBar', 'supertrend', 'emaCross', 'confluence', 'agree2', 'agree3', 'bot']) assert.ok(keys.includes(k), k);
+  assert.ok(r.techniques.find((t) => t.key === 'agree3').signals <= r.techniques.find((t) => t.key === 'agree2').signals, 'all three agreeing is rarer than any two');
   assert.ok(!keys.includes('breadth'), 'no stock history, no breadth technique');
   assert.deepEqual(r.techniques.map((t) => t.net), [...r.techniques.map((t) => t.net)].sort((a, b) => b - a));
   const all = r.techniques.flatMap((t) => t.recent);
