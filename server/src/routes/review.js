@@ -27,6 +27,12 @@ export function reviewRoutes({ review }) {
     res.json({ ...(await review.stock(req.userId, symbol, req.valid.day ?? review.today)), disclaimer: REVIEW_DISCLAIMER });
   });
 
+  // The Nifty chart of one day with every pattern that formed on it and what a one-lot option buy at each would have done.
+  router.get('/patterns', validate(dayQuery, 'query'), async (req, res) => {
+    const day = req.valid.day ?? review.today;
+    res.json({ ...(await review.patterns(req.userId, day)), disclaimer: REVIEW_DISCLAIMER });
+  });
+
   // Which techniques, checks and kinds of news paid.
   router.get('/techniques', validate(techQuery, 'query'), async (req, res) => {
     res.json({ ...(await review.techniques(req.userId, req.valid.days)), disclaimer: REVIEW_DISCLAIMER });

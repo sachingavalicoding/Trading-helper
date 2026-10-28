@@ -9,7 +9,7 @@ import { useApi } from '../lib/useApi.js';
 import { api } from '../lib/api.js';
 import { useStartingBalance } from '../lib/useStartingBalance.js';
 import { formatINR, formatPnl, pnlClass } from '../lib/format.js';
-import { Card, Skeleton, Disclaimer, Fold, useFold } from '../components/ui.jsx';
+import { Card, Skeleton, Disclaimer, PopupTile, Sheet, useFold } from '../components/ui.jsx';
 import { AutoLimits } from '../components/AutoCard.jsx';
 import { OptionsLimits } from '../components/options/OptionsAutoCard.jsx';
 import { EntryChoices, ReportsAndStudies } from '../components/study/ReportsStudies.jsx';
@@ -99,7 +99,8 @@ function TradingRules() {
   const { data, reload } = useApi('/trade-defaults', []);
   const options = useApi('/options', []);
   const [saved, setSaved] = useState('');
-  if (!data) return <Skeleton className="h-16" />;
+  const [open, setOpen] = useState(false);
+  if (!data) return <Skeleton className="h-20" />;
 
   const save = (key) => async (rules) => {
     try {
@@ -118,7 +119,10 @@ function TradingRules() {
   const line = (r, stopWord) => `${r.stopLoss > 0 ? `${stopWord} ${rs(r.stopLoss)}` : 'no stop'} · ${r.lockStart > 0 ? `lock from +${rs(r.lockStart)}, ${rs(r.lockGap)} behind` : 'no lock'}`;
 
   return (
-    <Fold id="acct-limits" title="Limits" icon={SlidersHorizontal} summary={`Shares: ${line(data.shares, 'stop')}. Options: ${line(data.options, 'loss limit')}`}>
+    <>
+      <PopupTile icon={SlidersHorizontal} label="Limits" hint="Stop and profit lock" onClick={() => setOpen(true)} />
+      {open && (
+        <Sheet title="Limits" subtitle={`Shares: ${line(data.shares, 'stop')}. Options: ${line(data.options, 'loss limit')}`} onClose={() => setOpen(false)}>
       <div className="space-y-5">
         <p className="text-xs text-muted">One set of rules for auto and manual trades. A trade placed with its own stop keeps that stop.</p>
         <RulesForm key={`s${JSON.stringify(data.shares)}`} title="Shares" rules={data.shares} onSave={save('shares')} saved={saved === 'shares'} />
@@ -139,7 +143,9 @@ function TradingRules() {
           </div>
         )}
       </div>
-    </Fold>
+        </Sheet>
+      )}
+    </>
   );
 }
 
@@ -232,11 +238,11 @@ export default function Account() {
             <span className="text-[11px] text-muted">{hint}</span>
           </Link>
         ))}
+        <TradingRules />
+        <EntryChoices />
+        <ReportsAndStudies />
       </div>
 
-      <TradingRules />
-      <EntryChoices />
-      <ReportsAndStudies />
 
       <Card className="divide-y divide-line">
         <button type="button" disabled={busy} onClick={addFunds} className="flex w-full items-center gap-2 px-4 py-3.5 text-sm transition-colors hover:bg-surface-2 disabled:opacity-50">

@@ -181,6 +181,14 @@ export function patternsWithScore(signals, scores, floor) {
     .filter((s) => floor == null || (s.score != null && s.score >= floor));
 }
 
+/** The stop a signal is traded with: at least MIN_STOP_ATR from the entry, and `wide` when it is further than MAX_STOP_ATR (the trade is skipped). */
+export function fitStop(signal, entry) {
+  const d = signal.side === 'CE' ? 1 : -1;
+  let stop = signal.stop;
+  if (d * (entry - stop) < MIN_STOP_ATR * signal.atr) stop = entry - d * MIN_STOP_ATR * signal.atr;
+  return { stop, wide: d * (entry - stop) > MAX_STOP_ATR * signal.atr };
+}
+
 /** One trade at a time per technique, at most MAX_PER_DAY a day, a stop at least 0.8 ATR away and no more than MAX_STOP_ATR. */
 function tradesFor(signals, { c1, byTime, params }) {
   const trades = [];
@@ -190,11 +198,9 @@ function tradesFor(signals, { c1, byTime, params }) {
   for (const s of [...signals].sort((a, b) => a.time - b.time)) {
     const day = dayKey(s.time);
     if (s.time < busyUntil || (perDay.get(day) || 0) >= MAX_PER_DAY) continue;
-    const d = s.side === 'CE' ? 1 : -1;
     const entry = byTime.get(s.time) != null ? c1[byTime.get(s.time)].open : s.close;
-    let stop = s.stop;
-    if (d * (entry - stop) < MIN_STOP_ATR * s.atr) stop = entry - d * MIN_STOP_ATR * s.atr;
-    if (d * (entry - stop) > MAX_STOP_ATR * s.atr) {
+    const { stop, wide } = fitStop(s, entry);
+    if (wide) {
       skippedWide += 1;
       continue;
     }

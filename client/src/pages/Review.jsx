@@ -1,16 +1,19 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Lightbulb } from 'lucide-react';
 import { useApi } from '../lib/useApi.js';
 import { formatPnl, formatPrice, pnlClass } from '../lib/format.js';
 import { VERDICT, pctText, shiftDay, takeaways } from '../lib/review.js';
+import { afterText, dayTotals, exitLine, loadWatch, saveWatch, shortLabel, sideWord, skipText, watched } from '../lib/patternReview.js';
 import { ReviewChart } from '../components/ReviewChart.jsx';
+import { PatternChart } from '../components/PatternChart.jsx';
 import { ReviewStockSheet } from '../components/ReviewStockSheet.jsx';
 import { Badge, Card, EmptyState, Segmented, Skeleton } from '../components/ui.jsx';
 
 const TABS = [
   { value: 'stocks', label: 'Stocks' },
   { value: 'options', label: 'Options' },
+  { value: 'patterns', label: 'Patterns' },
   { value: 'techniques', label: 'Techniques' },
 ];
 
@@ -185,6 +188,149 @@ function OptionsTab({ day }) {
           {options.summary.closed} closed · {options.summary.wins} won · net <b className={pnlClass(options.summary.netPnl)}>{formatPnl(options.summary.netPnl)}</b>
         </p>
       )}
+    </div>
+  );
+}
+
+const clock = (sec) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(sec * 1000));
+
+function Chip({ on, onClick, children }) {
+  return (
+    <button type="button" onClick={onClick} aria-pressed={on} className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${on ? 'border-accent bg-accent text-on-accent' : 'border-line bg-surface-2 text-muted hover:text-fg'}`}>
+      {children}
+    </button>
+  );
+}
+
+function Money({ label, value }) {
+  return (
+    <div className="rounded-xl bg-surface-2 p-2.5">
+      <div className="text-[11px] text-muted">{label}</div>
+      <div className={`num text-base font-bold ${pnlClass(value)}`}>{formatPnl(value)}</div>
+    </div>
+  );
+}
+
+/** The detail of one pattern on the chart: what it was, what the index did next, and what a one-lot option buy would have made. */
+function SignalDetail({ s, pattern, exits }) {
+  return (
+    <Card className="space-y-2 border-accent/40 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm font-semibold">
+          {clock(s.time)} · {pattern ? shortLabel(pattern.label) : s.technique} · {sideWord(s.side)}
+        </div>
+        <Badge tone={s.side === 'CE' ? 'up' : 'down'}>{s.side === 'CE' ? 'Call' : 'Put'}</Badge>
+      </div>
+      {pattern && <p className="text-[11px] leading-snug text-muted">{pattern.text}</p>}
+      <p className="text-xs">
+        Nifty <b className="num">{formatPrice(s.entry)}</b> at entry. Stop at <b className="num text-down">{formatPrice(s.stop)}</b> ({Math.round(s.stopPts)} points away).
+      </p>
+      <p className="text-xs leading-snug">{afterText(s)}</p>
+      {s.skipped ? (
+        <p className="rounded-xl bg-surface-2 p-2.5 text-xs">{skipText(s, exits)}</p>
+      ) : (
+        <>
+          <p className="text-[11px] text-muted">
+            Option: Nifty {s.strike} {s.side}, about ₹{formatPrice(s.premium)} a share, {s.lock.lots} lot{s.lock.lots > 1 ? 's' : ''} sized to the ₹{exits.lossLimit} loss limit. The premium is an estimate.
+          </p>
+          <div className="space-y-1.5 text-xs">
+            <div className="flex items-start justify-between gap-3 rounded-xl bg-surface-2 p-2.5">
+              <span>
+                <b>With your profit lock</b> (+₹{exits.lockStart}, ₹{exits.lockGap} behind)
+                <span className="block text-muted">{exitLine(s.lock, clock)}</span>
+              </span>
+              <span className={`num shrink-0 text-base font-bold ${pnlClass(s.lock.net)}`}>{formatPnl(s.lock.net)}</span>
+            </div>
+            <div className="flex items-start justify-between gap-3 rounded-xl bg-surface-2 p-2.5">
+              <span>
+                <b>Booking ₹{exits.target} a lot</b> (no lock)
+                <span className="block text-muted">{exitLine(s.target, clock)}</span>
+              </span>
+              <span className={`num shrink-0 text-base font-bold ${pnlClass(s.target.net)}`}>{formatPnl(s.target.net)}</span>
+            </div>
+          </div>
+          <p className="text-[11px] text-muted">The chart shows the entry, the stop, the level where ₹{exits.target} a lot would have been booked, and where each exit sold. Charges and slippage are taken off.</p>
+        </>
+      )}
+    </Card>
+  );
+}
+
+/** Pick the patterns you want to watch, see where each formed on the Nifty chart, and what a one-lot option buy at that moment would have done. */
+function PatternsTab({ day }) {
+  const { data, loading, error } = useApi(`/review/patterns?day=${day}`, []);
+  const [watch, setWatch] = useState(loadWatch);
+  const [selected, setSelected] = useState(null);
+  useEffect(() => setSelected(null), [day]);
+  const chosen = useMemo(() => watched(data?.signals ?? [], watch), [data, watch]);
+  const totals = useMemo(() => dayTotals(chosen), [chosen]);
+  if (loading && !data) return <Skeleton className="h-72 w-full" />;
+  if (error && !data) return <EmptyState title="Could not load this day">{error.message}</EmptyState>;
+  if (!data.candles.length) return <EmptyState title="No Nifty minute chart for this day">It may be a holiday, or older than the broker keeps minute candles.</EmptyState>;
+
+  const toggle = (key) => {
+    const next = watch.includes(key) ? watch.filter((k) => k !== key) : [...watch, key];
+    setWatch(next);
+    saveWatch(next);
+    setSelected(null);
+  };
+  const count = (key) => data.signals.filter((s) => s.technique === key).length;
+  const picked = chosen.find((s) => s.id === selected) ?? null;
+  const patternOf = (key) => data.patterns.find((p) => p.key === key);
+
+  return (
+    <div className="space-y-3">
+      <Card className="space-y-2 p-3">
+        <div className="text-xs font-semibold">Patterns to watch</div>
+        <div className="flex flex-wrap gap-1.5">
+          {data.patterns
+            .filter((p) => p.key !== 'doubleBottomMid')
+            .map((p) => (
+              <Chip key={p.key} on={watch.includes(p.key)} onClick={() => toggle(p.key)}>
+                {shortLabel(p.label)} <span className="num opacity-70">{count(p.key)}</span>
+              </Chip>
+            ))}
+        </div>
+        <p className="text-[11px] text-muted">The number is how many times it formed on this day. Arrows on the chart: up for a call, down for a put, grey when the bot would skip it.</p>
+      </Card>
+
+      <Card className="space-y-2 p-3">
+        <PatternChart candles={data.candles} signals={chosen} selected={selected} onPick={(id) => setSelected((cur) => (cur === id ? null : id))} />
+        <p className="text-center text-[11px] text-muted">Tap an arrow or a row below to see how that entry played out.</p>
+      </Card>
+
+      {chosen.length > 0 && (
+        <div className="grid grid-cols-2 gap-2">
+          <Money label={`Profit lock, ${totals.traded} trades`} value={totals.lock} />
+          <Money label={`Booking ₹${data.exits.target} a lot`} value={totals.target} />
+        </div>
+      )}
+      {chosen.length > 0 && <p className="text-center text-[11px] text-muted">If each one had been taken on its own. Several can overlap in time, so the bot would not take them all. One day proves nothing: check the Studies for 30 days.</p>}
+
+      {picked && <SignalDetail s={picked} pattern={patternOf(picked.technique)} exits={data.exits} />}
+
+      <Card className="overflow-hidden">
+        {chosen.length === 0 ? (
+          <EmptyState title={watch.length ? 'None of the patterns you watch formed on this day' : 'Pick a pattern above'}>Try another day or add more patterns.</EmptyState>
+        ) : (
+          <ul className="divide-y divide-line">
+            {chosen.map((s) => (
+              <li key={s.id}>
+                <button type="button" onClick={() => setSelected((cur) => (cur === s.id ? null : s.id))} aria-pressed={s.id === selected} className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm ${s.id === selected ? 'bg-surface-2' : ''}`}>
+                  <span className="min-w-0">
+                    <span className="flex flex-wrap items-center gap-2 font-medium">
+                      <span className="num">{clock(s.time)}</span> {shortLabel(patternOf(s.technique)?.label ?? s.technique)}
+                      <Badge tone={s.side === 'CE' ? 'up' : 'down'}>{sideWord(s.side)}</Badge>
+                    </span>
+                    <span className="block truncate text-[11px] text-muted">{s.skipped ? skipText(s, data.exits) : `index ${s.best.pts > 0 ? '+' : ''}${Math.round(s.best.pts)} / ${Math.round(s.worst.pts)} pts in the hour · exit ${exitLine(s.lock, clock).split(':')[0].toLowerCase()}`}</span>
+                  </span>
+                  {!s.skipped && <span className={`num shrink-0 whitespace-nowrap font-semibold ${pnlClass(s.lock.net)}`}>{formatPnl(s.lock.net)}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
     </div>
   );
 }
@@ -428,6 +574,7 @@ export default function Review() {
 
       {tab === 'stocks' && <StocksTab day={day} onPick={setPick} />}
       {tab === 'options' && <OptionsTab day={day} />}
+      {tab === 'patterns' && <PatternsTab day={day} />}
       {tab === 'techniques' && <TechniquesTab />}
 
       {pick && <ReviewStockSheet symbol={pick} day={day} onClose={() => setPick(null)} />}

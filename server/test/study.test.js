@@ -361,3 +361,49 @@ test('with a target there is no profit lock: the trade is sold when the profit r
   const stopped = simulateTrade({ c1: falls, byTime: index(falls), signal: { technique: 'x', note: '', side: 'CE', time: start, stop: 23980 }, params });
   assert.equal(stopped.reason, 'STOP');
 });
+
+// ---------- Review > Patterns ----------
+
+test('review patterns: every signal of a day comes with its stop, the index path after it and a lock exit and a target exit', async () => {
+  const { reviewPatterns } = await import('../src/review/patterns.js');
+  const c1 = walk(8);
+  const day = new Date(c1.at(-1).time * 1000 + 19800_000).toISOString().slice(0, 10);
+  let signals = [];
+  let seen = null;
+  for (const d of [...new Set(c1.map((b) => new Date(b.time * 1000 + 19800_000).toISOString().slice(0, 10)))].slice(3)) {
+    const r = reviewPatterns({ c1, day: d, params: { ...PARAMS, lossLimit: 1500, maxLots: 2 } });
+    if (r.signals.length > signals.length) {
+      signals = r.signals;
+      seen = r;
+    }
+  }
+  assert.ok(signals.length >= 2, 'the random chart forms a few patterns on some day');
+  assert.ok(seen.candles.length > 60 && seen.candles.every((c) => new Date(c.time * 1000 + 19800_000).toISOString().startsWith(seen.day)));
+  assert.ok(!seen.patterns.some((p) => p.key === 'breadth'));
+  assert.ok(seen.patterns.some((p) => p.key === 'breakout'));
+  const traded = signals.filter((s) => !s.skipped);
+  assert.ok(traded.length > 0);
+  for (const s of traded) {
+    const long = s.side === 'CE';
+    assert.ok(long ? s.stop < s.entry : s.stop > s.entry, 'the stop is on the wrong side of the entry for the direction');
+    assert.ok(s.best.pts >= 0 && s.worst.pts <= 0);
+    assert.ok(s.lock.exitTime > s.time - 1 && s.lock.lots >= 1);
+    assert.ok(Math.abs(s.lock.net - (s.lock.gross - s.lock.charges)) < 0.02);
+    assert.ok(s.target.reason === 'TARGET' ? s.target.gross >= 1000 * s.target.lots - 0.5 : ['STOP', 'HARD', 'EOD'].includes(s.target.reason));
+  }
+  for (const s of signals.filter((x) => x.skipped)) assert.ok(['far', 'limit', 'price'].includes(s.skipped));
+  const empty = reviewPatterns({ c1, day: '2026-01-01', params: PARAMS });
+  assert.deepEqual(empty.signals, []);
+  assert.deepEqual(empty.candles, []);
+  assert.ok(empty.patterns.length > 5, 'the pattern list is there even on a day without candles');
+});
+
+test('review patterns route: needs a login, rejects a bad day and answers for a day the chart has no history for', async () => {
+  const app = createApp(ctx);
+  await request(app).get('/api/review/patterns').expect(401);
+  const { auth } = await registerUser(app);
+  await request(app).get('/api/review/patterns?day=bad').set(auth).expect(400);
+  const r = (await request(app).get('/api/review/patterns?day=2020-01-01').set(auth).expect(200)).body;
+  assert.deepEqual(r.signals, []);
+  assert.ok(r.disclaimer);
+});

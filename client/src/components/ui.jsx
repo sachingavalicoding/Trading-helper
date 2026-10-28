@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, ChevronRight, X } from 'lucide-react';
 
 export function Skeleton({ className = '' }) {
   return <div className={`skeleton ${className}`} aria-hidden="true" />;
@@ -141,5 +141,45 @@ export function Fold({ id, title, summary, hint, icon: Icon, badge, defaultOpen 
         {open && children}
       </div>
     </Card>
+  );
+}
+
+/** A square on the Account page that opens a popup. `hint` is one short line; the full picture is inside the popup. */
+export function PopupTile({ icon: Icon, label, hint, onClick }) {
+  return (
+    <button type="button" onClick={onClick} aria-haspopup="dialog" className="card-shadow flex flex-col items-start gap-1 rounded-2xl border border-line bg-surface p-3 text-left transition-colors hover:border-accent2">
+      <Icon className="h-5 w-5 text-accent2" />
+      <span className="flex w-full items-center justify-between text-sm font-semibold">
+        {label} <ChevronRight className="h-4 w-4 text-muted" />
+      </span>
+      <span className="text-[11px] text-muted">{hint}</span>
+    </button>
+  );
+}
+
+/** A popup that slides up from the bottom on a phone and sits in the middle on a wide screen. Escape or a tap outside closes it. */
+export function Sheet({ title, subtitle, onClose, children }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true" aria-label={title}>
+      <button type="button" aria-label="Close" className="absolute inset-0 bg-black/70" onClick={onClose} />
+      <div className="sheet-in pb-safe relative max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl border border-line bg-surface md:max-w-2xl md:rounded-2xl">
+        <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-line md:hidden" />
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 bg-surface px-4 pb-2 pt-3">
+          <div className="min-w-0">
+            <div className="text-lg font-bold">{title}</div>
+            {subtitle && <div className="text-xs leading-snug text-muted">{subtitle}</div>}
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="btn btn-ghost -mr-2 !p-2">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="px-4 pb-4">{children}</div>
+      </div>
+    </div>
   );
 }
