@@ -115,6 +115,16 @@ export class MarketDataService extends EventEmitter {
     return candles;
   }
 
+  /** `days` calendar days of `unit`-minute candles for the study, cached for half an hour. */
+  async getRange(symbol, unit, days) {
+    const key = `${symbol}|r${unit}|${days}`;
+    const hit = this.historyCache.get(key);
+    if (hit && Date.now() - hit.at < 30 * 60000) return hit.candles;
+    const candles = await this.provider.getRangeHistory(symbol, unit, days);
+    this.historyCache.set(key, { at: Date.now(), candles });
+    return candles;
+  }
+
   async getCandles(symbol, interval) {
     if (!INTERVAL_SECONDS[interval]) throw new Error(`Unsupported interval ${interval}`);
     // The mock feed builds history in memory, so it is always fresh; broker APIs are rate limited.

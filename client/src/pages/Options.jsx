@@ -7,6 +7,7 @@ import { OptionsAutoCard } from '../components/options/OptionsAutoCard.jsx';
 import { OptionsPositions } from '../components/options/OptionsPositions.jsx';
 import { OptionsHistory } from '../components/options/OptionsHistory.jsx';
 import { OptionsLog } from '../components/options/OptionsLog.jsx';
+import { OptionsStudy } from '../components/options/OptionsStudy.jsx';
 import { NiftyChart } from '../components/options/NiftyChart.jsx';
 import { Card, Segmented, Skeleton } from '../components/ui.jsx';
 
@@ -15,6 +16,7 @@ const TABS = [
   { value: 'positions', label: 'Positions' },
   { value: 'history', label: 'History' },
   { value: 'log', label: 'Log' },
+  { value: 'study', label: 'Study' },
 ];
 
 /** Nifty 50 index options, paper only. Kept apart from shares: its own positions, orders, history and log. */
@@ -50,6 +52,7 @@ export default function Options() {
       {tab === 'positions' && <OptionsPositions />}
       {tab === 'history' && <OptionsHistory />}
       {tab === 'log' && <OptionsLog />}
+      {tab === 'study' && <OptionsStudy />}
       <p className="text-center text-[11px] text-muted">{data?.disclaimer}</p>
     </div>
   );
