@@ -104,6 +104,8 @@ export class ReviewService {
         return { symbol: s.symbol, name: s.name, sector: s.sector, move, news: newsCall, ideas: ideaCalls };
       }),
     );
+    // headlines that cancel out make no call, so a stock with no call and no idea has nothing to review
+    for (let i = rows.length - 1; i >= 0; i--) if (!rows[i].news && !rows[i].ideas.length) rows.splice(i, 1);
     rows.sort((a, b) => Math.abs(b.move?.openToClosePct ?? 0) - Math.abs(a.move?.openToClosePct ?? 0));
 
     const newsCalls = rows.filter((r) => r.news?.result).map((r) => ({ symbol: r.symbol, ...r.news }));
@@ -179,6 +181,7 @@ export class ReviewService {
       expiryWeekday: this.market.expiryWeekday,
       lossLimit: rules.stopLoss ?? 0,
       maxLots: settings?.maxLots ?? 2,
+      exitMin: rules.exitMin,
     };
     if (!c1.length) return { day, candles: [], signals: [], patterns: [] };
     return reviewPatterns({ c1, day, params, stocks5: await this.#savedStocks5(day) });

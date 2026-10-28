@@ -3,9 +3,10 @@ import { ClipboardCopy, FlaskConical, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { copyText } from '../../lib/copyText.js';
 import { formatPnl, formatPrice, pnlClass } from '../../lib/format.js';
-import { FEW_TRADES, istStamp, sharesText } from '../../lib/study.js';
+import { FEW_TRADES, istStamp, sharesExitText, sharesText } from '../../lib/study.js';
 import { useStudy } from '../../lib/useStudy.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
+import { ExitTimeField, useExitTime } from './ExitTimeField.jsx';
 
 const DAYS = [
   { value: 1, label: 'Today' },
@@ -55,7 +56,12 @@ function Stat({ label, value, tone, sub }) {
 /** Replays the scanner on past candles of the Nifty 50 and shows which setups, hours and sides paid. Analysis only. */
 export function SharesStudy() {
   const [days, setDays] = useState(10);
+  const [exit, setExit] = useState('lock');
+  const [target, setTarget] = useState('300');
   const { state, error, running, run } = useStudy('shares');
+  const time = useExitTime('shares');
+  const targetValue = Number(target);
+  const targetBad = exit === 'target' && !(targetValue >= 100 && targetValue <= 100000);
   const r = state?.result;
   const o = r?.overall;
 
@@ -71,12 +77,21 @@ export function SharesStudy() {
           <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
           <div>
             <h3 className="text-sm font-semibold">Which share setups pay?</h3>
-            <p className="text-[11px] leading-snug text-muted">Replays the scanner on past candles of the 50 stocks, sized to your share stop. This does not change the live trading. It reads a lot of data, so it takes a few minutes.</p>
+            <p className="text-[11px] leading-snug text-muted">Replays the scanner on past candles of the 50 stocks, sized to your share stop. Choose how a winning trade is sold below. This does not change the live trading. It reads a lot of data, so it takes a few minutes.</p>
           </div>
         </div>
+        <Segmented className="w-full" size="sm" value={exit} onChange={setExit} options={[{ value: 'lock', label: 'Profit ladder (your Account rows)' }, { value: 'target', label: 'Fixed target' }]} />
+        {exit === 'target' && (
+          <label className="flex items-center justify-between gap-3 text-xs text-muted">
+            <span>Sell when a trade's profit reaches (₹). No profit lock.</span>
+            <input className="field num !w-24 !px-2 !py-1.5 text-right !text-sm" inputMode="numeric" value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Target profit per trade in rupees" />
+          </label>
+        )}
+        <ExitTimeField time={time} />
+        {targetBad && <p className="text-xs text-down">The target must be between ₹100 and ₹1,00,000.</p>}
         <div className="flex items-center gap-2">
           <Segmented className="flex-1" size="sm" value={days} onChange={setDays} options={DAYS} />
-          <button type="button" onClick={() => run(days)} disabled={running} className="btn btn-primary btn-sm shrink-0">
+          <button type="button" onClick={() => run(days, { exit, target: targetValue || 300, exitMin: time.exitMin })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Run study'}
           </button>
         </div>
@@ -94,7 +109,7 @@ export function SharesStudy() {
           <Card className="space-y-2 p-3">
             <div className="flex items-center justify-between gap-2 text-xs">
               <p className="text-muted">
-                Last {r.period.days} trading days · {r.period.stocks} stocks · risk ₹{r.params.riskAmount} a trade
+                Last {r.period.days} trading days · {r.period.stocks} stocks · risk ₹{r.params.riskAmount} a trade · {sharesExitText(r.params)}
               </p>
               <button type="button" onClick={copy} className="btn btn-sm shrink-0">
                 <ClipboardCopy className="h-3.5 w-3.5" /> Copy

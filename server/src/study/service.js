@@ -27,11 +27,11 @@ export class StudyService {
   }
 
   /** Starts a run and returns at once; poll status(). Only one run per user and kind at a time. */
-  start(userId, kind, { days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0 } = {}) {
+  start(userId, kind, { days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0, exitMin } = {}) {
     if (this.status(userId, kind).state === 'running') throw conflict('A study is already running');
     const job = { state: 'running', step: 'Starting', startedAt: Date.now() };
     this.jobs.set(`${userId}|${kind}`, job);
-    const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8 }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots });
+    const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin });
     run.catch((e) => {
       logger.warn(`${kind} study failed: ${e.message}`);
       Object.assign(job, { state: 'failed', error: e.message });
@@ -58,7 +58,7 @@ export class StudyService {
     return { nifty1, calendar };
   }
 
-  async #runOptions(userId, job, { days, iv, target = 0, fixedLots = 0 }) {
+  async #runOptions(userId, job, { days, iv, target = 0, fixedLots = 0, exitMin }) {
     const { nifty1, calendar } = await this.#nifty(job, days);
     const stocks5 = {};
     let failed = 0;
@@ -86,12 +86,13 @@ export class StudyService {
       maxLots: settings?.maxLots ?? 2,
       target,
       fixedLots,
+      exitMin: exitMin ?? rules.exitMin,
     };
     const result = await runOptionsStudy({ nifty1, stocks5, params, onProgress: (step) => { job.step = step; } });
     await this.#save(userId, 'options', result);
   }
 
-  async #runShares(userId, job, { days }) {
+  async #runShares(userId, job, { days, target = 0, exitMin }) {
     const { nifty1, calendar } = await this.#nifty(job, days);
     const history = {};
     let failed = 0;
@@ -105,7 +106,7 @@ export class StudyService {
       }
     }
     const rules = await loadRules(userId, 'EQ');
-    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss }, onProgress: (step) => { job.step = step; } });
+    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, target, exitMin: exitMin ?? rules.exitMin }, onProgress: (step) => { job.step = step; } });
     await this.#save(userId, 'shares', result);
   }
 }

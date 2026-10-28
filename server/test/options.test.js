@@ -600,7 +600,7 @@ test('the options API: settings, the chart read, the log, and a manual buy', asy
   assert.equal(off.settings.enabled, false);
   assert.equal(off.settings.budget, 30000);
   assert.match(off.disclaimer, /paper/i);
-  assert.deepEqual(off.rules, { stopLoss: 1500, lockStart: 1000, lockGap: 250, steps: [{ at: 1000, keep: 750 }] }, 'the stop and lock come from the Account tab');
+  assert.deepEqual(off.rules, { stopLoss: 1500, lockStart: 1000, lockGap: 250, exitMin: 915, steps: [{ at: 1000, keep: 750 }] }, 'the stop and lock come from the Account tab');
   assert.equal(off.settings.lockLadder, undefined);
   assert.equal(off.settings.trailPct, undefined);
   const on = (await api().put('/api/options').set(fresh.auth).send({ enabled: true, maxLots: 1 }).expect(200)).body;

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { badRequest, notFound } from '../utils/errors.js';
 
-export const SHARES_NOTE = 'This replays the scanner on past 1-minute candles of the Nifty 50, sized to your Account stop. There is no order book in the replay and its exits are an older percent ladder, so read it for which setups, hours and sides pay, not for exact rupees. Past results do not promise future ones.';
+export const SHARES_NOTE = 'This replays the scanner on past 1-minute candles of the Nifty 50, sized to your Account stop. There is no order book in the replay, and it exits with your profit ladder or a fixed rupee target, as you choose, so read it for which setups, hours and sides pay more than for exact rupees. Past results do not promise future ones.';
 
 export const STUDY_NOTE = 'This is a replay of past Nifty candles as paper trades of one lot. Option prices are estimated, not recorded, so the rupee amounts are a guide. Past results do not promise future ones.';
 
@@ -14,6 +14,7 @@ const runSchema = z.object({
   exit: z.enum(['lock', 'target']).default('lock'),
   target: z.coerce.number().min(100).max(100000).default(1000),
   fixedLots: z.coerce.number().int().min(0).max(20).default(0),
+  exitMin: z.coerce.number().int().min(9 * 60 + 30).max(15 * 60 + 15).optional(), // the time everything is closed; left out = the one in Account Limits
 });
 const MAX_DAYS = { options: 65, shares: 15 }; // a share replay runs the whole scanner on 50 stocks, so it is kept short; options can use the saved three months
 

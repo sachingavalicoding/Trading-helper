@@ -1,6 +1,7 @@
 import { formatPnl } from './format.js';
+import { DEFAULT_EXIT_MIN, timeText } from './ladder.js';
 
-export const EXIT_WORD = { STOP: 'Stop hit', LOCK: 'Profit lock', EOD: '15:15 close', TARGET: 'Target hit' };
+export const EXIT_WORD = { STOP: 'Stop hit', LOCK: 'Profit lock', EOD: 'Closed on time', TARGET: 'Target hit' };
 export const FEW_TRADES = 10; // under this many trades a result is mostly luck
 
 /** "13 Oct 10:35" in IST, from epoch seconds. */
@@ -35,7 +36,7 @@ export function studyText(r) {
   if (!r) return '';
   const lines = [
     `Options study ${r.period.from} to ${r.period.to} (${r.period.days} trading days), ${sizingText(r.params)}, charges and slippage included, premiums estimated at ${Math.round(r.params.iv * 100)}% volatility.`,
-    `${exitText(r.params)}; stop is the chart level on a closed 1-minute candle; closed at 15:15; at most ${r.params.maxPerDay} trades a day; stops wider than ${r.params.maxStopAtr} ATR skipped.`,
+    `${exitText(r.params)}; stop is the chart level on a closed 1-minute candle; closed at ${timeText(r.params.exitMin ?? DEFAULT_EXIT_MIN)}; at most ${r.params.maxPerDay} trades a day; stops wider than ${r.params.maxStopAtr} ATR skipped.`,
     '',
   ];
   for (const t of r.techniques) {
@@ -61,13 +62,21 @@ export function hourRows(t) {
     .map(([h, v]) => ({ hour: hourWord(h), trades: v.trades, net: v.net }));
 }
 
+/** The exit rule a shares study used, in words. Results saved before the exit choice have no `exit` and used the old percent ladder. */
+export function sharesExitText(p) {
+  if (p.exit === 'target') return `No profit lock: sold when a trade's profit reaches +₹${p.target}, or at the stop`;
+  if (p.exit !== 'lock') return 'Exits: an older percent ladder, so the rupees are a guide';
+  if (!p.steps?.length) return 'No profit lock';
+  return `Profit ladder: ${p.steps.map((r) => `+₹${r.at} keeps ₹${r.keep}`).join(', ')}`;
+}
+
 /** The shares study as plain text, to paste into the chat. */
 export function sharesText(r) {
   if (!r) return '';
   const o = r.overall;
   const line = (x) => `${x.key}: ${x.trades} trades, ${x.winRate ?? '-'}% win, net ${formatPnl(x.totalNet)}, avg win ${formatPnl(x.avgWin)}, avg loss ${formatPnl(x.avgLoss)}, profit factor ${x.profitFactor ?? '-'}`;
   const lines = [
-    `Shares study, last ${r.period.days} trading days, ${r.period.stocks} stocks, each trade sized to risk ₹${r.params.riskAmount} at its stop, charges and ${r.params.slippagePct}% slippage included. Exits are an older percent ladder, so the rupees are a guide.`,
+    `Shares study, last ${r.period.days} trading days, ${r.period.stocks} stocks, each trade sized to risk ₹${r.params.riskAmount} at its stop, charges and ${r.params.slippagePct}% slippage included. ${sharesExitText(r.params)}; the stop is the scanner's chart stop; closed at ${timeText(r.params.exitMin ?? DEFAULT_EXIT_MIN)}.`,
     `All: ${o.trades} trades, ${o.winRate ?? '-'}% win, net ${formatPnl(o.totalNet)}, charges ${formatPnl(o.totalCharges)}, drawdown ${formatPnl(-o.maxDrawdown)}.`,
     '',
     'By setup:',

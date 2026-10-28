@@ -91,6 +91,16 @@ test('a call that keeps rising is held to 15:15, one that gives back a big gain 
   assert.ok(stopped.net < -500 && stopped.exitSpot <= 23980, JSON.stringify(stopped));
 });
 
+test('the replay closes at the exit time you set, and takes no trade at or after it', () => {
+  const start = Date.UTC(2026, 9, 12, 4, 30) / 1000; // 10:00 IST
+  const rise = minutes(24000, Array.from({ length: 330 }, () => 0.4));
+  const at = (exitMin, time = start) => simulateTrade({ c1: rise, byTime: index(rise), signal: { technique: 'x', note: '', side: 'CE', time, stop: 23960 }, params: { ...PARAMS, exitMin } });
+  const early = at(14 * 60 + 15);
+  assert.equal(early.reason, 'EOD');
+  assert.equal(early.exitTime, Date.UTC(2026, 9, 12, 8, 45) / 1000, 'closed at 14:15 IST');
+  assert.equal(at(10 * 60 + 30, Date.UTC(2026, 9, 12, 5, 0) / 1000), null, 'a signal at 10:30 is too late for a 10:30 exit');
+});
+
 test('a typed lock ladder replaces lockStart and lockGap in the replay: an early first row sells a smaller gain, an empty ladder never locks', () => {
   const start = Date.UTC(2026, 9, 12, 4, 30) / 1000;
   const gaveBack = minutes(24000, [...Array.from({ length: 100 }, () => 0.8), ...Array.from({ length: 100 }, () => -0.8)]);
@@ -330,6 +340,19 @@ test('the shares study replays the scanner on each stock and reports by setup, s
   for (const t of r.recent) assert.ok(t.qty >= 1 && Number.isFinite(t.net), JSON.stringify(t));
 });
 
+test('the shares study can exit on a fixed rupee target instead of the ladder', async () => {
+  const history = { AAA: walk(12, 3), BBB: walk(12, 5) };
+  const run = (params) => runSharesStudy({ nifty1: walk(12, 7), history, params: { days: 5, riskAmount: 200, ...params } });
+  const lock = await run({ steps: [{ at: 250, keep: 170 }] });
+  const target = await run({ target: 300 });
+  assert.equal(lock.params.exit, 'lock');
+  assert.equal(target.params.exit, 'target');
+  assert.equal(target.params.target, 300);
+  assert.equal(lock.overall.trades, target.overall.trades, 'the same ideas are traded, only the exits differ');
+  assert.ok(!target.byExit.some((x) => x.key === 'Profit lock'), 'with a target there is no lock');
+  for (const t of target.recent.filter((x) => x.exit === 'Target')) assert.ok(t.net > 0 && t.net < 400, JSON.stringify(t));
+});
+
 test('the shares study runs through the API on the Account stop, is kept per kind, and the days are limited', async () => {
   const nifty = walk(14, 7);
   const stock = walk(14, 3);
@@ -353,6 +376,8 @@ test('the shares study runs through the API on the Account stop, is kept per kin
   assert.equal(body.status.state, 'idle', JSON.stringify(body.status));
   assert.equal(body.result.params.riskAmount, 200, 'sized to the Account stop for shares');
   assert.match(body.note, /order book/);
+  assert.equal(body.result.params.exit, 'lock');
+  assert.deepEqual(body.result.params.steps, [{ at: 250, keep: 170 }], 'your Account ladder rows');
   assert.equal((await request(app).get('/api/study/options').set(u.auth).expect(200)).body.result, null, 'the options study is separate');
 });
 

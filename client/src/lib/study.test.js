@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { verdict, studyText, hourRows, istStamp, sizingText, sharesText, exitText } from './study.js';
+import { verdict, studyText, hourRows, istStamp, sizingText, sharesText, exitText, sharesExitText } from './study.js';
 
 const tech = (over = {}) => ({ key: 'x', label: 'Breakout', trades: 20, wins: 11, winRate: 55, net: 4000, avgWin: 900, avgLoss: -500, best: 2500, worst: -1300, maxDrawdown: 1800, profitFactor: 1.8, signals: 30, skippedWide: 4, bySide: { CE: { trades: 12, wins: 7, net: 3000 }, PE: { trades: 8, wins: 4, net: 1000 } }, byHour: { 11: { trades: 5, net: 900 }, 10: { trades: 7, net: 1200 } }, ...over });
 
@@ -63,4 +63,13 @@ it('the exit and the lots a study used are told in words', () => {
   expect(exitText({ exit: 'target', target: 1000 })).toMatch(/No profit lock.*\+₹1000 a lot/);
   expect(sizingText({ fixedLots: 1, lossLimit: 1500, maxLots: 2 })).toMatch(/^1 lot each/);
   expect(sizingText({ fixedLots: 0, lossLimit: 1500, maxLots: 2 })).toMatch(/sized/);
+});
+
+describe('sharesExitText', () => {
+  it('words the ladder, the target, no lock, and an older result', () => {
+    expect(sharesExitText({ exit: 'lock', steps: [{ at: 250, keep: 170 }, { at: 600, keep: 450 }] })).toBe('Profit ladder: +₹250 keeps ₹170, +₹600 keeps ₹450');
+    expect(sharesExitText({ exit: 'lock', steps: [] })).toBe('No profit lock');
+    expect(sharesExitText({ exit: 'target', target: 300 })).toMatch(/No profit lock.*\+₹300/);
+    expect(sharesExitText({ riskAmount: 200 })).toMatch(/older percent ladder/);
+  });
 });

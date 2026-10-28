@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ladderSummary, nextRow, rowsFromRules, rowsProblem, stepsOf } from './ladder.js';
+import { ladderSummary, minOfTime, nextRow, rowsFromRules, rowsProblem, stepsOf, timeText } from './ladder.js';
 
 const rows = (...pairs) => pairs.map(([at, keep]) => ({ at: String(at), keep: String(keep) }));
 
@@ -27,5 +27,16 @@ describe('profit ladder rows', () => {
     expect(ladderSummary([])).toBe('no lock');
     expect(ladderSummary([{ at: 1000, keep: 750 }])).toBe('lock from +₹1,000, ₹250 behind');
     expect(ladderSummary([{ at: 1000, keep: 750 }, { at: 3000, keep: 2500 }])).toMatch(/^lock ladder 2 rows/);
+  });
+});
+
+describe('exit time', () => {
+  it('turns a typed time into minutes and back, and refuses one outside 09:30 to 15:15', () => {
+    expect(minOfTime('14:15')).toBe(855);
+    expect(timeText(855)).toBe('14:15');
+    expect(minOfTime('15:15')).toBe(915);
+    expect(minOfTime('15:16')).toBeNull();
+    expect(minOfTime('09:29')).toBeNull();
+    expect(minOfTime('')).toBeNull();
   });
 });

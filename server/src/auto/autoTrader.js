@@ -3,6 +3,7 @@ import { getFunds } from '../services/walletService.js';
 import { roundTripCharges } from '../services/charges.js';
 import { sizePosition } from '../scanner/sizing.js';
 import { loadRules } from '../models/TradeDefaults.js';
+import { istParts } from '../market/marketHours.js';
 import { logger } from '../utils/logger.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -29,6 +30,8 @@ export class AutoTrader {
     this.onUpdate = (u) => {
       if (u.kind === 'fill' && u.order && u.order.role !== 'ENTRY') this.#finish(u).catch((e) => logger.warn(`auto log update failed: ${e.message}`));
     };
+    this.timer = null;
+    this.timed = new Set(); // `${userId}|${symbol}` of trades closed by the exit time, so the log says TIME
     this.onEntry = (idea) => {
       this.handle(idea).catch((e) => logger.error('auto-trader failed', e));
     };
@@ -38,12 +41,34 @@ export class AutoTrader {
     this.scanner.on('entry', this.onEntry);
     this.engine.market.on('tick', this.onTick);
     this.engine.on('update', this.onUpdate);
+    this.timer = setInterval(() => this.closeOnTime().catch((e) => logger.warn(`auto time exit failed: ${e.message}`)), 30_000);
+    this.timer.unref?.();
   }
 
   stop() {
     this.scanner.off('entry', this.onEntry);
     this.engine.market.off('tick', this.onTick);
     this.engine.off('update', this.onUpdate);
+    clearInterval(this.timer);
+  }
+
+  /** Close the auto trader's open share trades once the clock reaches the exit time set in the Account tab (15:15 unless changed). */
+  async closeOnTime() {
+    if (!this.config.enforceMarketHours) return;
+    const { minutes } = istParts(new Date());
+    const open = await AutoLog.find({ segment: { $ne: 'OPT' }, status: 'OPEN', decision: 'PLACED' }, 'user symbol').lean();
+    const exitMin = new Map();
+    for (const row of open) {
+      const uid = String(row.user);
+      if (!exitMin.has(uid)) exitMin.set(uid, (await loadRules(uid, 'EQ')).exitMin);
+      if (minutes < exitMin.get(uid)) continue;
+      try {
+        this.timed.add(`${uid}|${row.symbol}`);
+        await this.engine.exitPosition(uid, row.symbol);
+      } catch {
+        /* already closed */
+      }
+    }
   }
 
   #track({ symbol, ltp }) {
@@ -91,7 +116,8 @@ export class AutoTrader {
     const x = this.excursion.get(key);
     this.excursion.delete(key);
     const gross = pos.realizedPnl;
-    const exitReason = order.role === 'TARGET' ? 'TARGET' : order.role === 'STOPLOSS' ? (gross > 0 ? 'LOCK' : 'STOP') : order.role === 'SQUAREOFF' ? 'SQUARE_OFF' : 'MANUAL';
+    const exitReason = order.role === 'TARGET' ? 'TARGET' : order.role === 'STOPLOSS' ? (gross > 0 ? 'LOCK' : 'STOP') : order.role === 'SQUAREOFF' ? 'SQUARE_OFF' : this.timed.has(`${userId}|${order.symbol}`) ? 'TIME' : 'MANUAL';
+    this.timed.delete(`${userId}|${order.symbol}`);
     const risk = Math.abs(log.entry - log.stopLoss);
     const dir = log.side === 'BUY' ? 1 : -1;
     const exitPrice = order.avgFillPrice;
@@ -160,6 +186,7 @@ export class AutoTrader {
       if (movedR > 0.5 || movedR < -0.3) return { skipped: `price already moved ${movedR.toFixed(2)}R from the entry` };
     }
     if (risk && idea.entry && (risk / idea.entry) * 100 < MIN_STOP_PCT) return { skipped: `the stop is only ${round2((risk / idea.entry) * 100)}% from the entry, under the ${MIN_STOP_PCT}% minimum, so normal wiggle would hit it` };
+    if (this.config.enforceMarketHours && istParts(new Date()).minutes >= (await loadRules(userId, 'EQ')).exitMin) return { skipped: 'past the exit time set in the Account tab' };
     if (settings.skipSetups?.includes(idea.setup)) return { skipped: `${idea.setup} is switched off in the Account tab` };
     if (idea.setup === 'News gap' && settings.earlyNews === false) return { skipped: 'news gap trades are switched off' };
     if (idea.score < settings.minScore) return { skipped: `score ${idea.score} is below ${settings.minScore}` };

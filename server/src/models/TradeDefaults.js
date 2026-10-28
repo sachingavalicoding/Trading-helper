@@ -11,6 +11,7 @@ const rules = (stopLoss, lockStart, lockGap) => ({
   lockStart: { type: Number, default: lockStart, min: 0 }, // profit in rupees at which the lock starts; 0 = no profit lock
   lockGap: { type: Number, default: lockGap, min: 1 }, // rupees the stop stays behind the best profit
   steps: { type: [{ _id: false, at: Number, keep: Number }], default: [] }, // the typed ladder; empty = use lockStart and lockGap
+  exitMin: { type: Number, default: 915, min: 570, max: 915 }, // minutes after midnight IST when the auto trader closes its trades: 915 = 15:15, the square-off
 });
 
 const tradeDefaultsSchema = new mongoose.Schema(
@@ -22,6 +23,9 @@ const tradeDefaultsSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+export const DEFAULT_EXIT_MIN = 15 * 60 + 15;
+export const MIN_EXIT_MIN = 9 * 60 + 30;
+
 export const TRADE_DEFAULTS = { shares: { stopLoss: 200, lockStart: 250, lockGap: 80 }, options: { stopLoss: 1500, lockStart: 1000, lockGap: 250 } };
 export const TradeDefaults = mongoose.model('TradeDefaults', tradeDefaultsSchema);
 
@@ -30,7 +34,7 @@ export function rulesFor(doc, segment) {
   const key = segment === 'OPT' ? 'options' : 'shares';
   const base = TRADE_DEFAULTS[key];
   const d = doc?.[key] ?? {};
-  const out = { stopLoss: d.stopLoss ?? base.stopLoss, lockStart: d.lockStart ?? base.lockStart, lockGap: d.lockGap ?? base.lockGap };
+  const out = { stopLoss: d.stopLoss ?? base.stopLoss, lockStart: d.lockStart ?? base.lockStart, lockGap: d.lockGap ?? base.lockGap, exitMin: d.exitMin ?? DEFAULT_EXIT_MIN };
   const typed = (d.steps ?? []).map(({ at, keep }) => ({ at, keep }));
   out.steps = typed.length ? typed : out.lockStart > out.lockGap ? [{ at: out.lockStart, keep: out.lockStart - out.lockGap }] : [];
   return out;
