@@ -14,9 +14,13 @@ const MAX_PER_DAY = 3; // the live options trader also stops after 3 entries a d
 const BOT_KEY = 'bot';
 const SCORE_PATTERNS = ['breakout', 'pullback', 'engulfing']; // the patterns that held up in the 30-day study
 const SCORE_FLOORS = [60, 70, 80];
+const AGREE_PATTERNS = ['breakout', 'engulfing', 'momentumBar']; // the ones that made money in the 62-day study
+const AGREE_LABEL = 'Breakout, Engulfing and Strong momentum bar';
 const LABELS = {
   ...Object.fromEntries(TECHNIQUES.map((t) => [t.key, t])),
   confluence: { key: 'confluence', label: 'Two or more agree', text: 'Two different techniques give the same direction within 15 minutes. Stop at the nearest of their stops.' },
+  agree2: { key: 'agree2', label: 'Pattern score: any 2 of 3 agree', text: `${AGREE_LABEL}: a trade is taken only when at least 2 of them give the same direction within 15 minutes (a score of 2 out of 3). Stop at the nearest of their stops.` },
+  agree3: { key: 'agree3', label: 'Pattern score: all 3 agree', text: `${AGREE_LABEL}: a trade is taken only when all 3 give the same direction within 15 minutes (3 out of 3). Rare, so expect few trades.` },
   botFiltered: { key: 'botFiltered', label: 'Current bot, calls only in an up-day', text: 'The current bot, but a call is taken only when Nifty is above yesterday close and above the day average. Puts are unchanged.' },
   breakoutMid: { key: 'breakoutMid', label: 'Breakout, tighter stop', text: 'The same breakout of the last hour, but the stop sits half way between the entry and the last-6-bar extreme, so far more of them fit the loss limit. It gives up some room.' },
   breakoutEngulf: { key: 'breakoutEngulf', label: 'Breakout + Engulfing together', text: 'Breakout of the last hour and the engulfing candle, taken by one bot: one trade at a time and at most 3 a day, as live.' },
@@ -112,7 +116,7 @@ export function botBreakdown(trades) {
   return { byTrigger: by((t) => t.tag || 'no trigger'), byScore: by((t) => band(t.score ?? 0)), bySide: by((t) => (t.side === 'CE' ? 'Calls' : 'Puts')) };
 }
 
-function confluenceSignals(signals) {
+function confluenceSignals(signals, { min = 2, key = 'confluence' } = {}) {
   const out = [];
   const lastAt = { CE: -99, PE: -99 };
   const byBar = new Map();
@@ -125,11 +129,11 @@ function confluenceSignals(signals) {
       const near = [];
       for (let k = i - 2; k <= i; k++) near.push(...(byBar.get(k) || []).filter((s) => s.side === side));
       const names = [...new Set(near.map((s) => s.technique))];
-      if (names.length < 2 || i - lastAt[side] <= 3 || !(byBar.get(i) || []).some((s) => s.side === side)) continue;
+      if (names.length < min || i - lastAt[side] <= 3 || !(byBar.get(i) || []).some((s) => s.side === side)) continue;
       lastAt[side] = i;
       const here = byBar.get(i).find((s) => s.side === side);
       const stop = side === 'CE' ? Math.max(...near.map((s) => s.stop)) : Math.min(...near.map((s) => s.stop));
-      out.push({ ...here, technique: 'confluence', stop, note: names.map((n) => LABELS[n]?.label || n).join(' + ') });
+      out.push({ ...here, technique: key, stop, note: names.map((n) => LABELS[n]?.label || n).join(' + ') });
     }
   }
   return out;
@@ -241,6 +245,9 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   const found = findSignals(prep).filter((s) => s.time - 300 >= fromTime);
   const groups = Object.fromEntries(TECHNIQUES.filter((t) => available(t, { breadth: Boolean(breadth), flow: Boolean(flow) })).map((t) => [t.key, found.filter((s) => s.technique === t.key)]));
   groups.confluence = confluenceSignals(found.filter((x) => x.technique !== 'doubleBottomMid' && !EXTRA.has(x.technique))); // the tighter-stop copy is the same pattern, not a second opinion
+  const agreeBase = found.filter((x) => AGREE_PATTERNS.includes(x.technique));
+  groups.agree2 = confluenceSignals(agreeBase, { min: 2, key: 'agree2' });
+  groups.agree3 = confluenceSignals(agreeBase, { min: 3, key: 'agree3' });
   onProgress('Replaying the current bot logic');
   const bot = await botSignals({ prep, c1: complete, byTime, breadth, fromTime, minScore: params.minScore ?? 80 });
   groups[BOT_KEY] = bot.signals;
