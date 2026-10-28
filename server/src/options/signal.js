@@ -10,8 +10,8 @@ import { roundToTick, round2 } from '../utils/money.js';
 
 export const OPTION_WEIGHTS = { trend5: 8, trend15: 8, emaStack: 6, mean: 8, supertrend: 8, adx: 8, rsi: 6, macd: 6, level: 10, breadth: 8, candle: 6, heikin: 5, stoch: 4, cpr: 5, chop: 4 }; // adds up to 100
 export const OPTION_MIN_SCORE = 70;
-export const FIRST_ENTRY_MIN = 9 * 60 + 45; // the first half hour is gap noise
-export const LAST_ENTRY_MIN = 14 * 60; // too little time left for the move to pay before the premium melts
+export const FIRST_ENTRY_MIN = 9 * 60 + 15; // the market opens: index options have no pre-market, so this is the earliest a buy can be priced
+export const LAST_ENTRY_MIN = 15 * 60 + 15; // the 15:15 square-off: no new trade after it
 export const MIN_STOP_ATR = 0.8; // a stop closer than this to the price is hit by ordinary noise
 export const MAX_STOP_ATR = 2.0; // if the nearest chart level is further than this, the stop would be too wide to risk
 const MAX_SPENT = 1.5; // today's range already this many times the usual daily range: the move is mostly done
@@ -247,7 +247,7 @@ export function scoreDirection(m, d, { now = new Date(), enforceWindows = false 
   const finalScore = reversal ? Math.max(score, reversal.score) : score;
   const { minutes } = istParts(now);
   const gates = [
-    gate('window', 'Entry time', !enforceWindows || (minutes >= FIRST_ENTRY_MIN && minutes < LAST_ENTRY_MIN), 'New option trades are taken only between 09:45 and 14:00 IST'),
+    gate('window', 'Entry time', !enforceWindows || (minutes >= FIRST_ENTRY_MIN && minutes < LAST_ENTRY_MIN), 'New option trades are taken only between 09:15 and 15:15 IST'),
     gate('sideways', 'Not sideways', !((m.chop != null && m.chop > 61.8) || (m.adx != null && m.adx < 15)), 'The index is moving sideways, where options lose to time decay'),
     gate('trend', 'Bigger trend', Boolean(reversal) || !(d * m.trend15 < 0), 'The 15-minute trend points the other way'),
     gate('stretch', 'Not stretched', m.e21 == null || d * (m.spot - m.e21) <= STRETCH_ATR * m.atr5, 'The index is extended far from its 21 EMA, so chasing it here is risky'),

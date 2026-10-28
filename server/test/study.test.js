@@ -51,8 +51,8 @@ test('a double bottom is a call when the bounce high is broken, a double top is 
   assert.deepEqual(findSignals(prepare(barsFrom(DOUBLE_BOTTOM.slice(0, -1)))).filter((s) => s.technique === 'doubleBottom'), [], 'not before the neckline breaks');
 });
 
-test('a bar that closes after 14:00 gives no signal, and no detector looks at a later bar', () => {
-  const late = barsFrom(DOUBLE_BOTTOM, Date.UTC(2026, 9, 12, 8, 45) / 1000); // 14:15 IST
+test('a bar that closes after 15:15 gives no signal, and no detector looks at a later bar', () => {
+  const late = barsFrom(DOUBLE_BOTTOM, Date.UTC(2026, 9, 12, 9, 50) / 1000); // 15:20 IST
   assert.deepEqual(findSignals(prepare(late), { only: ['doubleBottom'] }), []);
   const full = findSignals(prepare(barsFrom([...DOUBLE_BOTTOM, 23000, 22000])), { only: ['doubleBottom'] });
   assert.equal(full.length, 1, 'bars after the signal change nothing about it');
@@ -72,13 +72,13 @@ const index = (c1) => new Map(c1.map((b, i) => [b.time, i]));
 const PARAMS = { iv: 0.14, lockStart: 1000, lockGap: 250, lotSize: 65, holidays: [], expiryWeekday: 2 };
 const sim = (c1, signal) => simulateTrade({ c1, byTime: index(c1), signal: { technique: 'x', note: '', ...signal }, params: PARAMS });
 
-test('a call that keeps rising is held to 15:00, one that gives back a big gain is sold by the profit lock, one that falls through its stop loses', () => {
+test('a call that keeps rising is held to 15:15, one that gives back a big gain is sold by the profit lock, one that falls through its stop loses', () => {
   const start = Date.UTC(2026, 9, 12, 4, 30) / 1000; // 10:00 IST
-  const rise = minutes(24000, Array.from({ length: 300 }, () => 0.4));
+  const rise = minutes(24000, Array.from({ length: 330 }, () => 0.4));
   const held = sim(rise, { side: 'CE', time: start, stop: 23960 });
   assert.equal(held.reason, 'EOD');
   assert.ok(held.gross > 1000 && held.net < held.gross && held.charges > 0, JSON.stringify(held));
-  assert.equal(held.exitTime, Date.UTC(2026, 9, 12, 9, 30) / 1000, 'closed at 15:00 IST');
+  assert.equal(held.exitTime, Date.UTC(2026, 9, 12, 9, 45) / 1000, 'closed at 15:15 IST');
 
   const gaveBack = minutes(24000, [...Array.from({ length: 100 }, () => 0.8), ...Array.from({ length: 100 }, () => -0.8)]);
   const lock = sim(gaveBack, { side: 'CE', time: start, stop: 23960 });

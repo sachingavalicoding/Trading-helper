@@ -1,6 +1,6 @@
 import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { istParts } from '../market/marketHours.js';
-import { readNifty } from '../options/signal.js';
+import { readNifty, FIRST_ENTRY_MIN, LAST_ENTRY_MIN } from '../options/signal.js';
 import { round2 } from '../utils/money.js';
 import { TECHNIQUES, prepare, findSignals, MIN_STOP_ATR, MAX_STOP_ATR } from './patterns.js';
 import { simulateTrade, summarize } from './simulate.js';
@@ -69,7 +69,7 @@ export function breadthStudy(bars5, breadth, fromTime) {
         if (share == null) continue;
         if (share < th - 0.1) armed = true;
         const { minutes } = istParts(new Date((b.time + 300) * 1000));
-        if (!armed || share < th || b.time < fromTime || minutes < 9 * 60 + 45 || minutes >= 14 * 60) continue;
+        if (!armed || share < th || b.time < fromTime || minutes < FIRST_ENTRY_MIN || minutes >= LAST_ENTRY_MIN) continue;
         armed = false;
         const at = (k) => (i + k < bars5.length && DAY(bars5[i + k].time) === day ? bars5[i + k].close : null);
         const a6 = at(6);
@@ -134,7 +134,7 @@ async function botSignals({ prep, c1, byTime, breadth, fromTime, minScore }) {
   for (let i = 15; i < prep.bars.length; i++) {
     const bar = prep.bars[i];
     const { minutes } = istParts(new Date((bar.time + 300) * 1000));
-    if (bar.time < fromTime || minutes < 9 * 60 + 45 || minutes >= 14 * 60) continue;
+    if (bar.time < fromTime || minutes < FIRST_ENTRY_MIN || minutes >= LAST_ENTRY_MIN) continue;
     const e = byTime.get(bar.time + 300);
     if (e == null) continue;
     const next = c1[e];

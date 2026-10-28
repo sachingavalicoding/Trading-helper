@@ -1,5 +1,6 @@
 import { supertrend, emaValues, atr } from '../signals/indicators.js';
 import { istParts } from '../market/marketHours.js';
+import { FIRST_ENTRY_MIN, LAST_ENTRY_MIN } from '../options/signal.js';
 
 // Each way of reading the Nifty chart that the study tests, written as "does this 5-minute bar, which has just closed, complete the
 // pattern for a call?". A put is the same pattern on the mirrored chart (prices negated), so every detector is written once, for a call.
@@ -54,7 +55,7 @@ export function prepare(bars, breadth = null) {
 
 const tradeable = (time) => {
   const { minutes } = istParts(new Date((time + 300) * 1000)); // the bar has closed: the trade is made at its end
-  return minutes >= 9 * 60 + 45 && minutes < 14 * 60;
+  return minutes >= FIRST_ENTRY_MIN && minutes < LAST_ENTRY_MIN;
 };
 
 const lowest = (bars, from, to) => Math.min(...bars.slice(from, to + 1).map((b) => b.low));
@@ -185,7 +186,7 @@ const DETECTORS = { doubleBottom, doubleBottomMid: (v, i, ds, a) => doubleBottom
 
 /**
  * Every signal the techniques give over the prepared bars: { technique, side, i, time, close, stop, note, atr }.
- * `time` is when the bar closed. Only bars that close between 09:45 and 14:00 count, like the live trader (`windows: false` lifts that).
+ * `time` is when the bar closed. Only bars that close between 09:15 and 15:15 count, like the live trader (`windows: false` lifts that).
  * `from` is the first bar index to look at, so the live trader can look at the newest bar only.
  */
 export function findSignals(prep, { only = null, from = 15, windows = true } = {}) {

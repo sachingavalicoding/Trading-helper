@@ -273,13 +273,14 @@ test('no News gap without agreeing news, a big enough gap, a held gap, or when t
   assert.deepEqual(newsGap(gapCtx({ today5: [bar(0, 102.5, 103, 100.4, 102.9), bar(1, 102.9, 103.4, 102.8, 103.3), bar(2, 103.3, 103.4, 103.3, 103.4)] })), [], 'gave back more than half of the gap');
 });
 
-test('before 09:20 nothing; 09:20 to 09:30 only the news-gap setup; then everything until 14:30', () => {
+test('before 09:20 nothing; 09:20 to 09:30 only the news-gap setup; then everything until 15:15', () => {
   const at = (h, m) => new Date(Date.UTC(2026, 9, 27, h, m) - 5.5 * 3600000); // IST
   assert.equal(entryWindow(at(9, 19)), 'closed');
   assert.equal(entryWindow(at(9, 20)), 'early');
   assert.equal(entryWindow(at(9, 29)), 'early');
   assert.equal(entryWindow(at(9, 30)), 'open');
-  assert.equal(entryWindow(at(14, 29)), 'open');
-  assert.equal(entryWindow(at(14, 30)), 'closed');
+  assert.equal(entryWindow(at(14, 59)), 'open');
+  assert.equal(entryWindow(at(15, 14)), 'open');
+  assert.equal(entryWindow(at(15, 15)), 'closed');
   assert.equal(entryWindow(at(9, 25), true), 'closed', 'the old rules keep their 09:30 start');
 });

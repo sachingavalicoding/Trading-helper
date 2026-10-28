@@ -12,7 +12,7 @@ import { logger } from '../utils/logger.js';
 const round2 = (n) => Math.round(n * 100) / 100;
 
 const SCAN_MS = 15000;
-const EXIT_MINUTE = 15 * 60; // all option trades are closed by 15:00 IST: the last half hour is where premiums melt and spreads widen
+const EXIT_MINUTE = 15 * 60 + 15; // auto option trades are closed at the 15:15 IST square-off
 const COOLDOWN_AFTER_STOP_MIN = 20;
 const SAME_SIDE_COOLDOWN_MIN = 15;
 const LOG_REPEAT_MS = 30 * 60000; // the same skip reason is written to the log at most this often
@@ -34,7 +34,7 @@ export function entryModes(settings) {
  * Paper options trader for Nifty 50 index options. Every 15 seconds it reads the Nifty chart; when one side (call or put)
  * has a strong, unblocked case it buys one at-the-money contract, sized so a stop at the chart level loses no more than the user's limit.
  * It sells when a 1-minute candle closes beyond that level; the profit lock is the user's rule from the Account tab, which the order
- * engine puts on every new position. It closes everything by 15:00.
+ * engine puts on every new position. It closes everything at the 15:15 square-off.
  * It only ever calls the paper order engine.
  */
 export class OptionTrader {
@@ -369,7 +369,7 @@ export class OptionTrader {
   }
 
   /**
-   * The 15:00 cut-off for the auto trader's open option trades.
+   * The 15:15 close for the auto trader's open option trades.
    * A trade you bought by hand is never closed by it: it keeps its stop and lock, and the 15:15 square-off is the only time limit.
    */
   async manage(userId) {

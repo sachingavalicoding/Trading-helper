@@ -192,13 +192,15 @@ test('while a call reversal is on, the put side is blocked, so the bot does not 
   assert.deepEqual(shut.blocked, ['x']);
 });
 
-test('entries are only allowed between 09:45 and 14:00 IST when windows are enforced', () => {
+test('entries are only allowed between 09:15 and 15:15 IST when windows are enforced', () => {
   const up = drift(330);
   const at = (h, m) => new Date(Date.UTC(2026, 9, 26, h, m) - 330 * 60000);
   const gateOf = (when) => readNifty({ c1: up, tick: tickFor(up), breadthUp: 0.7 }, { now: when, enforceWindows: true }).ce.gates.find((g) => g.id === 'window').pass;
-  assert.equal(gateOf(at(9, 30)), false);
+  assert.equal(gateOf(at(9, 10)), false);
+  assert.equal(gateOf(at(9, 30)), true);
   assert.equal(gateOf(at(11, 0)), true);
-  assert.equal(gateOf(at(14, 30)), false);
+  assert.equal(gateOf(at(15, 10)), true);
+  assert.equal(gateOf(at(15, 15)), false);
 });
 
 test('the stop sits at a chart level at least 0.8 ATR away, and a level that is too far is refused', () => {
@@ -540,7 +542,7 @@ function this_ltp(pos) {
   return ctx.market.getLtp(pos.symbol);
 }
 
-test('everything the auto trader bought is closed by 15:00 and nothing is closed for going nowhere', async () => {
+test('everything the auto trader bought is closed at 15:15 and nothing is closed for going nowhere', async () => {
   const fresh = await registerUser(app);
   const uid = fresh.user.id || fresh.user._id;
   ctx.provider.setPrice('NIFTY 50', 25000);
@@ -549,7 +551,7 @@ test('everything the auto trader bought is closed by 15:00 and nothing is closed
   const r = await optionTrader.consider(s, callRead(25000));
   assert.ok(r.order, r.skipped);
 
-  const later = new OptionTrader({ market: ctx.market, engine: ctx.engine, config: ctx.config, now: () => new Date(Date.now() + 40 * 60000) });
+  const later = new OptionTrader({ market: ctx.market, engine: ctx.engine, config: ctx.config, now: () => new Date(Date.UTC(2026, 9, 26, 6, 0)) }); // 11:30 IST, well before the close
   await later.init();
   later.start();
   try {
@@ -560,8 +562,8 @@ test('everything the auto trader bought is closed by 15:00 and nothing is closed
     later.stop();
   }
 
-  // 15:05 IST, whatever the trade is doing
-  const late = new OptionTrader({ market: ctx.market, engine: ctx.engine, config: ctx.config, now: () => new Date(Date.UTC(2026, 9, 26, 9, 35)) });
+  // 15:15 IST, whatever the trade is doing
+  const late = new OptionTrader({ market: ctx.market, engine: ctx.engine, config: ctx.config, now: () => new Date(Date.UTC(2026, 9, 26, 9, 45)) });
   await late.init();
   late.start();
   try {

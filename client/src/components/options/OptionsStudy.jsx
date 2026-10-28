@@ -182,7 +182,7 @@ export function OptionsStudy() {
           <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
           <div>
             <h3 className="text-sm font-semibold">Which way of reading the chart pays?</h3>
-            <p className="text-[11px] leading-snug text-muted">Replays past Nifty candles. Each technique buys a call or put when its pattern shows, with a chart stop and your profit lock, lots sized to your loss limit, closed by 15:00. This does not change the live trading.</p>
+            <p className="text-[11px] leading-snug text-muted">Replays past Nifty candles. Each technique buys a call or put when its pattern shows, with a chart stop and your profit lock, lots sized to your loss limit, closed at 15:15. This does not change the live trading.</p>
           </div>
         </div>
         <div className="flex items-center gap-2">

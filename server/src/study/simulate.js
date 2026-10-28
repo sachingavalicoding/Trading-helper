@@ -8,9 +8,9 @@ import { round2 } from '../utils/money.js';
 // with Black-Scholes at a fixed volatility. Direction and timing are real; the rupee amounts are an estimate.
 //
 // Exits follow the live options trader: sell when a 1-minute candle closes beyond the chart stop, once the profit reaches the
-// lock start the stop follows `lockGap` behind the best profit, and everything is closed at 15:00.
+// lock start the stop follows `lockGap` behind the best profit, and everything is closed at the 15:15 square-off.
 
-export const EXIT_MIN = 15 * 60;
+export const EXIT_MIN = 15 * 60 + 15; // the 15:15 square-off, as live
 export const HARD_STOP_MULT = 1.3; // the live trader's premium stop behind the chart stop, for a fast gap
 export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread you cross buying and selling at the market
 
