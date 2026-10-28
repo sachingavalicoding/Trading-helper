@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { ChevronDown, ClipboardCopy, FlaskConical, Play } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '../../lib/api.js';
 import { copyText } from '../../lib/copyText.js';
 import { formatPnl, formatPrice, pnlClass } from '../../lib/format.js';
+import { useStudy } from '../../lib/useStudy.js';
 import { EXIT_WORD, hourRows, istStamp, sizingText, studyText, verdict } from '../../lib/study.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 
@@ -166,42 +166,7 @@ function Breadth({ rows }) {
 /** Replays past Nifty candles through each way of reading the chart and shows what each would have made as one-lot option trades. Analysis only. */
 export function OptionsStudy() {
   const [days, setDays] = useState(20);
-  const [state, setState] = useState(null); // { status, result, note }
-  const [error, setError] = useState(null);
-  const timer = useRef(null);
-
-  const load = useCallback(async () => {
-    try {
-      const d = await api('/study/options');
-      setState(d);
-      setError(null);
-      return d;
-    } catch (e) {
-      setError(e.message);
-      return null;
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-    return () => clearTimeout(timer.current);
-  }, [load]);
-
-  const running = state?.status?.state === 'running';
-  useEffect(() => {
-    if (!running) return undefined;
-    timer.current = setTimeout(load, 2500);
-    return () => clearTimeout(timer.current);
-  }, [running, state, load]);
-
-  async function run() {
-    try {
-      await api('/study/options', { method: 'POST', body: { days } });
-      await load();
-    } catch (e) {
-      toast.error(e.message || 'Could not start the study');
-    }
-  }
+  const { state, error, running, run } = useStudy('options');
 
   async function copy() {
     const ok = await copyText(studyText(state.result));
@@ -222,7 +187,7 @@ export function OptionsStudy() {
         </div>
         <div className="flex items-center gap-2">
           <Segmented className="flex-1" size="sm" value={days} onChange={setDays} options={DAYS} />
-          <button type="button" onClick={run} disabled={running} className="btn btn-primary btn-sm shrink-0">
+          <button type="button" onClick={() => run(days)} disabled={running} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Run study'}
           </button>
         </div>

@@ -12,6 +12,7 @@ import { calculateCharges, roundTripCharges } from '../src/services/charges.js';
 import { choppiness, stochastic, heikinAshi, roc, sessionMean } from '../src/signals/indicators.js';
 import { readNifty, chartStop, scoreDirection, blockAgainstReversal } from '../src/options/signal.js';
 import { planTrade } from '../src/options/plan.js';
+import { entryModes, LIVE_PATTERNS } from '../src/options/optionTrader.js';
 
 // ---------- pure pieces ----------
 
@@ -403,6 +404,59 @@ test('the trader buys a call sized to the loss limit, with a hard stop and the A
   const again = await optionTrader.consider(s, callRead(25000));
   assert.match(again.skipped, /already/);
   await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
+});
+
+// 5-minute bars that wobble inside a 25,000 range, the last one closing the 5 minutes just past and breaking out of the last hour
+function breakoutRead(ageMs = 20000) {
+  const lastTime = Math.floor((Date.now() - ageMs) / 300000) * 300 - 300;
+  const bars = [];
+  for (let i = 0; i < 40; i++) {
+    const close = 25000 + (i % 2 ? 6 : -6);
+    const open = i === 0 ? close : bars[i - 1].close;
+    bars.push({ time: lastTime - (39 - i) * 300, open, high: Math.max(open, close) + 2, low: Math.min(open, close) - 2, close, volume: 0 });
+  }
+  const open = bars.at(-1).close;
+  bars.push({ time: lastTime + 300, open, high: 25020, low: Math.min(open, 25018) - 2, close: 25018, volume: 0 });
+  return { ready: true, spot: 25018, market: { ...mk(25018), done5: bars }, snapshot: {} };
+}
+
+test('a breakout of the last hour is bought once, with the pattern name in the log and a stop under the last 6 bars, and a pattern that is off or stale is not', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  const s = (await OptionSettings.create({ user: uid, enabled: true, patterns: ['breakout'] })).toObject();
+  assert.deepEqual(entryModes({}), { patterns: ['breakout', 'insideBar', 'emaCross'], score: true }, 'settings saved before these switches existed get the defaults');
+  assert.deepEqual(entryModes({ patternEntries: false, scoreEntries: false }), { patterns: [], score: false });
+  assert.ok(LIVE_PATTERNS.length === 11 && !LIVE_PATTERNS.some((p) => p.key === 'breadth'));
+
+  assert.match((await optionTrader.considerPatterns({ ...s, patterns: ['insideBar'] }, breakoutRead())).skipped, /no pattern/, 'a pattern that is not chosen is not traded');
+  assert.match((await optionTrader.considerPatterns({ ...s, patternEntries: false }, breakoutRead())).skipped, /switched on/);
+  assert.match((await optionTrader.considerPatterns(s, breakoutRead(10 * 60000))).skipped, /no fresh bar/, 'a bar that closed 10 minutes ago is not acted on');
+
+  const r = await optionTrader.considerPatterns(s, breakoutRead());
+  assert.ok(r.order, r.skipped);
+  assert.equal(r.plan.type, 'CE');
+  assert.ok(r.plan.stopSpot < 24995 && r.plan.stopSpot > 24960, `stop ${r.plan.stopSpot}`);
+  assert.ok(r.plan.maxLoss <= 1500);
+  const log = await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'PLACED' }).lean();
+  assert.equal(log.setup, 'Breakout of the last hour');
+  assert.equal(log.detail.type, 'CE');
+  assert.match(log.detail.stopNote, /closed beyond the last hour range/);
+  assert.match((await optionTrader.considerPatterns(s, breakoutRead())).skipped, /no pattern|already/, 'the same bar is not bought twice');
+  await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
+});
+
+test('the pattern switches are saved, validated and shown with their choices', async () => {
+  const u = await registerUser(app);
+  const first = (await api().get('/api/options').set(u.auth).expect(200)).body;
+  assert.deepEqual(first.settings.patterns, ['breakout', 'insideBar', 'emaCross']);
+  assert.equal(first.settings.patternEntries, true);
+  assert.equal(first.settings.scoreEntries, true);
+  assert.ok(first.patternChoices.some((p) => p.key === 'breakout' && /last hour/.test(p.label)));
+  const saved = (await api().put('/api/options').set(u.auth).send({ patterns: ['breakout'], scoreEntries: false }).expect(200)).body;
+  assert.deepEqual(saved.settings.patterns, ['breakout']);
+  assert.equal(saved.settings.scoreEntries, false);
+  await api().put('/api/options').set(u.auth).send({ patterns: ['nope'] }).expect(400);
+  await api().put('/api/options').set(u.auth).send({ patternEntries: 'yes' }).expect(400);
 });
 
 test('when a 1-minute candle of the index closes beyond the chart stop the trade is closed, and the log says STOP', async () => {

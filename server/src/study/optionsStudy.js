@@ -2,7 +2,7 @@ import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { istParts } from '../market/marketHours.js';
 import { readNifty } from '../options/signal.js';
 import { round2 } from '../utils/money.js';
-import { TECHNIQUES, prepare, findSignals, MIN_STOP_ATR } from './patterns.js';
+import { TECHNIQUES, prepare, findSignals, MIN_STOP_ATR, MAX_STOP_ATR } from './patterns.js';
 import { simulateTrade, summarize } from './simulate.js';
 
 // The options study: what each way of reading the Nifty chart would have earned on the last few weeks, as paper trades of one lot.
@@ -10,7 +10,6 @@ import { simulateTrade, summarize } from './simulate.js';
 
 const DAY = (t) => Math.floor((t + 19800) / 86400);
 const dayKey = (t) => istParts(new Date(t * 1000)).dateKey;
-const MAX_STOP_ATR = 2.5;
 const MAX_PER_DAY = 3; // the live options trader also stops after 3 entries a day
 const BOT_KEY = 'bot';
 const LABELS = {

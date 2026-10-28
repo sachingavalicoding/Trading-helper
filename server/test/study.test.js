@@ -6,6 +6,7 @@ import { createApp } from '../src/app.js';
 import { StudyService } from '../src/study/service.js';
 import { prepare, findSignals } from '../src/study/patterns.js';
 import { simulateTrade, summarize } from '../src/study/simulate.js';
+import { runSharesStudy } from '../src/study/sharesStudy.js';
 import { runOptionsStudy, breadthSeries, breadthStudy } from '../src/study/optionsStudy.js';
 
 let ctx;
@@ -273,4 +274,44 @@ test('too little Nifty history is reported plainly instead of a made-up result',
   assert.equal(body.status.state, 'failed');
   assert.match(body.status.error, /Not enough Nifty history/);
   assert.equal(body.result, null);
+});
+
+test('the shares study replays the scanner on each stock and reports by setup, side, hour and how the trades ended, in rupees', async () => {
+  const history = { AAA: walk(12, 3), BBB: walk(12, 5), SHORT: walk(1, 9).slice(0, 20) };
+  const seen = [];
+  const r = await runSharesStudy({ nifty1: walk(12, 7), history, params: { days: 5, riskAmount: 200 }, onProgress: (x) => seen.push(x) });
+  assert.equal(r.period.stocks, 2, 'a stock with almost no history is left out');
+  assert.equal(r.params.riskAmount, 200);
+  assert.equal(seen.length, 2);
+  for (const k of ['bySetup', 'bySide', 'byHour', 'byExit', 'firstTarget', 'recent']) assert.ok(Array.isArray(r[k]), k);
+  assert.ok(r.overall.trades >= 0 && 'totalNet' in r.overall);
+  assert.equal(r.firstTarget.length, 6);
+  assert.equal(r.bySetup.reduce((n, x) => n + x.trades, 0), r.overall.trades, 'every trade is in one setup');
+  for (const t of r.recent) assert.ok(t.qty >= 1 && Number.isFinite(t.net), JSON.stringify(t));
+});
+
+test('the shares study runs through the API on the Account stop, is kept per kind, and the days are limited', async () => {
+  const nifty = walk(14, 7);
+  const stock = walk(14, 3);
+  const market = {
+    expiryWeekday: 2,
+    provider: { isSimulated: false },
+    getRange: async (symbol, unit) => (unit === 1 && ['NIFTY 50', 'TCS'].includes(symbol) ? (symbol === 'TCS' ? stock : nifty) : []),
+  };
+  const study = new StudyService({ market, config: { ...ctx.config, niftyLotSize: 65 } });
+  const app = createApp({ ...ctx, study });
+  const u = await registerUser(app);
+  await request(app).get('/api/study/nope').set(u.auth).expect(404);
+  await request(app).post('/api/study/shares').set(u.auth).send({ days: 40 }).expect(400);
+  await request(app).post('/api/study/shares').set(u.auth).send({ days: 4 }).expect(202);
+  let body;
+  for (let i = 0; i < 300; i++) {
+    body = (await request(app).get('/api/study/shares').set(u.auth).expect(200)).body;
+    if (body.status.state !== 'running') break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  assert.equal(body.status.state, 'idle', JSON.stringify(body.status));
+  assert.equal(body.result.params.riskAmount, 200, 'sized to the Account stop for shares');
+  assert.match(body.note, /order book/);
+  assert.equal((await request(app).get('/api/study/options').set(u.auth).expect(200)).body.result, null, 'the options study is separate');
 });

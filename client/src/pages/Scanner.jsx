@@ -8,7 +8,6 @@ import { useTick } from '../lib/tickStore.js';
 import { formatPrice, formatPct, formatINR, formatTime, pnlClass } from '../lib/format.js';
 import { OrderSheet } from '../components/OrderSheet.jsx';
 import { AutoCard } from '../components/AutoCard.jsx';
-import { DayReportButton } from '../components/DayReportButton.jsx';
 import { TIME_WINDOWS, passesFilter } from '../lib/scanFilter.js';
 import { Movers } from '../components/Movers.jsx';
 import { MorningPlan } from '../components/MorningPlan.jsx';
@@ -325,8 +324,6 @@ export default function Scanner() {
       <MorningPlan />
 
       <AutoCard />
-
-      <DayReportButton />
 
       <Movers />
 

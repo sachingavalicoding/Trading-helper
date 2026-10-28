@@ -7,6 +7,7 @@ import { istParts } from '../market/marketHours.js';
 
 export const BUFFER_ATR = 0.15; // the stop sits this far beyond the level that proves the idea wrong
 export const MIN_STOP_ATR = 0.8; // a closer stop is hit by ordinary noise (same floor as the live options trader)
+export const MAX_STOP_ATR = 2.5; // a pattern whose stop is further than this is skipped: its loss would not fit the loss limit
 
 export const TECHNIQUES = [
   { key: 'doubleBottom', label: 'Double bottom / top', text: 'Price makes the same low twice, with a bounce of at least 1.5 ATR between them, then closes above the bounce high. Stop under the two lows.' },
@@ -184,13 +185,14 @@ const DETECTORS = { doubleBottom, doubleBottomMid: (v, i, ds, a) => doubleBottom
 
 /**
  * Every signal the techniques give over the prepared bars: { technique, side, i, time, close, stop, note, atr }.
- * `time` is when the bar closed. Only bars that close between 09:45 and 14:00 count, like the live trader.
+ * `time` is when the bar closed. Only bars that close between 09:45 and 14:00 count, like the live trader (`windows: false` lifts that).
+ * `from` is the first bar index to look at, so the live trader can look at the newest bar only.
  */
-export function findSignals(prep, { only = null } = {}) {
+export function findSignals(prep, { only = null, from = 15, windows = true } = {}) {
   const out = [];
-  for (let i = 15; i < prep.bars.length; i++) {
+  for (let i = Math.max(15, from); i < prep.bars.length; i++) {
     const a = prep.atrAt[i];
-    if (!a || !tradeable(prep.bars[i].time)) continue;
+    if (!a || (windows && !tradeable(prep.bars[i].time))) continue;
     const ds = prep.dayStart[i];
     for (const d of [1, -1]) {
       const v = prep.views[d];
