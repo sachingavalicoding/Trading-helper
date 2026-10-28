@@ -4,6 +4,8 @@ import { roundTripCharges } from '../services/charges.js';
 import { sizePosition } from '../scanner/sizing.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { istParts } from '../market/marketHours.js';
+import { normalizeCombos } from '../combos/combos.js';
+import { bars5Of, breadthByTime, shareChart, shareIdeas, newsDirection } from '../combos/shares.js';
 import { logger } from '../utils/logger.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -32,6 +34,8 @@ export class AutoTrader {
     };
     this.timer = null;
     this.timed = new Set(); // `${userId}|${symbol}` of trades closed by the exit time, so the log says TIME
+    this.comboSlot = 0; // the 5-minute slot the combinations were last read for
+    this.comboBusy = false;
     this.onEntry = (idea) => {
       this.handle(idea).catch((e) => logger.error('auto-trader failed', e));
     };
@@ -43,6 +47,8 @@ export class AutoTrader {
     this.engine.on('update', this.onUpdate);
     this.timer = setInterval(() => this.closeOnTime().catch((e) => logger.warn(`auto time exit failed: ${e.message}`)), 30_000);
     this.timer.unref?.();
+    this.comboTimer = setInterval(() => this.scanCombos().catch((e) => logger.warn(`combination scan failed: ${e.message}`)), 20_000);
+    this.comboTimer.unref?.();
   }
 
   stop() {
@@ -50,6 +56,7 @@ export class AutoTrader {
     this.engine.market.off('tick', this.onTick);
     this.engine.off('update', this.onUpdate);
     clearInterval(this.timer);
+    clearInterval(this.comboTimer);
   }
 
   /** Close the auto trader's open share trades once the clock reaches the exit time set in the Account tab (15:15 unless changed). */
@@ -68,6 +75,59 @@ export class AutoTrader {
       } catch {
         /* already closed */
       }
+    }
+  }
+
+  /**
+   * Once per 5-minute bar, read every share's chart for the combinations the users built (Account > Entries) and hand the ones that
+   * just became true to the same decision as a scanner idea. Each share is read on its own bars, with the 50-stock breadth and, for the
+   * newest bar, its news. The scanner's own rules and the idea limits below apply as usual; the score check does not (a combination has no score).
+   */
+  async scanCombos() {
+    const store = this.scanner?.store;
+    if (!store || this.comboBusy) return { skipped: 'not ready' };
+    const now = Date.now();
+    const slot = Math.floor(now / 300_000);
+    if (slot === this.comboSlot || now % 300_000 < 8000) return { skipped: 'wait for the bar to close' };
+    if (this.config.enforceMarketHours && !this.engine.marketStatus().isOpen) return { skipped: 'market closed' };
+    const users = (await AutoSettings.find({ enabled: true }).lean()).map((s) => ({ ...s, combos: normalizeCombos(s.combos).filter((c) => c.on) })).filter((s) => s.combos.length);
+    this.comboSlot = slot;
+    if (!users.length) return { skipped: 'no combination is switched on' };
+    this.comboBusy = true;
+    try {
+      const stocks5 = {};
+      for (const symbol of store.symbols) {
+        const c1 = store.get(symbol);
+        if (c1?.length > 100) stocks5[symbol] = bars5Of(c1, now / 1000);
+      }
+      const timeline = Object.values(stocks5).sort((a, b) => b.length - a.length)[0];
+      if (!timeline) return { skipped: 'no candles yet' };
+      const breadth = breadthByTime(timeline, stocks5);
+      const news = (await this.scanner.news?.signals().catch(() => ({}))) ?? {};
+      const exits = new Map();
+      let made = 0;
+      for (const [symbol, bars] of Object.entries(stocks5)) {
+        const last = bars.at(-1);
+        if (!last || now / 1000 - (last.time + 300) > 240) continue; // the newest closed bar is not recent: the feed is behind
+        const dir = newsDirection(news[symbol]);
+        const chart = shareChart(bars, { breadth, news: (i) => (i === bars.length - 1 ? dir : 0), from: Math.max(15, bars.length - 8) });
+        for (const s of users) {
+          const uid = String(s.user);
+          if (!exits.has(uid)) exits.set(uid, (await loadRules(uid, 'EQ')).exitMin);
+          for (const combo of s.combos) {
+            for (const idea of shareIdeas(chart, combo, { symbol, from: bars.length - 1, exitMin: this.config.enforceMarketHours ? exits.get(uid) : 24 * 60 })) {
+              if (idea.i !== bars.length - 1) continue;
+              made += 1;
+              const r = await this.consider(s, { ...idea, _id: `combo:${symbol}:${combo.id}:${last.time}`, riskReward: 1.5 });
+              if (r.skipped) logger.info(`auto skip ${symbol} ${idea.side} (${combo.name}) for ${s.user}: ${r.skipped}`);
+            }
+          }
+        }
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      return { made };
+    } finally {
+      this.comboBusy = false;
     }
   }
 
@@ -187,9 +247,9 @@ export class AutoTrader {
     }
     if (risk && idea.entry && (risk / idea.entry) * 100 < MIN_STOP_PCT) return { skipped: `the stop is only ${round2((risk / idea.entry) * 100)}% from the entry, under the ${MIN_STOP_PCT}% minimum, so normal wiggle would hit it` };
     if (this.config.enforceMarketHours && istParts(new Date()).minutes >= (await loadRules(userId, 'EQ')).exitMin) return { skipped: 'past the exit time set in the Account tab' };
-    if (settings.skipSetups?.includes(idea.setup)) return { skipped: `${idea.setup} is switched off in the Account tab` };
+    if (!idea.combo && settings.skipSetups?.includes(idea.setup)) return { skipped: `${idea.setup} is switched off in the Account tab` };
     if (idea.setup === 'News gap' && settings.earlyNews === false) return { skipped: 'news gap trades are switched off' };
-    if (idea.score < settings.minScore) return { skipped: `score ${idea.score} is below ${settings.minScore}` };
+    if (!idea.combo && idea.score < settings.minScore) return { skipped: `score ${idea.score} is below ${settings.minScore}` };
     if (await Position.findOne({ user: userId, symbol: idea.symbol, status: 'OPEN' })) return { skipped: 'already in this stock' };
 
     const funds = await getFunds(userId, this.config.startingBalance);

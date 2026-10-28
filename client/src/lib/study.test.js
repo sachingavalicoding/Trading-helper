@@ -73,3 +73,32 @@ describe('sharesExitText', () => {
     expect(sharesExitText({ riskAmount: 200 })).toMatch(/older percent ladder/);
   });
 });
+
+describe('combinations and indicators in the pasted text', () => {
+  const row = { key: 'rsiAbove50', label: 'RSI (14) above 50', group: 'Momentum', verdict: 'Keep', trades: 31, winRate: 58, net: 2400, halves: [900, 1500], calls: { trades: 20, net: 1800 }, puts: { trades: 11, net: 600 } };
+  it('adds the indicator ranking and the skipped combinations to the options study', () => {
+    const text = studyText({
+      period: { from: '2026-10-01', to: '2026-10-28', days: 20 },
+      params: { iv: 0.14, lockStart: 1000, lockGap: 250, maxPerDay: 3, maxStopAtr: 2.5 },
+      techniques: [tech()],
+      indicators: [row],
+      combosSkipped: [{ id: 'v', name: 'Volume push', reason: 'needs volume of the 50 stocks, which this run did not have' }],
+    });
+    expect(text).toMatch(/Volume push was not tested: needs volume/);
+    expect(text).toMatch(/RSI \(14\) above 50 \[Momentum\]: Keep, 31 trades, 58% win/);
+  });
+  it('adds my combinations and the ranking to the shares study', () => {
+    const base = { totalNet: 900, trades: 12, winRate: 50, avgWin: 300, avgLoss: -200, profitFactor: 1.4 };
+    const text = sharesText({
+      period: { days: 10, stocks: 50 },
+      params: { riskAmount: 200, slippagePct: 0.05, exit: 'lock', steps: [], exitMin: 915 },
+      overall: { ...base, totalCharges: 100, maxDrawdown: 300 },
+      bySetup: [], bySide: [], byHour: [], byExit: [], firstTarget: [],
+      combos: [{ ...base, label: 'My combination: Trend + VWAP', text: 'All 2 must hold together', buys: { trades: 7, net: 700 }, sells: { trades: 5, net: 200 }, halves: [300, 600] }],
+      indicators: [row],
+    });
+    expect(text).toMatch(/My combinations:\nTrend \+ VWAP: 12 trades/);
+    expect(text).toMatch(/buys \+₹700\.00 \(7\), sells \+₹200\.00 \(5\)/);
+    expect(text).toMatch(/Indicators on their own \(buys and sells\)/);
+  });
+});

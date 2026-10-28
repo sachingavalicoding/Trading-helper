@@ -7,6 +7,7 @@ import { FEW_TRADES, istStamp, sharesExitText, sharesText } from '../../lib/stud
 import { useStudy } from '../../lib/useStudy.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 import { ExitTimeField, useExitTime } from './ExitTimeField.jsx';
+import { IndicatorRanking } from './IndicatorRanking.jsx';
 
 const DAYS = [
   { value: 1, label: 'Today' },
@@ -36,6 +37,35 @@ function Group({ title, rows, note }) {
               )}
             </span>
             <span className={`num shrink-0 text-sm font-bold ${pnlClass(x.totalNet)}`}>{formatPnl(x.totalNet)}</span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+/** The user's own combinations (Account > Entries), traded on the 50 stocks like the scanner's ideas. */
+function ComboRows({ rows }) {
+  if (!rows?.length) return null;
+  return (
+    <Card className="space-y-1 p-3">
+      <div>
+        <h3 className="text-sm font-semibold">My combinations</h3>
+        <p className="text-[11px] leading-snug text-muted">The combinations you built, on every stock, one idea per side per stock per day. Halves show whether the older and the newer half of the period agree.</p>
+      </div>
+      <ul className="divide-y divide-line">
+        {rows.map((x) => (
+          <li key={x.key} className="space-y-0.5 py-2 text-xs">
+            <div className="flex items-start justify-between gap-2">
+              <span className="min-w-0 font-semibold">
+                {x.label.replace('My combination: ', '')} {x.trades < FEW_TRADES && <Badge>few trades</Badge>}
+              </span>
+              <span className={`num shrink-0 text-sm font-bold ${pnlClass(x.totalNet)}`}>{formatPnl(x.totalNet)}</span>
+            </div>
+            <p className="num text-[11px] text-muted">
+              {x.trades} trades · {x.winRate ?? '–'}% win · avg win {formatPnl(x.avgWin)} · avg loss {formatPnl(x.avgLoss)} · Buys {formatPnl(x.buys.net)} ({x.buys.trades}) · Sells {formatPnl(x.sells.net)} ({x.sells.trades}) · halves {formatPnl(x.halves[0])} / {formatPnl(x.halves[1])}
+            </p>
+            <p className="text-[11px] leading-snug text-muted">{x.text}</p>
           </li>
         ))}
       </ul>
@@ -123,6 +153,8 @@ export function SharesStudy() {
             </div>
           </Card>
           <Group title="By setup" rows={r.bySetup} note="Switch a losing setup off in Account > Entries." />
+          <ComboRows rows={r.combos} />
+          <IndicatorRanking rows={r.indicators} skipped={r.combosSkipped} callWord="Buys" putWord="Sells" />
           <Group title="Buys and sells" rows={r.bySide} />
           <Group title="By hour of entry" rows={r.byHour} />
           <Group title="How the trades ended" rows={r.byExit} />

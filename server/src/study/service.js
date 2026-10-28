@@ -1,4 +1,5 @@
-import { StudyRun, OptionSettings } from '../models/index.js';
+import { StudyRun, OptionSettings, AutoSettings } from '../models/index.js';
+import { normalizeCombos } from '../combos/combos.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { NIFTY50 } from '../market/instruments.js';
 import { UNDERLYING } from '../options/symbols.js';
@@ -82,6 +83,7 @@ export class StudyService {
       holidays: this.config.nseHolidays,
       expiryWeekday: this.market.expiryWeekday,
       minScore: settings?.minScore ?? 80,
+      combos: normalizeCombos(settings?.combos),
       lossLimit: rules.stopLoss ?? 0,
       maxLots: settings?.maxLots ?? 2,
       target,
@@ -105,8 +107,8 @@ export class StudyService {
         if (failed >= 5 && !Object.keys(history).length) break;
       }
     }
-    const rules = await loadRules(userId, 'EQ');
-    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, target, exitMin: exitMin ?? rules.exitMin }, onProgress: (step) => { job.step = step; } });
+    const [rules, auto] = await Promise.all([loadRules(userId, 'EQ'), AutoSettings.findOne({ user: userId }).lean()]);
+    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, target, exitMin: exitMin ?? rules.exitMin, combos: normalizeCombos(auto?.combos) }, onProgress: (step) => { job.step = step; } });
     await this.#save(userId, 'shares', result);
   }
 }

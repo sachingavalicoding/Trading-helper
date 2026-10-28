@@ -4,6 +4,9 @@ import { readNifty, FIRST_ENTRY_MIN, LAST_ENTRY_MIN } from '../options/signal.js
 import { round2 } from '../utils/money.js';
 import { TECHNIQUES, available, prepare, findSignals, turnoverSeries, MIN_STOP_ATR, MAX_STOP_ATR } from './patterns.js';
 import { simulateTrade, summarize } from './simulate.js';
+import { CONDITIONS, buildChart, usable } from '../combos/conditions.js';
+import { comboSignals, singleCombo, missingData, describeCombo } from '../combos/combos.js';
+import { verdictOf, halvesOf } from '../combos/verdict.js';
 
 // The options study: what each way of reading the Nifty chart would have earned on the last few weeks, as paper trades of one lot.
 // It reads history and changes nothing: the live trading rules are not touched by it.
@@ -240,6 +243,7 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   const breadth = breadthSeries(bars5, stocks5);
   const flow = turnoverSeries(bars5, stocks5);
   const prep = prepare(bars5, breadth, flow);
+  const midTime = complete.find((b) => DAY(b.time) === studyDays[Math.floor(studyDays.length / 2)]).time; // the older half of the study ends here
 
   onProgress('Looking for each pattern on the chart');
   const found = findSignals(prep).filter((s) => s.time - 300 >= fromTime);
@@ -257,6 +261,23 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   groups.breakoutEngulf = found.filter((s) => s.technique === 'breakout' || s.technique === 'engulfing');
   for (const floor of SCORE_FLOORS) groups[`patternScore${floor}`] = patternsWithScore(found, bot.scores, floor);
 
+  // The user's own combinations (Account > Entries): the same ones the live trader uses.
+  const chart = buildChart(bars5, { breadth, flow, prep });
+  const inStudy = (s) => s.time - 300 >= fromTime;
+  const mine = {};
+  const combosSkipped = [];
+  for (const combo of params.combos || []) {
+    if (combo.on === false) continue;
+    const key = `combo:${combo.id}`;
+    const missing = missingData(combo, chart.have);
+    if (missing.length) {
+      combosSkipped.push({ id: combo.id, name: combo.name, reason: `needs ${[...new Set(missing)].map((m) => (m === 'flow' ? 'volume of the 50 stocks' : m === 'breadth' ? 'the 50-stock breadth' : m)).join(' and ')}, which this run did not have` });
+      continue;
+    }
+    mine[key] = { key, label: `My combination: ${combo.name}`, text: describeCombo(combo), combo: true };
+    groups[key] = comboSignals(chart, combo).filter(inStudy);
+  }
+
   onProgress('Trading every signal on paper');
   const techniques = [];
   let botRun = null;
@@ -264,10 +285,13 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
     const { trades, skippedWide } = tradesFor(signals, { c1: complete, byTime, params });
     if (key === BOT_KEY) botRun = { trades };
     const summary = summarize(trades);
+    const info = mine[key] || LABELS[key];
     techniques.push({
       key,
-      label: LABELS[key].label,
-      text: LABELS[key].text,
+      label: info.label,
+      text: info.text,
+      combo: Boolean(info.combo),
+      halves: halvesOf(trades, midTime),
       signals: signals.length,
       skippedWide,
       ...summary,
@@ -276,6 +300,7 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
     await yieldTurn();
   }
   techniques.sort((a, b) => b.net - a.net);
+  const indicators = params.rank === false ? [] : await rankIndicators({ chart, inStudy, midTime, complete, byTime, params, onProgress });
   const botTrades = botRun ? botRun.trades : [];
   return {
     generatedAt: new Date().toISOString(),
@@ -285,6 +310,24 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
     haveFlow: Boolean(flow),
     botBreakdown: botBreakdown(botTrades),
     techniques,
+    indicators,
+    combosSkipped,
     breadth: breadthStudy(bars5, breadth, fromTime),
   };
+}
+
+/** Every check of the combination builder on its own: how a trade taken each time it turns true would have done. The keepers are the ones to build combinations from. */
+async function rankIndicators({ chart, inStudy, midTime, complete, byTime, params, onProgress }) {
+  const rows = [];
+  const usableNow = CONDITIONS.filter((c) => usable(c, chart.have));
+  for (const [n, cond] of usableNow.entries()) {
+    if (n % 8 === 0) onProgress(`Ranking the indicators (${n + 1}/${usableNow.length})`);
+    const signals = comboSignals(chart, singleCombo(cond.key)).filter(inStudy);
+    const { trades } = tradesFor(signals, { c1: complete, byTime, params });
+    const m = summarize(trades);
+    const halves = halvesOf(trades, midTime);
+    rows.push({ key: cond.key, label: cond.label, group: cond.group, kind: cond.kind, text: cond.text, trades: m.trades, winRate: m.winRate, net: m.net, avgNet: m.avgNet, calls: m.bySide.CE, puts: m.bySide.PE, halves, verdict: verdictOf({ trades: m.trades, net: m.net, halves }) });
+    await yieldTurn();
+  }
+  return rows.sort((a, b) => b.net - a.net);
 }

@@ -9,6 +9,7 @@ import { OptionsStudy } from '../options/OptionsStudy.jsx';
 import { OptionsEntries, Switch } from '../options/OptionsAutoCard.jsx';
 import { SharesStudy } from './SharesStudy.jsx';
 import { HistoryData } from './HistoryData.jsx';
+import { ComboBuilder } from './ComboBuilder.jsx';
 
 const STUDIES = [
   { value: 'report', label: 'Day report' },
@@ -81,12 +82,14 @@ export function entrySummary(options, auto) {
     const s = options.settings;
     const chosen = new Set(s.patterns);
     const labels = options.patternChoices.filter((p) => chosen.has(p.key)).map((p) => p.label.split(' (')[0]);
-    parts.push(`Options: ${s.patternEntries ? (labels.length ? labels.join(', ') : 'no pattern') : 'patterns off'}, score entries ${s.scoreEntries ? 'on' : 'off'}`);
+    const mine = (s.combos || []).filter((c) => c.on).length;
+    parts.push(`Options: ${s.patternEntries ? (labels.length ? labels.join(', ') : 'no pattern') : 'patterns off'}, score entries ${s.scoreEntries ? 'on' : 'off'}${mine ? `, ${mine} of your combinations` : ''}`);
   }
   if (auto) {
     const off = new Set(auto.settings.skipSetups);
     const on = auto.setupChoices.filter((x) => !off.has(x)).length;
-    parts.push(`Shares: ${on} of ${auto.setupChoices.length} setups on`);
+    const mine = (auto.settings.combos || []).filter((c) => c.on).length;
+    parts.push(`Shares: ${on} of ${auto.setupChoices.length} setups on${mine ? `, ${mine} of your combinations` : ''}`);
   }
   return parts.join(' · ');
 }
@@ -105,8 +108,27 @@ export function EntryChoices() {
           <div className="space-y-3">
             <p className="text-[11px] leading-snug text-muted">Switch on what the auto traders may buy, using what the studies show.</p>
             <Segmented className="w-full" size="sm" value={tab} onChange={setTab} options={[{ value: 'options', label: 'Options' }, { value: 'shares', label: 'Shares' }]} />
-            {tab === 'options' && (options.data ? <OptionsEntries data={options.data} reload={options.reload} /> : <Skeleton className="h-24" />)}
-            {tab === 'shares' && <ShareSetups data={auto.data} reload={auto.reload} />}
+            {tab === 'options' &&
+              (options.data ? (
+                <>
+                  <OptionsEntries data={options.data} reload={options.reload} />
+                  <hr className="border-line" />
+                  <ComboBuilder kind="options" endpoint="/options" combos={options.data.settings.combos} reload={options.reload} />
+                </>
+              ) : (
+                <Skeleton className="h-24" />
+              ))}
+            {tab === 'shares' && (
+              <>
+                <ShareSetups data={auto.data} reload={auto.reload} />
+                {auto.data && (
+                  <>
+                    <hr className="border-line" />
+                    <ComboBuilder kind="shares" endpoint="/auto" combos={auto.data.settings.combos} reload={auto.reload} />
+                  </>
+                )}
+              </>
+            )}
           </div>
         </Sheet>
       )}

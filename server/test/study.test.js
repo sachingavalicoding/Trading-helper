@@ -333,7 +333,7 @@ test('the shares study replays the scanner on each stock and reports by setup, s
   const r = await runSharesStudy({ nifty1: walk(12, 7), history, params: { days: 5, riskAmount: 200 }, onProgress: (x) => seen.push(x) });
   assert.equal(r.period.stocks, 2, 'a stock with almost no history is left out');
   assert.equal(r.params.riskAmount, 200);
-  assert.equal(seen.length, 2);
+  assert.equal(seen.filter((x) => /Replaying the scanner/.test(x)).length, 2);
   for (const k of ['bySetup', 'bySide', 'byHour', 'byExit', 'firstTarget', 'recent']) assert.ok(Array.isArray(r[k]), k);
   assert.ok(r.overall.trades >= 0 && 'totalNet' in r.overall);
   assert.equal(r.firstTarget.length, 6);

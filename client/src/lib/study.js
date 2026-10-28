@@ -1,5 +1,6 @@
 import { formatPnl } from './format.js';
 import { DEFAULT_EXIT_MIN, timeText } from './ladder.js';
+import { indicatorsText } from './combos.js';
 
 export const EXIT_WORD = { STOP: 'Stop hit', LOCK: 'Profit lock', EOD: 'Closed on time', TARGET: 'Target hit' };
 export const FEW_TRADES = 10; // under this many trades a result is mostly luck
@@ -52,7 +53,8 @@ export function studyText(r) {
     lines.push('', 'Breadth (share of the 50 stocks on one side, then what Nifty did in that direction):');
     for (const b of r.breadth) lines.push(`${b.share}%+ ${b.side}: ${b.episodes} times, next 30 min ${b.avg30 ?? '-'} pts (${b.hit30 ?? '-'}% right), next 60 min ${b.avg60 ?? '-'} pts (${b.hit60 ?? '-'}% right)`);
   }
-  return lines.join('\n');
+  for (const s of r.combosSkipped || []) lines.push('', `${s.name} was not tested: ${s.reason}.`);
+  return [...lines, indicatorsText(r.indicators)].join('\n').trimEnd();
 }
 
 /** Hours with their trade counts and rupees, in time order: [{ hour, trades, net }]. */
@@ -94,5 +96,10 @@ export function sharesText(r) {
     'First target (share of ideas that ran this many risks before the stop, average result in risks):',
     ...r.firstTarget.map((t) => `${t.target}R: reached ${t.hitRate ?? '-'}%, expectancy ${t.expectancyR ?? '-'}R`),
   ];
-  return lines.join('\n');
+  if (r.combos?.length) {
+    lines.push('', 'My combinations:');
+    for (const x of r.combos) lines.push(`${line({ ...x, key: x.label.replace('My combination: ', '') })}; buys ${formatPnl(x.buys.net)} (${x.buys.trades}), sells ${formatPnl(x.sells.net)} (${x.sells.trades}); halves ${formatPnl(x.halves[0])} / ${formatPnl(x.halves[1])}; ${x.text}`);
+  }
+  for (const s of r.combosSkipped || []) lines.push('', `${s.name} was not tested: ${s.reason}.`);
+  return [...lines, indicatorsText(r.indicators, 'Indicators on their own (buys and sells)')].join('\n').trimEnd();
 }

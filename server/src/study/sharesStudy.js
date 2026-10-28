@@ -1,4 +1,9 @@
-import { replayStock } from '../scanner/replay.js';
+import { replayStock, followLive } from '../scanner/replay.js';
+import { aggregateCandles } from '../market/providers/BaseProvider.js';
+import { CONDITIONS, usable } from '../combos/conditions.js';
+import { describeCombo, missingData, singleCombo } from '../combos/combos.js';
+import { bars5Of, breadthByTime, shareChart, shareIdeas } from '../combos/shares.js';
+import { verdictOf } from '../combos/verdict.js';
 import { evaluate, evaluateBy, netResult, targetTable } from '../scanner/backtest.js';
 import { istParts } from '../market/marketHours.js';
 
@@ -8,6 +13,7 @@ import { istParts } from '../market/marketHours.js';
 
 const yieldTurn = () => new Promise((resolve) => setImmediate(resolve));
 const hourOf = (i) => `${String(Math.floor(istParts(new Date(i.openedAt)).minutes / 60)).padStart(2, '0')}:00`;
+const DAY = (t) => Math.floor((t + 19800) / 86400);
 const EXIT_WORD = { STOP: 'Stop hit', LOCK: 'Profit lock', SQUARE_OFF: 'Closed on time', TARGET: 'Target' };
 
 /**
@@ -27,6 +33,7 @@ export async function runSharesStudy({ nifty1, history, params, onProgress = () 
     ideas.push(...replayStock({ symbol, c1: history[symbol], nifty: nifty1, days: params.days, exits: 'live', money }));
     await yieldTurn();
   }
+  const extra = await comboStudy({ nifty1, history, symbols, params, money, opts, onProgress });
   const rows = (keyOf, label = (k) => k) => evaluateBy(ideas, keyOf, opts).map((r) => ({ ...r, key: label(r.key) }));
   const traded = ideas
     .map((i) => ({ i, r: netResult(i, opts) }))
@@ -42,6 +49,74 @@ export async function runSharesStudy({ nifty1, history, params, onProgress = () 
     byHour: rows(hourOf),
     byExit: rows((i) => i.exit, (k) => EXIT_WORD[k] || k),
     firstTarget: targetTable(ideas),
+    ...extra,
     recent: traded.slice(0, 15).map(({ i, r }) => ({ symbol: i.symbol, setup: i.setup, side: i.side, openedAt: i.openedAt, entry: i.entry, stopLoss: i.stopLoss, exit: EXIT_WORD[i.exit] || i.exit, exitPrice: i.exitPrice, qty: r.qty, net: r.net })),
   };
+}
+
+/**
+ * The user's combinations and every check of the builder on its own, traded on the 50 stocks with the same exits and sizing as the scanner's
+ * ideas. A share is read on its own 5-minute bars (own volume and VWAP), the breadth comes from all 50. Study-only extras: nothing here changes the scanner rows.
+ */
+async function comboStudy({ nifty1, history, symbols, params, money, opts, onProgress }) {
+  const wanted = (params.combos || []).filter((c) => c.on !== false);
+  const rank = params.rank !== false;
+  if (!wanted.length && !rank) return { combos: [], indicators: [], combosSkipped: [] };
+  onProgress('Working out the 50-stock breadth');
+  const stocks5 = Object.fromEntries(symbols.map((s) => [s, bars5Of(history[s])]));
+  const timeline = aggregateCandles(nifty1, '5m');
+  const breadth = breadthByTime(timeline, stocks5);
+  const days = new Set([...new Set(nifty1.map((b) => DAY(b.time)))].sort((a, b) => a - b).slice(-params.days));
+  const dayList = [...days].sort((a, b) => a - b);
+  const midDay = dayList[Math.floor(dayList.length / 2)];
+
+  const jobs = [
+    ...wanted.map((combo) => ({ key: `combo:${combo.id}`, combo, label: `My combination: ${combo.name}`, text: describeCombo(combo), mine: true })),
+    ...(rank ? CONDITIONS.map((cond) => ({ key: cond.key, combo: singleCombo(cond.key), cond })) : []),
+  ];
+  const ideasBy = new Map(jobs.map((j) => [j.key, []]));
+  let have = null;
+  for (const [n, symbol] of symbols.entries()) {
+    onProgress(`Trying the combinations and indicators on ${symbol} (${n + 1}/${symbols.length})`);
+    const c1 = history[symbol];
+    const chart = shareChart(stocks5[symbol], { breadth });
+    have ||= chart.have;
+    const at = new Map(c1.map((b, i) => [b.time, i]));
+    for (const job of jobs) {
+      if ((job.cond && !usable(job.cond, chart.have)) || missingData(job.combo, chart.have).length) continue;
+      for (const idea of shareIdeas(chart, job.combo, { symbol, exitMin: money.exitMin, days })) {
+        const from = at.get(idea.time - 60);
+        if (from == null) continue;
+        ideasBy.get(job.key).push({ ...idea, ...followLive(c1, from, idea, undefined, money) });
+      }
+    }
+    await yieldTurn();
+  }
+  const summarize = (ideas) => {
+    const all = evaluate(ideas, opts);
+    const half = (pick) => evaluate(ideas.filter((i) => pick(DAY(Date.parse(i.openedAt) / 1000))), opts).totalNet;
+    const side = (s) => {
+      const r = evaluate(ideas.filter((i) => i.side === s), opts);
+      return { trades: r.trades, net: r.totalNet };
+    };
+    return { ...all, buys: side('BUY'), sells: side('SELL'), halves: [half((d) => d < midDay), half((d) => d >= midDay)] };
+  };
+  const combos = [];
+  const combosSkipped = [];
+  for (const job of jobs.filter((j) => j.mine)) {
+    const missing = have ? missingData(job.combo, have) : [];
+    if (missing.length) {
+      combosSkipped.push({ id: job.combo.id, name: job.combo.name, reason: `needs ${[...new Set(missing)].join(' and ')}, which this run did not have` });
+      continue;
+    }
+    combos.push({ key: job.key, label: job.label, text: job.text, ...summarize(ideasBy.get(job.key)) });
+  }
+  const indicators = jobs
+    .filter((j) => j.cond && (!have || usable(j.cond, have)))
+    .map((j) => {
+      const m = summarize(ideasBy.get(j.key));
+      return { key: j.key, label: j.cond.label, group: j.cond.group, kind: j.cond.kind, text: j.cond.text, trades: m.trades, winRate: m.winRate, net: m.totalNet, avgNet: m.expectancy, calls: m.buys, puts: m.sells, halves: m.halves, verdict: verdictOf({ trades: m.trades, net: m.totalNet, halves: m.halves }) };
+    })
+    .sort((a, b) => b.net - a.net);
+  return { combos: combos.sort((a, b) => b.totalNet - a.totalNet), indicators, combosSkipped };
 }
