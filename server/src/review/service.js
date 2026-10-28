@@ -160,6 +160,7 @@ export class ReviewService {
       iv: 0.14,
       lockStart: rules.lockStart || 1000,
       lockGap: rules.lockGap || 250,
+      steps: rules.steps,
       lotSize: this.config?.niftyLotSize ?? DEFAULT_LOT_SIZE,
       holidays: this.config?.nseHolidays ?? [],
       expiryWeekday: this.market.expiryWeekday,

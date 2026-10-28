@@ -96,6 +96,6 @@ export function reviewPatterns({ c1, day, params }) {
     open: candles[0].open,
     patterns: CHART_PATTERNS.map(({ key, label, text }) => ({ key, label, text })),
     signals,
-    exits: { lockStart: params.lockStart, lockGap: params.lockGap, lossLimit: params.lossLimit, target: TARGET_PER_LOT },
+    exits: { lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? [{ at: params.lockStart, keep: params.lockStart - params.lockGap }], lossLimit: params.lossLimit, target: TARGET_PER_LOT },
   };
 }

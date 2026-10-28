@@ -53,7 +53,7 @@ function PlanPreview({ preview, type }) {
         <b className="text-fg">Loss:</b> about {rs(p.maxLoss)} at the Nifty stop{p.worstCase != null ? `, at most ${rs(p.worstCase)} if only the hard stop works` : ''}.
       </p>
       <p className="num text-muted">
-        <b className="text-fg">Lock:</b> {p.lockStart > 0 ? `from +${rs(p.lockStart)} the stop keeps ${rs(p.lockStart - p.lockGap)}, then follows ${rs(p.lockGap)} behind the best profit` : 'off'}. No sale target.
+        <b className="text-fg">Lock:</b> {p.lockSteps?.length > 1 ? `your ladder: ${p.lockSteps.map((r) => `+${rs(r.at)} keeps ${rs(r.keep)}`).join(', ')}, and above a row the stop follows that row's gap behind the best profit` : p.lockStart > 0 ? `from +${rs(p.lockStart)} the stop keeps ${rs(p.lockStart - p.lockGap)}, then follows ${rs(p.lockGap)} behind the best profit` : 'off'}. No sale target.
       </p>
     </div>
   );

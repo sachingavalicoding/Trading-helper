@@ -28,7 +28,7 @@ export const sizingText = (p) => {
 };
 
 /** The exit rule a study used, in words. */
-export const exitText = (p) => (p.exit === 'target' ? `No profit lock: sold when the profit reaches +₹${p.target} a lot, or at the stop` : `Profit lock +${p.lockStart} keeps ${p.lockStart - p.lockGap}`);
+export const exitText = (p) => (p.exit === 'target' ? `No profit lock: sold when the profit reaches +₹${p.target} a lot, or at the stop` : (p.steps?.length > 1 ? `Profit lock ladder: ${p.steps.map((r) => `+${r.at} keeps ${r.keep}`).join(', ')}` : p.steps?.length === 0 ? 'No profit lock' : `Profit lock +${p.lockStart} keeps ${p.lockStart - p.lockGap}`));
 
 /** The whole study as plain text, to paste into the chat. */
 export function studyText(r) {

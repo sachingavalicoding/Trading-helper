@@ -91,6 +91,22 @@ test('a call that keeps rising is held to 15:15, one that gives back a big gain 
   assert.ok(stopped.net < -500 && stopped.exitSpot <= 23980, JSON.stringify(stopped));
 });
 
+test('a typed lock ladder replaces lockStart and lockGap in the replay: an early first row sells a smaller gain, an empty ladder never locks', () => {
+  const start = Date.UTC(2026, 9, 12, 4, 30) / 1000;
+  const gaveBack = minutes(24000, [...Array.from({ length: 100 }, () => 0.8), ...Array.from({ length: 100 }, () => -0.8)]);
+  const signal = { side: 'CE', time: start, stop: 23960 };
+  const run = (steps) => simulateTrade({ c1: gaveBack, byTime: index(gaveBack), signal: { technique: 'x', note: '', ...signal }, params: { ...PARAMS, steps } });
+  const plain = sim(gaveBack, signal);
+  const same = run([{ at: 1000, keep: 750 }]);
+  assert.equal(same.gross, plain.gross, 'one row of 1000 / 750 is the old lockStart 1000 and lockGap 250');
+  const early = run([{ at: 300, keep: 250 }, { at: 1000, keep: 800 }]);
+  assert.equal(early.reason, 'LOCK');
+  assert.ok(early.best >= 1000, `best ${early.best}`);
+  assert.ok(early.gross >= 800, `the second row keeps 800: gross ${early.gross}`);
+  const none = run([]);
+  assert.notEqual(none.reason, 'LOCK', 'no rows, no lock');
+});
+
 test('a put gains when the index falls, and a stop is only hit by a candle that closes beyond it, not by a wick', () => {
   const start = Date.UTC(2026, 9, 12, 4, 30) / 1000;
   const down = minutes(24000, Array.from({ length: 300 }, () => -0.4));

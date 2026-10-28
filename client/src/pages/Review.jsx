@@ -236,7 +236,7 @@ function SignalDetail({ s, pattern, exits }) {
           <div className="space-y-1.5 text-xs">
             <div className="flex items-start justify-between gap-3 rounded-xl bg-surface-2 p-2.5">
               <span>
-                <b>With your profit lock</b> (+₹{exits.lockStart}, ₹{exits.lockGap} behind)
+                <b>With your profit lock</b> ({exits.steps?.length ? exits.steps.map((r) => `+₹${r.at} keeps ₹${r.keep}`).join(', ') : 'no lock set'})
                 <span className="block text-muted">{exitLine(s.lock, clock)}</span>
               </span>
               <span className={`num shrink-0 text-base font-bold ${pnlClass(s.lock.net)}`}>{formatPnl(s.lock.net)}</span>

@@ -19,13 +19,13 @@ export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread 
  * @param c1      Nifty 1-minute bars, oldest first
  * @param byTime  Map of bar time -> index in c1
  * @param signal  { side: 'CE'|'PE', time (entry minute, epoch s), stop (Nifty level) }
- * @param params  { iv, lockStart, lockGap, lotSize, holidays, expiryWeekday, lossLimit, maxLots }
+ * @param params  { iv, lockStart, lockGap, steps (the typed ladder: [{ at, keep }], overrides lockStart and lockGap), lotSize, holidays, expiryWeekday, lossLimit, maxLots }
  *                `target` (rupees per lot, 0 = use the profit lock) and `fixedLots` (0 = size the lots to the loss limit) are for studying other exits.
  *                With a `lossLimit` (the Account stop) the lots are sized like the live trader: as many as keep the loss at the chart stop within
  *                the limit, up to `maxLots`, none when even one lot loses more. A hard stop sits at HARD_STOP_MULT times the limit. Without one, 1 lot.
  */
 export function simulateTrade({ c1, byTime, signal, params }) {
-  const { iv = 0.14, lockStart = 1000, lockGap = 250, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0 } = params;
+  const { iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0 } = params;
   const start = byTime.get(signal.time);
   if (start == null) return null;
   const long = signal.side === 'CE';
@@ -47,6 +47,8 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   } else if (fixedLots > 0) lots = fixedLots;
   const qty = lots * lotSize;
   const targetProfit = target > 0 ? target * lots : 0;
+  // the profit lock as rows: with `steps` (even none) those rows, otherwise the single row lockStart / lockGap; each row is sorted by its profit
+  const rungs = (Array.isArray(steps) ? steps : [{ at: lockStart, keep: lockStart - lockGap }]).filter((r) => r.at > 0).sort((a, b) => a.at - b.at);
   const hardLoss = lossLimit > 0 ? -HARD_STOP_MULT * lossLimit : -Infinity;
   const buyCharges = calculateCharges({ side: 'BUY', qty, price: paid, segment: 'OPT' }).total;
   const profitAt = (premium) => (premium * (1 - SLIPPAGE) - paid) * qty;
@@ -117,7 +119,10 @@ export function simulateTrade({ c1, byTime, signal, params }) {
         exit = { time: bar.time + 60, spot: hi, profit: targetProfit, reason: 'TARGET' };
         break;
       }
-    } else if (best >= lockStart) lockLevel = Math.max(lockLevel ?? -Infinity, best - lockGap);
+    } else {
+      const rung = rungs.filter((r) => best >= r.at).at(-1);
+      if (rung) lockLevel = Math.max(lockLevel ?? -Infinity, Math.max(rung.keep, best - (rung.at - rung.keep)));
+    }
   }
   if (!exit) {
     const last = c1.at(-1);

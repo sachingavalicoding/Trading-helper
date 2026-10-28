@@ -1,6 +1,6 @@
 import { summarizeLog } from '../auto/logSummary.js';
 import { summarizeIdeas, resultR } from '../scanner/stats.js';
-import { TRADE_DEFAULTS } from '../models/TradeDefaults.js';
+import { TRADE_DEFAULTS, ladderText } from '../models/TradeDefaults.js';
 
 // One day of everything the scanner, the auto trader and the options trader did, as plain text, so it can be copied
 // from the app and pasted into a chat for review. No secrets and no personal data: only prices, rules and results.
@@ -12,7 +12,7 @@ const signed = (n, suffix = '') => (n == null ? '-' : `${n > 0 ? '+' : ''}${roun
 const cut = (s, n) => (String(s || '').length > n ? `${String(s).slice(0, n - 1)}…` : String(s || ''));
 const MAX_ROWS = 60;
 
-const lockText = (r, stopLabel = 'stop') => `${r.stopLoss > 0 ? `${stopLabel} ₹${r.stopLoss} a trade` : 'no automatic stop'}; ${r.lockStart > 0 ? `once the profit reaches ₹${r.lockStart} the stop follows ₹${r.lockGap} behind the best profit` : 'no profit lock'}`;
+const lockText = (r, stopLabel = 'stop') => `${r.stopLoss > 0 ? `${stopLabel} ₹${r.stopLoss} a trade` : 'no automatic stop'}; ${r.steps?.length > 1 ? `profit lock ladder: ${ladderText(r.steps)} (above a row the stop follows that row's gap behind the best profit)` : r.lockStart > 0 ? `once the profit reaches ₹${r.lockStart} the stop follows ₹${r.lockGap} behind the best profit` : 'no profit lock'}`;
 
 function rules({ auto, options, rules: lock = TRADE_DEFAULTS }) {
   const lines = [];
