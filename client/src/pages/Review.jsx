@@ -61,7 +61,7 @@ function StocksTab({ day, onPick }) {
       )}
 
       <Card className="overflow-hidden">
-        {stocks.length === 0 ? (
+        {!stocks.some((r) => r.news || r.ideas.length) ? (
           <EmptyState title="No calls on this day">Nothing was tagged in the morning news and the scanner raised no ideas.</EmptyState>
         ) : (
           <div className="overflow-x-auto">
@@ -78,7 +78,7 @@ function StocksTab({ day, onPick }) {
                 </tr>
               </thead>
               <tbody>
-                {stocks.map((r) => {
+                {stocks.filter((r) => r.news || r.ideas.length).map((r) => {
                   const call = callOf(r);
                   return (
                     <tr key={r.symbol} tabIndex={0} onClick={() => onPick(r.symbol)} onKeyDown={(e) => e.key === 'Enter' && onPick(r.symbol)} aria-label={`${r.symbol}, tap for the day`}>

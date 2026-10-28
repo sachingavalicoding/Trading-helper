@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { Component, lazy, Suspense } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { ThemeProvider, useTheme } from './context/ThemeContext.jsx';
@@ -44,11 +44,39 @@ function Toasts() {
 
 const PageFallback = () => <Skeleton className="h-64 w-full" />;
 
+/** A page that throws shows its error here instead of leaving a blank screen. */
+class CrashCatcher extends Component {
+  state = { error: null };
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  render() {
+    const { error } = this.state;
+    if (!error) return this.props.children;
+    return (
+      <div className="m-4 space-y-2 rounded-2xl border border-down/40 p-4 text-sm">
+        <div className="font-semibold text-down">This page hit an error</div>
+        <pre className="whitespace-pre-wrap break-words text-xs text-muted">{String(error?.stack || error)}</pre>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => window.location.reload()}>
+          Reload
+        </button>
+      </div>
+    );
+  }
+}
+
+function Guarded({ children }) {
+  return <CrashCatcher key={useLocation().pathname}>{children}</CrashCatcher>;
+}
+
 export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
         <BrowserRouter>
+          <Guarded>
           <Suspense fallback={<PageFallback />}>
             <Routes>
               <Route path="/login" element={<AuthPage mode="login" />} />
@@ -68,6 +96,7 @@ export default function App() {
               </Route>
             </Routes>
           </Suspense>
+          </Guarded>
         </BrowserRouter>
         <Toasts />
       </AuthProvider>
