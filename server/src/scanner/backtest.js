@@ -7,19 +7,25 @@ const round = (n, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
  * `slippagePct` worse than planned on entry and on a stop or time exit (a target fills at its
  * price), minus brokerage and statutory charges on both legs.
  */
-export function netResult(idea, { riskAmount = 1000, slippagePct = 0.05 } = {}) {
+export function netResult(idea, opts = {}) {
+  const { riskAmount = 1000, slippagePct = 0.05 } = opts;
   const long = idea.side === 'BUY';
   const dir = long ? 1 : -1;
   const slip = slippagePct / 100;
   const entry = idea.entry * (1 + dir * slip);
-  const perShare = Math.abs(entry - idea.stopLoss);
-  if (!perShare) return null;
-  const qty = Math.floor(riskAmount / perShare);
-  if (qty < 1) return null;
+  const qty = sizeOf(idea, opts);
+  if (!qty) return null;
   const exit = idea.status === 'TARGET_HIT' ? idea.exitPrice : idea.exitPrice * (1 - dir * slip);
   const gross = dir * (exit - entry) * qty;
   const charges = calculateCharges({ side: long ? 'BUY' : 'SELL', qty, price: entry }).total + calculateCharges({ side: long ? 'SELL' : 'BUY', qty, price: exit }).total;
   return { qty, gross: round(gross), charges: round(charges), net: round(gross - charges) };
+}
+
+/** Shares bought so the loss at the idea's stop is `riskAmount`, from the entry filled `slippagePct` worse than planned; 0 when not even one share fits. */
+export function sizeOf(idea, { riskAmount = 1000, slippagePct = 0.05 } = {}) {
+  const dir = idea.side === 'BUY' ? 1 : -1;
+  const perShare = Math.abs(idea.entry * (1 + (dir * slippagePct) / 100) - idea.stopLoss);
+  return perShare ? Math.floor(riskAmount / perShare) : 0;
 }
 
 /** Performance of a list of replayed ideas, in rupees after charges and slippage, in the order they were raised. */

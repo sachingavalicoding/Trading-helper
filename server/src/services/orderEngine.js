@@ -4,7 +4,7 @@ import { rulesFor } from '../models/TradeDefaults.js';
 import { isTradable } from '../market/instruments.js';
 import { isOptionSymbol, DEFAULT_LOT_SIZE } from '../options/symbols.js';
 import { getMarketStatus } from '../market/marketHours.js';
-import { calculateCharges, roundTripCharges, splitCharges } from './charges.js';
+import { LOCK_CHARGES_MULT, calculateCharges, roundTripCharges, splitCharges } from './charges.js';
 import { getFunds, adjustBalance, resetAccount } from './walletService.js';
 import { KeyedMutex } from '../utils/keyedMutex.js';
 import { round2, roundToTick } from '../utils/money.js';
@@ -29,7 +29,6 @@ export function isTriggered(order, ltp) {
  *
  * Emits 'update' ({ userId, kind: 'order'|'fill'|'squareoff', order, trades, message }).
  */
-const LOCK_CHARGES_MULT = 1.5; // a profit lock or target step never puts the stop below cost + this many times the round-trip charges
 const STEP_KEEP = 0.8; // past a target, keep the stop this share of the way from entry to it (leaves room for a pullback)
 
 export class OrderEngine extends EventEmitter {

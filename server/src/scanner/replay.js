@@ -2,6 +2,8 @@ import { istParts } from '../market/marketHours.js';
 import { istDay } from './context.js';
 import { evaluateStock, MIN_SCORE } from './evaluate.js';
 import { roundToTick } from '../utils/money.js';
+import { LOCK_CHARGES_MULT, roundTripCharges } from '../services/charges.js';
+import { sizeOf } from './backtest.js';
 
 const STEP = 5; // look for ideas every 5 minutes, like a person glancing at the screen
 const MIN_BARS = 60;
@@ -48,13 +50,21 @@ export const LADDER = [[0.3, 0.15], [0.45, 0.32], [0.6, 0.52], [1, 0.9]];
  * Walk the same bars with the live exit rules. A stop raised on a bar only counts from the next bar. Also reports
  * `runR`: how far the idea ran in its favour before price touched its original stop (or the day ended), whatever
  * the exit rules did, so any target can be judged. `ladder` is in percent of the entry price.
+ * With `money` ({ riskAmount, slippagePct, steps, target }) the exits are in rupees on the shares the idea would really buy:
+ * `steps` is the Account ladder (rows of profit and lock, as live), and a `target` replaces it with a sale at that profit.
  */
-export function followLive(c1, from, idea, ladder = LADDER) {
+export function followLive(c1, from, idea, ladder = LADDER, money = null) {
   const d = idea.side === 'BUY' ? 1 : -1;
   const entry = idea.entry;
   const risk = Math.abs(entry - idea.stopLoss);
   const day = istDay(c1[from].time);
   const r = (price) => (d * (price - entry)) / risk;
+  const dir = d;
+  const qty = money ? sizeOf(idea, money) : 0;
+  const entryFill = money ? entry * (1 + (dir * (money.slippagePct ?? 0.05)) / 100) : entry;
+  const chargesFloor = money && qty ? LOCK_CHARGES_MULT * roundTripCharges({ qty, price: entry }) : 0;
+  const rungs = money && !(money.target > 0) ? [...(money.steps ?? [])].sort((a, b) => a.at - b.at) : [];
+  let bestMoney = 0;
   let stop = idea.stopLoss;
   let bestR = 0;
   let out = null;
@@ -74,11 +84,24 @@ export function followLive(c1, from, idea, ladder = LADDER) {
       else if (minutes >= SQUARE_OFF_MIN) out = { status: 'EXPIRED', exit: 'SQUARE_OFF', exitPrice: b.close };
       else {
         bestR = Math.max(bestR, r(fav));
-        const bestPct = (bestR * risk * 100) / entry;
-        const rung = [...ladder].reverse().find(([at]) => bestPct >= at);
-        if (rung) {
-          const kept = entry * (1 + (d * Math.max(rung[1], bestPct - (rung[0] - rung[1]))) / 100);
-          stop = d > 0 ? Math.max(stop, kept) : Math.min(stop, kept);
+        if (money) {
+          if (qty) {
+            bestMoney = Math.max(bestMoney, d * (fav - entryFill) * qty);
+            if (money.target > 0 && bestMoney >= money.target) out = { status: 'TARGET_HIT', exit: 'TARGET', exitPrice: roundToTick(entryFill + (d * money.target) / qty) };
+            const rung = rungs.filter((s) => bestMoney >= s.at).at(-1);
+            if (rung && !out) {
+              const keep = Math.max(rung.keep, bestMoney - (rung.at - rung.keep), chargesFloor);
+              const kept = roundToTick(entryFill + (d * keep) / qty);
+              stop = d > 0 ? Math.max(stop, kept) : Math.min(stop, kept);
+            }
+          }
+        } else {
+          const bestPct = (bestR * risk * 100) / entry;
+          const rung = [...ladder].reverse().find(([at]) => bestPct >= at);
+          if (rung) {
+            const kept = entry * (1 + (d * Math.max(rung[1], bestPct - (rung[0] - rung[1]))) / 100);
+            stop = d > 0 ? Math.max(stop, kept) : Math.min(stop, kept);
+          }
         }
       }
     }
@@ -100,7 +123,7 @@ export function followLive(c1, from, idea, ladder = LADDER) {
  * bar are given to the scanner, so it never sees the future. Older sessions still feed the indicators.
  * `legacy` scores with the rules from before ADX, EMA 50 and sector strength were added.
  */
-export function replayStock({ symbol, c1, nifty = null, days = 3, legacy = false, skipDays = 0, exits = 'target1', stopScale = 1, ladder = LADDER }) {
+export function replayStock({ symbol, c1, nifty = null, days = 3, legacy = false, skipDays = 0, exits = 'target1', stopScale = 1, ladder = LADDER, money = null }) {
   const dayOf = (b) => istDay(b.time);
   const sessions = [...new Set(c1.map(dayOf))];
   const replayDays = new Set(sessions.slice(Math.max(0, sessions.length - days - skipDays), sessions.length - skipDays));
@@ -130,7 +153,7 @@ export function replayStock({ symbol, c1, nifty = null, days = 3, legacy = false
     // stopScale makes the stop tighter (under 1) or wider (over 1) than the scanner's own, to see what the chart-based stop is worth.
     const stopLoss = stopScale === 1 ? top.stopLoss : roundToTick(top.entry - (top.side === 'BUY' ? 1 : -1) * Math.abs(top.entry - top.stopLoss) * stopScale);
     const idea = { symbol, setup: top.setup, side: top.side, score: top.score, entry: top.entry, stopLoss, target1: top.target1, target2: top.target2, target3: top.target3, openedAt: now.toISOString() };
-    ideas.push({ ...idea, ...(exits === 'live' ? followLive(c1, i, idea, ladder) : follow(c1, i, idea)) });
+    ideas.push({ ...idea, ...(exits === 'live' ? followLive(c1, i, idea, ladder, money) : follow(c1, i, idea)) });
   }
   return ideas;
 }

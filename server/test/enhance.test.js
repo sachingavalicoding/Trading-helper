@@ -227,6 +227,23 @@ test('live-style replay: the original stop, no sale target, and no time exit', (
   assert.ok((flat[flat.length - 1].time - flat[0].time) / 60 >= 45);
 });
 
+test('rupee exits: your ladder rows lock a rupee profit on the shares it would buy, a fixed target sells at that profit, and the stop comes first in a bar that touches both', () => {
+  const money = { riskAmount: 200, slippagePct: 0 }; // 200 shares: a rupee on the price is Rs 200
+  const ladder = { ...money, steps: [{ at: 200, keep: 100 }] };
+  const bars = [minute(0, 100, 100, 100, 100), minute(1, 100, 101.2, 100.2, 101.1), minute(2, 101.1, 101.1, 100.6, 100.8), minute(3, 100.8, 102, 100.1, 101.9)];
+  const l = followLive(bars, 0, live, undefined, ladder);
+  assert.equal(l.exit, 'LOCK');
+  assert.ok(Math.abs(l.exitPrice - 100.7) < 1e-9, '+Rs 240 is past the 200 row: the stop follows Rs 100 behind it, at +Rs 140 = 100.70');
+  const none = followLive(bars, 0, live, undefined, { ...money, steps: [] });
+  assert.equal(none.exit, 'SQUARE_OFF', 'no rows, no lock: the trade runs on');
+  const target = followLive(bars, 0, live, undefined, { ...money, steps: [{ at: 200, keep: 100 }], target: 300 });
+  assert.equal(target.exit, 'TARGET', 'a target means no lock: bar 1 reached +Rs 240 only, bar 3 reaches +Rs 400');
+  assert.equal(target.status, 'TARGET_HIT');
+  assert.ok(Math.abs(target.exitPrice - 101.5) < 1e-9, 'sold at +Rs 300 = 101.50');
+  const both = [minute(0, 100, 100, 100, 100), minute(1, 100, 101.8, 98.9, 100)];
+  assert.equal(followLive(both, 0, live, undefined, { ...money, target: 300 }).exit, 'STOP');
+});
+
 test('the target table shows which first target would have paid best', () => {
   const t = targetTable([0, 0.6, 1.2, 2.5].map((runR) => ({ runR })));
   const at = (k) => t.find((x) => x.target === k);

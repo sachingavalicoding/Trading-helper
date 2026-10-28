@@ -31,7 +31,7 @@ export class StudyService {
     if (this.status(userId, kind).state === 'running') throw conflict('A study is already running');
     const job = { state: 'running', step: 'Starting', startedAt: Date.now() };
     this.jobs.set(`${userId}|${kind}`, job);
-    const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8 }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots });
+    const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0 }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots });
     run.catch((e) => {
       logger.warn(`${kind} study failed: ${e.message}`);
       Object.assign(job, { state: 'failed', error: e.message });
@@ -86,7 +86,7 @@ export class StudyService {
     await this.#save(userId, 'options', result);
   }
 
-  async #runShares(userId, job, { days }) {
+  async #runShares(userId, job, { days, target = 0 }) {
     const { nifty1, calendar } = await this.#nifty(job, days);
     const history = {};
     let failed = 0;
@@ -100,7 +100,7 @@ export class StudyService {
       }
     }
     const rules = await loadRules(userId, 'EQ');
-    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss }, onProgress: (step) => { job.step = step; } });
+    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, target }, onProgress: (step) => { job.step = step; } });
     await this.#save(userId, 'shares', result);
   }
 }

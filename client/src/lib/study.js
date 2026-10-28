@@ -61,13 +61,21 @@ export function hourRows(t) {
     .map(([h, v]) => ({ hour: hourWord(h), trades: v.trades, net: v.net }));
 }
 
+/** The exit rule a shares study used, in words. Results saved before the exit choice have no `exit` and used the old percent ladder. */
+export function sharesExitText(p) {
+  if (p.exit === 'target') return `No profit lock: sold when a trade's profit reaches +₹${p.target}, or at the stop`;
+  if (p.exit !== 'lock') return 'Exits: an older percent ladder, so the rupees are a guide';
+  if (!p.steps?.length) return 'No profit lock';
+  return `Profit ladder: ${p.steps.map((r) => `+₹${r.at} keeps ₹${r.keep}`).join(', ')}`;
+}
+
 /** The shares study as plain text, to paste into the chat. */
 export function sharesText(r) {
   if (!r) return '';
   const o = r.overall;
   const line = (x) => `${x.key}: ${x.trades} trades, ${x.winRate ?? '-'}% win, net ${formatPnl(x.totalNet)}, avg win ${formatPnl(x.avgWin)}, avg loss ${formatPnl(x.avgLoss)}, profit factor ${x.profitFactor ?? '-'}`;
   const lines = [
-    `Shares study, last ${r.period.days} trading days, ${r.period.stocks} stocks, each trade sized to risk ₹${r.params.riskAmount} at its stop, charges and ${r.params.slippagePct}% slippage included. Exits are an older percent ladder, so the rupees are a guide.`,
+    `Shares study, last ${r.period.days} trading days, ${r.period.stocks} stocks, each trade sized to risk ₹${r.params.riskAmount} at its stop, charges and ${r.params.slippagePct}% slippage included. ${sharesExitText(r.params)}; the stop is the scanner's chart stop; closed at 15:15.`,
     `All: ${o.trades} trades, ${o.winRate ?? '-'}% win, net ${formatPnl(o.totalNet)}, charges ${formatPnl(o.totalCharges)}, drawdown ${formatPnl(-o.maxDrawdown)}.`,
     '',
     'By setup:',
