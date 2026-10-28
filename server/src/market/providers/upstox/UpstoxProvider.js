@@ -16,6 +16,9 @@ const PROTO_PATH = path.join(here, 'MarketDataFeedV3.proto');
 const CACHE_DIR = path.join(here, '../../../../.cache');
 const INSTRUMENTS_URL = 'https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz';
 const IST_OFFSET_MS = 330 * 60000;
+const HISTORY_GAP_MS = 200; // candle history goes out at most 5 a second: 50 stocks at once is what Upstox's gateway answers with HTTP 429 (Cloudflare 1015)
+const RATE_LIMIT_WAIT_MS = 15000; // after a 429, all history waits this long (or the server's Retry-After) and the refused call is tried once more
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Upstox Market Data Feed V3 adapter.
@@ -26,7 +29,7 @@ const IST_OFFSET_MS = 330 * 60000;
  * Access tokens expire every day around 03:30 IST, so UPSTOX_ACCESS_TOKEN needs refreshing daily.
  */
 export class UpstoxProvider extends BaseProvider {
-  constructor({ accessToken, apiBase = 'https://api.upstox.com', instrumentMapFile = '' }) {
+  constructor({ accessToken, apiBase = 'https://api.upstox.com', instrumentMapFile = '', historyGapMs = HISTORY_GAP_MS, rateLimitWaitMs = RATE_LIMIT_WAIT_MS }) {
     super();
     this.accessToken = accessToken;
     this.apiBase = apiBase;
@@ -39,6 +42,11 @@ export class UpstoxProvider extends BaseProvider {
     this.FeedResponse = null;
     this.retry = 0;
     this.stopped = false;
+    this.historyGapMs = historyGapMs;
+    this.rateLimitWaitMs = rateLimitWaitMs;
+    this.nextHistorySlot = 0; // when the next history request may go out
+    this.pausedUntil = 0; // after a 429, no history request goes out before this
+    this.historyQueue = Promise.resolve();
   }
 
   get name() {
@@ -204,15 +212,39 @@ export class UpstoxProvider extends BaseProvider {
     }
   }
 
-  async #get(urlPath) {
-    const res = await fetch(`${this.apiBase}${urlPath}`, {
-      headers: { Authorization: `Bearer ${this.accessToken}`, Accept: 'application/json' },
+  /** Candle history calls queue up and leave a few at a time, so a restart or a study over 50 stocks cannot flood the gateway. */
+  #paced() {
+    const turn = this.historyQueue.then(async () => {
+      for (;;) {
+        const wait = Math.max(this.nextHistorySlot, this.pausedUntil) - Date.now();
+        if (wait <= 0) break;
+        await sleep(wait);
+      }
+      this.nextHistorySlot = Date.now() + this.historyGapMs;
     });
-    if (!res.ok) {
+    this.historyQueue = turn;
+    return turn;
+  }
+
+  async #get(urlPath) {
+    const history = urlPath.includes('historical-candle');
+    for (let attempt = 0; ; attempt++) {
+      if (history) await this.#paced();
+      const res = await fetch(`${this.apiBase}${urlPath}`, {
+        headers: { Authorization: `Bearer ${this.accessToken}`, Accept: 'application/json' },
+      });
+      if (res.ok) return res.json();
       const body = await res.text();
+      if (res.status === 429 && history && attempt === 0) {
+        // Too many requests: everything on the history queue waits, then this call goes once more.
+        const asked = Number(res.headers?.get?.('retry-after')) * 1000;
+        const wait = Math.min(Number.isFinite(asked) && asked > 0 ? asked : this.rateLimitWaitMs, 60000);
+        this.pausedUntil = Math.max(this.pausedUntil, Date.now() + wait);
+        logger.warn(`Upstox asked us to slow down (429); candle history waits ${Math.round(wait / 1000)}s`);
+        continue;
+      }
       throw new Error(`HTTP ${res.status} ${body.slice(0, 200)}`);
     }
-    return res.json();
   }
 
   async #loadInstrumentKeys() {
