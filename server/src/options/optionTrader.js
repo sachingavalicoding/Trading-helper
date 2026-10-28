@@ -17,8 +17,9 @@ const LOG_REPEAT_MS = 30 * 60000; // the same skip reason is written to the log 
 
 /**
  * Paper options trader for Nifty 50 index options. Every 15 seconds it reads the Nifty chart; when one side (call or put)
- * has a strong, unblocked case it buys one at-the-money contract. The stop and the profit lock are the user's rules from the
- * Account tab, which the order engine puts on every new position. It closes everything by 15:00.
+ * has a strong, unblocked case it buys one at-the-money contract, sized so a stop at the chart level loses no more than the user's limit.
+ * It sells when a 1-minute candle closes beyond that level; the profit lock is the user's rule from the Account tab, which the order
+ * engine puts on every new position. It closes everything by 15:00.
  * It only ever calls the paper order engine.
  */
 export class OptionTrader {
@@ -46,6 +47,7 @@ export class OptionTrader {
     for (const log of await AutoLog.find({ segment: 'OPT', status: 'OPEN' }).lean()) {
       this.#watch(log.user, log.symbol, {
         type: log.detail?.type,
+        stopSpot: log.detail?.stopSpot,
         entry: log.fillPrice ?? log.entry,
         risk: Math.abs((log.fillPrice ?? log.entry) - log.stopLoss),
         openedAt: log.decidedAt,
@@ -89,7 +91,7 @@ export class OptionTrader {
         out[type] = { skipped: 'no live premium for the contract' };
         continue;
       }
-      const planned = planTrade({ market: read.market, contract, premium: contract.ltp, settings, rules, available: funds.available, spentBudget: today.spent, now: this.now() });
+      const planned = planTrade({ read: side, market: read.market, contract, premium: contract.ltp, settings, rules, available: funds.available, spentBudget: today.spent, now: this.now() });
       out[type] = planned.skipped ? { skipped: planned.skipped } : { plan: planned.plan };
     }
     return out;
@@ -210,7 +212,7 @@ export class OptionTrader {
     const contract = await this.market.pickOption({ type: side.type, now: this.now() });
     if (!contract?.ltp) return stop('no option contract with a live price');
     const funds = await getFunds(userId, this.config.startingBalance);
-    const planned = planTrade({ market: read.market, contract, premium: contract.ltp, settings, rules: await loadRules(userId, 'OPT'), available: funds.available, spentBudget: today.spent, now: this.now(), lots });
+    const planned = planTrade({ read: side, market: read.market, contract, premium: contract.ltp, settings, rules: await loadRules(userId, 'OPT'), available: funds.available, spentBudget: today.spent, now: this.now(), lots });
     if (planned.skipped) return stop(planned.skipped);
     const plan = planned.plan;
 
@@ -223,7 +225,7 @@ export class OptionTrader {
     if (order.status !== 'FILLED') return stop(order.rejectReason || `order was ${String(order.status).toLowerCase()}`);
     const position = await Position.findOne({ user: userId, symbol: plan.symbol, status: 'OPEN' }, '_id').lean();
     const fill = order.avgFillPrice ?? plan.premium;
-    this.#watch(userId, plan.symbol, { type: plan.type, entry: fill, risk: Math.max(fill - (plan.stopLoss ?? 0), 0.05), openedAt: this.now(), manual, bestR: 0, worstR: 0 });
+    this.#watch(userId, plan.symbol, { type: plan.type, stopSpot: plan.stopSpot, entry: fill, risk: Math.max(fill - (plan.stopLoss ?? 0), 0.05), openedAt: this.now(), manual, bestR: 0, worstR: 0 });
     await this.#record(settings, {
       symbol: plan.symbol,
       side: 'BUY',
@@ -282,6 +284,7 @@ export class OptionTrader {
   }
 
   #onTick({ symbol, ltp }) {
+    if (symbol === UNDERLYING) this.#indexMinute(ltp);
     if (!this.open.size) return;
     for (const w of this.open.values()) {
       if (symbol === w.symbol && w.risk) {
@@ -290,6 +293,22 @@ export class OptionTrader {
         w.worstR = Math.min(w.worstR, r);
       }
     }
+  }
+
+  /**
+   * The chart says the idea is wrong when a 1-minute candle of the index CLOSES beyond the stop level, even if the premium has not
+   * fallen that far yet. One tick through the level (a wick) does not count: that is how a good trade gets shaken out. The hard premium
+   * stop in the order engine stays as the backup for a fast move.
+   */
+  #indexMinute(ltp) {
+    const minute = Math.floor(this.now().getTime() / 60000);
+    if (this.bar && this.bar.minute !== minute) {
+      const close = this.bar.last;
+      for (const w of this.open.values()) {
+        if (w.stopSpot != null && (w.type === 'CE' ? close <= w.stopSpot : close >= w.stopSpot)) this.#exit(w.user, w.symbol, 'STOP').catch(() => {});
+      }
+    }
+    this.bar = { minute, last: ltp };
   }
 
   /**

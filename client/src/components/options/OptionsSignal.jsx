@@ -33,19 +33,24 @@ function ScoreBar({ score, minScore }) {
   );
 }
 
-/** The plan the trader would place if you bought now: size, the stop and the profit lock from the Account tab. */
-function PlanPreview({ preview }) {
+/** The plan the trader would place if you bought now: size, the chart stop, the loss and the profit lock from the Account tab. */
+function PlanPreview({ preview, type }) {
   if (!preview) return null;
   if (preview.skipped) return <p className="rounded-lg bg-surface-2 p-2 text-xs text-muted">Would not buy now: {preview.skipped}.</p>;
   const p = preview.plan;
   const rs = (v) => `₹${formatInt(v)}`;
+  const way = type === 'CE' ? 'at or below' : 'at or above';
   return (
     <div className="space-y-1 rounded-lg bg-surface-2 p-2 text-xs">
       <div className="font-semibold text-fg">
         If you buy now: {p.lots} lot{p.lots > 1 ? 's' : ''} at ₹{formatPrice(p.premium)} ({rs(p.lots * p.lotSize * p.premium)})
       </div>
+      <p className="text-muted">
+        <b className="text-fg">Exit:</b> sells when a 1-minute Nifty candle closes {way} {formatPrice(p.stopSpot)} ({p.stopNote}).
+        {p.stopLoss != null ? ` Hard stop at premium ₹${formatPrice(p.stopLoss)} for a fast fall.` : ''}
+      </p>
       <p className="num text-muted">
-        <b className="text-fg">Stop:</b> {p.stopLoss != null ? `₹${formatPrice(p.stopLoss)} (−${p.lossPct}%), a loss of about ${rs(p.maxLoss)}` : 'none'}. It does not trail.
+        <b className="text-fg">Loss:</b> about {rs(p.maxLoss)} at the Nifty stop{p.worstCase != null ? `, at most ${rs(p.worstCase)} if only the hard stop works` : ''}.
       </p>
       <p className="num text-muted">
         <b className="text-fg">Lock:</b> {p.lockStart > 0 ? `from +${rs(p.lockStart)} the stop keeps ${rs(p.lockStart - p.lockGap)}, then follows ${rs(p.lockGap)} behind the best profit` : 'off'}. No sale target.
@@ -99,7 +104,7 @@ function SideCard({ side, contract, preview, best, minScore, busy, gate, onBuy }
         <b className="text-fg">Chart stop:</b> Nifty {formatPrice(side.stop.price)} ({side.stop.note}).
         {side.levels.length > 0 && <> Next levels: {side.levels.map((l) => `${formatPrice(l.price)} ${l.kind}`).join(', ')}.</>}
       </p>
-      <PlanPreview preview={preview} />
+      <PlanPreview preview={preview} type={side.type} />
       <button type="button" onClick={() => setWhy((v) => !v)} className="flex items-center gap-1 text-xs text-accent">
         {why ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />} Why this score
       </button>
@@ -139,11 +144,11 @@ export function OptionsSignal({ minScore, onBought }) {
   async function buy(type, contract, preview) {
     const lots = preview?.plan?.lots ?? 1;
     const cost = formatINR(contract.lotCost * lots);
-    if (!window.confirm(`Buy ${lots} lot${lots > 1 ? 's' : ''} of ${contract.label} for about ${cost} (paper money)? The stop and profit lock come from your Account tab.`)) return;
+    if (!window.confirm(`Buy ${lots} lot${lots > 1 ? 's' : ''} of ${contract.label} for about ${cost} (paper money)? It sells if the Nifty chart level breaks; the loss limit and profit lock come from your Account tab.`)) return;
     setBusy(true);
     try {
       const { plan } = await api('/options/buy', { method: 'POST', body: { type, lots } });
-      toast.success(`Bought ${plan.lots} lot ${plan.type}: stop ₹${formatPrice(plan.stopLoss)} (−${plan.lossPct}%)`);
+      toast.success(`Bought ${plan.lots} lot ${plan.type}: loss about ₹${formatInt(plan.maxLoss)} at the chart stop`);
       refresh?.();
       onBought?.();
     } catch (e) {

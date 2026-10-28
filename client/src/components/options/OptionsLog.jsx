@@ -23,9 +23,9 @@ function Detail({ e }) {
       {e.reason && <p className="text-muted">Skipped: {e.reason}</p>}
       {e.decision === 'PLACED' && (
         <p className="num text-muted">
-          {d.lots} lot · bought ₹{formatPrice(e.fillPrice)} · stop ₹{formatPrice(e.stopLoss)} (−{d.lossPct}%) · risk ₹{formatPrice(d.maxLoss)} · IV {d.iv}%
+          {d.lots} lot · bought ₹{formatPrice(e.fillPrice)} · hard stop ₹{formatPrice(e.stopLoss)} · risk ₹{formatPrice(d.maxLoss)} · IV {d.iv}%
           <br />
-          Nifty was {formatPrice(d.spot)} when bought.
+          Chart stop at Nifty {formatPrice(d.stopSpot)} ({d.stopNote}). Nifty was {formatPrice(d.spot)} when bought.
         </p>
       )}
       {e.outcome && (
