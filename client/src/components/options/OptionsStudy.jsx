@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { copyText } from '../../lib/copyText.js';
 import { formatPnl, formatPrice, pnlClass } from '../../lib/format.js';
-import { EXIT_WORD, hourRows, istStamp, studyText, verdict } from '../../lib/study.js';
+import { EXIT_WORD, hourRows, istStamp, sizingText, studyText, verdict } from '../../lib/study.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 
 const DAYS = [
@@ -87,6 +87,41 @@ function Mini({ label, value, sub, tone }) {
       <div className={`num text-sm font-bold ${tone || ''}`}>{value}</div>
       <div className="num text-[10px] text-muted">{sub}</div>
     </div>
+  );
+}
+
+function CutList({ title, rows }) {
+  if (!rows?.length) return null;
+  return (
+    <div>
+      <div className="mb-1 text-[11px] font-semibold text-muted">{title}</div>
+      <ul className="divide-y divide-line text-xs">
+        {rows.map((x) => (
+          <li key={x.key} className="flex items-center justify-between gap-2 py-1.5">
+            <span className="min-w-0">
+              <b>{x.key}</b> <span className="text-muted">· {x.trades} trades · {x.winRate ?? '–'}% win</span>
+            </span>
+            <span className={`num shrink-0 font-semibold ${pnlClass(x.net)}`}>{formatPnl(x.net)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** What the live bot's own trades looked like when cut by how it entered, how high it scored and call or put. */
+function BotBreakdown({ cut }) {
+  if (!cut || !cut.bySide.length) return null;
+  return (
+    <Card className="space-y-3 p-3">
+      <div>
+        <h3 className="text-sm font-semibold">The current bot, cut three ways</h3>
+        <p className="text-[11px] leading-snug text-muted">Which entries made the bot's money and which lost it. Small groups are luck more than skill.</p>
+      </div>
+      <CutList title="By how it entered" rows={cut.byTrigger} />
+      <CutList title="By score" rows={cut.byScore} />
+      <CutList title="Calls and puts" rows={cut.bySide} />
+    </Card>
   );
 }
 
@@ -182,7 +217,7 @@ export function OptionsStudy() {
           <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
           <div>
             <h3 className="text-sm font-semibold">Which way of reading the chart pays?</h3>
-            <p className="text-[11px] leading-snug text-muted">Replays past Nifty candles. Each technique buys a call or put when its pattern shows, with a chart stop and your profit lock, one lot, closed by 15:00. This does not change the live trading.</p>
+            <p className="text-[11px] leading-snug text-muted">Replays past Nifty candles. Each technique buys a call or put when its pattern shows, with a chart stop and your profit lock, lots sized to your loss limit, closed by 15:00. This does not change the live trading.</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -204,7 +239,7 @@ export function OptionsStudy() {
           {r.simulated && <Card className="border-warn p-3 text-xs text-warn">This was made on the sample feed, whose history is random, so the numbers mean nothing. Log in to Upstox and run it again.</Card>}
           <Card className="flex items-center justify-between gap-2 p-3 text-xs">
             <p className="text-muted">
-              {r.period.from} to {r.period.to} · {r.period.days} trading days · profit lock +₹{r.params.lockStart} keeps ₹{r.params.lockStart - r.params.lockGap} · premiums estimated at {Math.round(r.params.iv * 100)}% volatility
+              {r.period.from} to {r.period.to} · {r.period.days} trading days · {sizingText(r.params)} · profit lock +₹{r.params.lockStart} keeps ₹{r.params.lockStart - r.params.lockGap} · premiums estimated at {Math.round(r.params.iv * 100)}% volatility
             </p>
             <button type="button" onClick={copy} className="btn btn-sm shrink-0">
               <ClipboardCopy className="h-3.5 w-3.5" /> Copy
@@ -213,6 +248,7 @@ export function OptionsStudy() {
           {r.techniques.map((t) => (
             <Technique key={t.key} t={t} bot={bot} />
           ))}
+          <BotBreakdown cut={r.botBreakdown} />
           <Breadth rows={r.breadth} />
           {!r.haveBreadth && <p className="text-center text-[11px] text-muted">The 50 stocks did not load, so breadth was left out.</p>}
           <p className="text-center text-[11px] leading-snug text-muted">{state.note}</p>

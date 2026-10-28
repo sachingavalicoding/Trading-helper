@@ -63,6 +63,8 @@ export class StudyService {
       holidays: this.config.nseHolidays,
       expiryWeekday: this.market.expiryWeekday,
       minScore: settings?.minScore ?? 80,
+      lossLimit: rules.stopLoss ?? 0,
+      maxLots: settings?.maxLots ?? 2,
     };
     const result = await runOptionsStudy({ nifty1, stocks5, params, onProgress: (step) => { job.step = step; } });
     const simulated = Boolean(this.market.provider.isSimulated);

@@ -102,6 +102,23 @@ test('a put gains when the index falls, and a stop is only hit by a candle that 
   assert.notEqual(survived.reason, 'STOP');
 });
 
+test('with a loss limit the lots are sized to it like the live trader, a stop too far is skipped, and a fast gap is cut by the hard stop', () => {
+  const start = Date.UTC(2026, 9, 12, 4, 30) / 1000;
+  const flat = () => minutes(24000, Array.from({ length: 30 }, () => 0));
+  const sized = (stop, extra = {}) => simulateTrade({ c1: flat(), byTime: index(flat()), signal: { technique: 'x', side: 'CE', time: start, stop }, params: { ...PARAMS, lossLimit: 1500, maxLots: 2, ...extra } });
+  assert.equal(sized(23985).lots, 2, 'a near stop fits two lots');
+  assert.equal(sized(23985, { maxLots: 1 }).lots, 1);
+  assert.equal(sized(23958).lots, 1, 'a further stop fits one');
+  assert.deepEqual(sized(23900), { skipped: 'limit' }, 'even one lot would lose more than the limit');
+  assert.equal(sim(flat(), { side: 'CE', time: start, stop: 23900 }).lots, 1, 'without a limit it is one lot');
+
+  const gap = minutes(24000, [0, 0, 0, 0, 0]);
+  gap[3] = { ...gap[3], low: 23925, close: 23960 }; // a spike down far enough to cost more than 1.3 times the limit, closing back above the stop
+  const t = simulateTrade({ c1: gap, byTime: index(gap), signal: { technique: 'x', side: 'CE', time: start, stop: 23955 }, params: { ...PARAMS, lossLimit: 1500, maxLots: 1 } });
+  assert.equal(t.reason, 'HARD');
+  assert.ok(t.gross <= -1950 && t.gross > -2600, `gross ${t.gross}`);
+});
+
 test('the summary counts wins, rupees, drawdown and where the trades ended', () => {
   const t = (net, side = 'CE', reason = 'STOP', at = 0) => ({ net, side, reason, minutes: 30, entryTime: OPEN + at * 3600, exitTime: OPEN + at * 3600 + 1800 });
   const s = summarize([t(500, 'CE', 'LOCK', 0), t(-300, 'PE', 'STOP', 1), t(-200, 'CE', 'STOP', 2), t(1000, 'PE', 'EOD', 3)]);
@@ -168,11 +185,11 @@ function walk(nDays, seed = 11) {
 
 test('the study trades every technique on the same candles, with one lot, charges taken off, and ranks them by what they made', async () => {
   const nifty1 = walk(14);
-  const r = await runOptionsStudy({ nifty1, params: { ...PARAMS, days: 10 } });
+  const r = await runOptionsStudy({ nifty1, params: { ...PARAMS, days: 10, lossLimit: 1500, maxLots: 2 } });
   assert.equal(r.period.days, 10);
   assert.equal(r.haveBreadth, false);
   const keys = r.techniques.map((t) => t.key);
-  for (const k of ['doubleBottom', 'reversal', 'breakout', 'orb', 'pullback', 'engulfing', 'pinBar', 'insideBar', 'supertrend', 'emaCross', 'confluence', 'bot']) assert.ok(keys.includes(k), k);
+  for (const k of ['doubleBottom', 'doubleBottomMid', 'botFiltered', 'reversal', 'breakout', 'orb', 'pullback', 'engulfing', 'pinBar', 'insideBar', 'supertrend', 'emaCross', 'confluence', 'bot']) assert.ok(keys.includes(k), k);
   assert.ok(!keys.includes('breadth'), 'no stock history, no breadth technique');
   assert.deepEqual(r.techniques.map((t) => t.net), [...r.techniques.map((t) => t.net)].sort((a, b) => b - a));
   const all = r.techniques.flatMap((t) => t.recent);
@@ -186,6 +203,14 @@ test('the study trades every technique on the same candles, with one lot, charge
   const perDay = new Map();
   for (const tr of r.techniques.find((t) => t.key === 'emaCross').recent) perDay.set(new Date((tr.entryTime + 19800) * 1000).toISOString().slice(0, 10), 0);
   assert.equal(r.params.lockStart, 1000);
+  assert.equal(r.params.lossLimit, 1500);
+  for (const tr of all) assert.ok(tr.lots >= 1 && tr.lots <= 2, JSON.stringify(tr));
+  const bot = r.techniques.find((t) => t.key === 'bot');
+  const filtered = r.techniques.find((t) => t.key === 'botFiltered');
+  assert.ok(filtered.trades <= bot.trades + 3 && filtered.signals <= bot.signals, 'the filtered bot only drops call entries');
+  const cut = r.botBreakdown;
+  for (const k of ['byTrigger', 'byScore', 'bySide']) assert.ok(Array.isArray(cut[k]), k);
+  assert.equal(cut.bySide.reduce((n, x) => n + x.trades, 0), bot.trades, 'every bot trade is in the cut');
 });
 
 // ---------- the API ----------
