@@ -112,6 +112,32 @@ export class UpstoxProvider extends BaseProvider {
     return [...seen.values()].sort((a, b) => a.time - b.time);
   }
 
+  /** `days` calendar days of `unit`-minute candles, fetched in windows of under a month (the API limit), oldest first. */
+  async getRangeHistory(symbol, unit, days) {
+    const key = this.keyBySymbol.get(symbol);
+    if (!key) return [];
+    const enc = encodeURIComponent(key);
+    const day = (d) => d.toISOString().slice(0, 10);
+    const rows = [];
+    let to = new Date(Date.now() + IST_OFFSET_MS);
+    const floor = new Date(to);
+    floor.setUTCDate(floor.getUTCDate() - days);
+    while (to >= floor) {
+      const from = new Date(to);
+      from.setUTCDate(from.getUTCDate() - 27);
+      const hist = await this.#get(`/v3/historical-candle/${enc}/minutes/${unit}/${day(to)}/${day(from < floor ? floor : from)}`);
+      rows.push(...(hist?.data?.candles || []));
+      to = new Date(from);
+      to.setUTCDate(to.getUTCDate() - 1);
+    }
+    const seen = new Map();
+    for (const [ts, open, high, low, close, volume] of rows) {
+      const time = Math.floor(new Date(ts).getTime() / 1000);
+      seen.set(time, { time, open, high, low, close, volume: volume || 0 });
+    }
+    return [...seen.values()].sort((a, b) => a.time - b.time);
+  }
+
   async getDailyHistory(symbol, days = 45) {
     const key = this.keyBySymbol.get(symbol);
     if (!key) return [];

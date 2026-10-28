@@ -55,6 +55,11 @@ export class BaseProvider extends EventEmitter {
     return [];
   }
 
+  /** About `days` calendar days of `unit`-minute candles for the study. Providers with a real history API override this. */
+  async getRangeHistory(symbol, unit, _days) {
+    return this.getHistory(symbol, `${unit}m`);
+  }
+
   /** Daily candles for roughly the last `days` calendar days, oldest first; [] when the feed has none. */
   async getDailyHistory(_symbol, _days) {
     return [];
