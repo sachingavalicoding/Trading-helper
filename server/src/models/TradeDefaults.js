@@ -12,13 +12,13 @@ const rules = (stopLoss, lockStart, lockGap) => ({
 const tradeDefaultsSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
-    shares: rules(200, 250, 50),
-    options: rules(500, 1000, 100),
+    shares: rules(200, 250, 80),
+    options: rules(500, 1000, 250),
   },
   { timestamps: true },
 );
 
-export const TRADE_DEFAULTS = { shares: { stopLoss: 200, lockStart: 250, lockGap: 50 }, options: { stopLoss: 500, lockStart: 1000, lockGap: 100 } };
+export const TRADE_DEFAULTS = { shares: { stopLoss: 200, lockStart: 250, lockGap: 80 }, options: { stopLoss: 500, lockStart: 1000, lockGap: 250 } };
 export const TradeDefaults = mongoose.model('TradeDefaults', tradeDefaultsSchema);
 
 /** The stop and lock rules for one segment ('EQ' or 'OPT'), with anything unset falling back to the built-in values. */

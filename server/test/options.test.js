@@ -326,7 +326,7 @@ test('the trader buys a call with the Account stop and profit lock, no target an
   assert.equal(pos.lockSteps.length, 0);
   assert.equal(pos.trailPct, null);
   assert.equal(pos.lockTrigger, 1000, 'the lock starts at +1,000');
-  assert.equal(pos.lockAmount, 900, 'and keeps 100 less than the profit');
+  assert.equal(pos.lockAmount, 750, 'and keeps 250 less than the profit');
   const sl = await Order.findOne({ user: uid, symbol: sym, role: 'STOPLOSS', status: 'OPEN' });
   assert.equal(sl.triggerPrice, r.plan.stopLoss);
   const loss = (pos.avgPrice - sl.triggerPrice) * pos.netQty;
@@ -379,7 +379,7 @@ test('the fixed rupee stop closes a losing trade, the log says STOP, and it cool
   }
 });
 
-test('the profit lock takes the profit once it has been past the start: +1,000 keeps 900 and it follows 100 behind', async () => {
+test('the profit lock takes the profit once it has been past the start: +1,000 keeps 750 and it follows 250 behind', async () => {
   const fresh = await registerUser(app);
   const uid = fresh.user.id || fresh.user._id;
   ctx.provider.setPrice('NIFTY 50', 25000);
@@ -400,7 +400,7 @@ test('the profit lock takes the profit once it has been past the start: +1,000 k
     assert.ok(stop >= high - 0.001, 'the stop never moves down');
     high = stop;
     const profit = (this_ltp(pos) - pos.avgPrice) * pos.netQty;
-    if (profit >= 1000) assert.ok((stop - pos.avgPrice) * pos.netQty >= profit - 100 - 65 * 0.3, `stop keeps about profit minus 100: profit ${profit}`);
+    if (profit >= 1000) assert.ok((stop - pos.avgPrice) * pos.netQty >= profit - 250 - 65 * 0.3, `stop keeps about profit minus 250: profit ${profit}`);
   }
   assert.ok(high > r.plan.premium, 'the stop rose above the entry');
   await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
@@ -467,7 +467,7 @@ test('the options API: settings, the chart read, the log, and a manual buy', asy
   assert.equal(off.settings.enabled, false);
   assert.equal(off.settings.budget, 30000);
   assert.match(off.disclaimer, /paper/i);
-  assert.deepEqual(off.rules, { stopLoss: 500, lockStart: 1000, lockGap: 100 }, 'the stop and lock come from the Account tab');
+  assert.deepEqual(off.rules, { stopLoss: 500, lockStart: 1000, lockGap: 250 }, 'the stop and lock come from the Account tab');
   assert.equal(off.settings.lockLadder, undefined);
   assert.equal(off.settings.trailPct, undefined);
   const on = (await api().put('/api/options').set(fresh.auth).send({ enabled: true, maxLots: 1 }).expect(200)).body;

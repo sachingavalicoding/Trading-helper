@@ -121,7 +121,7 @@ test('the profit lock can be edited per position and cleared, and is validated',
 
 test('your stop and profit lock apply to every new position: a fixed rupee stop, and a lock that follows a set gap behind the profit', async () => {
   const d0 = (await api().get('/api/trade-defaults').set(user.auth).expect(200)).body;
-  assert.deepEqual(d0.options, { stopLoss: 500, lockStart: 1000, lockGap: 100 });
+  assert.deepEqual(d0.options, { stopLoss: 500, lockStart: 1000, lockGap: 250 });
   await api().put('/api/trade-defaults').set(user.auth).send({ shares: { lockStart: 100, lockGap: 200 } }).expect(400);
   const set = (await api().put('/api/trade-defaults').set(user.auth).send({ shares: { stopLoss: 200, lockStart: 250, lockGap: 50 } }).expect(200)).body;
   assert.deepEqual(set.shares, { stopLoss: 200, lockStart: 250, lockGap: 50 });
