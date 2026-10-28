@@ -56,3 +56,5 @@ export function splitCharges(charges, fraction) {
 export function roundTripCharges({ qty, price, segment = 'EQ' }) {
   return round2(calculateCharges({ side: 'BUY', qty, price, segment }).total + calculateCharges({ side: 'SELL', qty, price, segment }).total);
 }
+
+export const LOCK_CHARGES_MULT = 1.5; // a profit lock or target step never puts the stop below cost + this many times the round-trip charges
