@@ -13,6 +13,7 @@ import { choppiness, stochastic, heikinAshi, roc, sessionMean } from '../src/sig
 import { readNifty, chartStop, scoreDirection, blockAgainstReversal } from '../src/options/signal.js';
 import { planTrade } from '../src/options/plan.js';
 import { entryModes, LIVE_PATTERNS } from '../src/options/optionTrader.js';
+import { normalizeCombos } from '../src/combos/combos.js';
 
 // ---------- pure pieces ----------
 
@@ -409,8 +410,10 @@ test('the trader buys a call sized to the loss limit, with a hard stop and the A
 });
 
 // 5-minute bars that wobble inside a 25,000 range, the last one closing the 5 minutes just past and breaking out of the last hour
-function breakoutRead(ageMs = 20000) {
-  const lastTime = Math.floor((Date.now() - ageMs) / 300000) * 300 - 300;
+// 11:02 IST today: the 40 bars before it stay inside one trading day whatever time the test runs
+const MIDMORNING = () => Date.parse(`${new Date(Date.now() + 19800000).toISOString().slice(0, 10)}T05:32:20Z`);
+function breakoutRead(ageMs = 20000, at = MIDMORNING()) {
+  const lastTime = Math.floor((at - ageMs) / 300000) * 300 - 300;
   const bars = [];
   for (let i = 0; i < 40; i++) {
     const close = 25000 + (i % 2 ? 6 : -6);
@@ -423,11 +426,23 @@ function breakoutRead(ageMs = 20000) {
 }
 
 test('a breakout of the last hour is bought once, with the pattern name in the log and a stop under the last 6 bars, and a pattern that is off or stale is not', async () => {
+  const realNow = optionTrader.now;
+  optionTrader.now = () => new Date(MIDMORNING());
+  try {
+    await breakoutOnce();
+  } finally {
+    optionTrader.now = realNow;
+  }
+});
+
+async function breakoutOnce() {
   const fresh = await registerUser(app);
   const uid = fresh.user.id || fresh.user._id;
   const s = (await OptionSettings.create({ user: uid, enabled: true, patterns: ['breakout'] })).toObject();
-  assert.deepEqual(entryModes({}), { patterns: ['breakout', 'insideBar', 'emaCross'], score: true }, 'settings saved before these switches existed get the defaults');
-  assert.deepEqual(entryModes({ patternEntries: false, scoreEntries: false }), { patterns: [], score: false });
+  assert.deepEqual(entryModes({}), { patterns: ['breakout', 'insideBar', 'emaCross'], score: true, combos: false }, 'settings saved before these switches existed get the defaults');
+  assert.deepEqual(entryModes({ patternEntries: false, scoreEntries: false }), { patterns: [], score: false, combos: false });
+  assert.equal(entryModes({ combos: [{ name: 'x', conds: ['rsiAbove50'] }] }).combos, true, 'a switched-on combination is an entry source');
+  assert.equal(entryModes({ combos: [{ name: 'x', conds: ['rsiAbove50'], on: false }] }).combos, false);
   assert.ok(LIVE_PATTERNS.length === 14 && !LIVE_PATTERNS.some((p) => p.key === 'breadth'));
 
   assert.match((await optionTrader.considerPatterns({ ...s, patterns: ['insideBar'] }, breakoutRead())).skipped, /no pattern/, 'a pattern that is not chosen is not traded');
@@ -445,7 +460,7 @@ test('a breakout of the last hour is bought once, with the pattern name in the l
   assert.match(log.detail.stopNote, /closed beyond the last hour range/);
   assert.match((await optionTrader.considerPatterns(s, breakoutRead())).skipped, /no pattern|already/, 'the same bar is not bought twice');
   await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
-});
+}
 
 test('the pattern switches are saved, validated and shown with their choices', async () => {
   const u = await registerUser(app);
@@ -459,6 +474,55 @@ test('the pattern switches are saved, validated and shown with their choices', a
   assert.equal(saved.settings.scoreEntries, false);
   await api().put('/api/options').set(u.auth).send({ patterns: ['nope'] }).expect(400);
   await api().put('/api/options').set(u.auth).send({ patternEntries: 'yes' }).expect(400);
+});
+
+test('a combination of checks is bought once when it becomes true on the bar that just closed, with its name in the log, and not when a check is missing, off or stale', async () => {
+  const realNow = optionTrader.now;
+  optionTrader.now = () => new Date(MIDMORNING());
+  try {
+    await comboOnce();
+  } finally {
+    optionTrader.now = realNow;
+  }
+});
+
+async function comboOnce() {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  const combos = normalizeCombos([{ name: 'Break and trend', conds: ['p_breakout', 'aboveEma20'] }]);
+  const s = (await OptionSettings.create({ user: uid, enabled: true, combos })).toObject();
+  const never = normalizeCombos([{ name: 'Oversold bounce', conds: ['p_breakout', 'rsiCross30'] }]);
+
+  assert.match((await optionTrader.considerCombos({ ...s, combos: never }, breakoutRead())).skipped, /no pattern/, 'a combination whose checks do not all hold is not traded');
+  assert.match((await optionTrader.considerCombos({ ...s, combos: [{ ...combos[0], on: false }] }, breakoutRead())).skipped, /switched on/);
+  assert.match((await optionTrader.considerCombos({ ...s, combos: [] }, breakoutRead())).skipped, /switched on/);
+  assert.match((await optionTrader.considerCombos(s, breakoutRead(10 * 60000))).skipped, /no fresh bar/);
+
+  const r = await optionTrader.considerCombos(s, breakoutRead());
+  assert.ok(r.order, r.skipped);
+  assert.equal(r.plan.type, 'CE');
+  assert.ok(r.plan.stopSpot < 25000 && r.plan.stopSpot > 24960, `stop ${r.plan.stopSpot}`);
+  const log = await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'PLACED' }).lean();
+  assert.equal(log.setup, 'Combination: Break and trend');
+  assert.match((await optionTrader.considerCombos(s, breakoutRead())).skipped, /no pattern|already/, 'the same bar is not bought twice');
+  await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
+}
+
+test('combinations are saved, cleaned and shown with the list of checks they can be built from', async () => {
+  const u = await registerUser(app);
+  const cat = (await api().get('/api/combos/catalog').set(u.auth).expect(200)).body;
+  assert.ok(cat.conditions.length >= 90 && cat.groups.includes('Chart patterns') && cat.maxConditions === 8);
+  assert.ok(cat.conditions.every((c) => c.key && c.label && c.group && c.kind));
+  await api().get('/api/combos/catalog').expect(401);
+
+  assert.deepEqual((await api().get('/api/options').set(u.auth).expect(200)).body.settings.combos, []);
+  const saved = (await api().put('/api/options').set(u.auth).send({ combos: [{ name: ' Mine ', conds: ['rsiAbove50', 'nope', 'macdZero'], need: 5 }, { name: 'empty', conds: ['nope'] }] }).expect(200)).body;
+  assert.equal(saved.settings.combos.length, 1);
+  assert.deepEqual(saved.settings.combos[0], { id: 'mine', name: 'Mine', conds: ['rsiAbove50', 'macdZero'], need: 2, window: 3, on: true });
+  const again = (await api().get('/api/options').set(u.auth).expect(200)).body;
+  assert.deepEqual(again.settings.combos, saved.settings.combos);
+  await api().put('/api/options').set(u.auth).send({ combos: 'x' }).expect(400);
+  assert.equal((await api().put('/api/options').set(u.auth).send({ combos: [] }).expect(200)).body.settings.combos.length, 0);
 });
 
 test('when a 1-minute candle of the index closes beyond the chart stop the trade is closed, and the log says STOP', async () => {

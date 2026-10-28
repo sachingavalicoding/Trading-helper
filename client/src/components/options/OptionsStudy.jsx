@@ -7,6 +7,7 @@ import { formatPnl, formatPrice, pnlClass } from '../../lib/format.js';
 import { useStudy } from '../../lib/useStudy.js';
 import { EXIT_WORD, exitText, hourRows, istStamp, sizingText, studyText, verdict } from '../../lib/study.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
+import { IndicatorRanking } from '../study/IndicatorRanking.jsx';
 
 const DAYS = [
   { value: 1, label: 'Today' },
@@ -27,6 +28,7 @@ function Technique({ t, bot }) {
           <div className="flex flex-wrap items-center gap-1.5">
             <h3 className="text-sm font-semibold">{t.label}</h3>
             {t.key === 'bot' && <Badge tone="accent">Live now</Badge>}
+            {t.combo && <Badge tone="accent">Yours</Badge>}
             <Badge tone={v.tone}>{v.text}</Badge>
           </div>
           <p className="num mt-1 text-[11px] text-muted">
@@ -233,6 +235,7 @@ export function OptionsStudy() {
           {r.techniques.map((t) => (
             <Technique key={t.key} t={t} bot={bot} />
           ))}
+          <IndicatorRanking rows={r.indicators} skipped={r.combosSkipped} />
           <BotBreakdown cut={r.botBreakdown} />
           <Breadth rows={r.breadth} />
           {!r.haveBreadth && <p className="text-center text-[11px] text-muted">The 50 stocks did not load, so breadth was left out.</p>}

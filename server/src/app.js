@@ -16,6 +16,7 @@ import { newsRoutes } from './routes/news.js';
 import { reviewRoutes } from './routes/review.js';
 import { reportRoutes } from './routes/report.js';
 import { studyRoutes } from './routes/study.js';
+import { comboRoutes } from './routes/combos.js';
 import { ReviewService } from './review/service.js';
 import { StudyService } from './study/service.js';
 import { HistorySync } from './market/historySync.js';
@@ -51,6 +52,7 @@ export function createApp({ market, engine, config, tracker, scanner, news, auto
   if (news) app.use('/api/news', auth, newsRoutes({ news }));
   app.use('/api/review', auth, reviewRoutes({ review }));
   app.use('/api/study', auth, studyRoutes({ study }));
+  app.use('/api/combos', auth, comboRoutes());
   app.use('/api/history', auth, historyRoutes({ history }));
   app.use('/api/report', auth, reportRoutes({ engine, market, review }));
   app.use('/api', auth, tradingRoutes({ engine, market, config }));

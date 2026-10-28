@@ -8,6 +8,7 @@ import { OPTION_WEIGHTS } from '../options/signal.js';
 import { LIVE_PATTERNS, DEFAULT_PATTERNS } from '../options/optionTrader.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { badRequest } from '../utils/errors.js';
+import { comboInput, normalizeCombos } from '../combos/combos.js';
 
 export const OPTIONS_DISCLAIMER = 'Options are paper (virtual) trades only. About 9 in 10 individual traders lose money in index options, so treat results here as a test, not a promise. Not investment advice.';
 
@@ -23,6 +24,7 @@ const patch = z
     patternEntries: z.boolean(),
     scoreEntries: z.boolean(),
     patterns: z.array(z.enum(LIVE_PATTERNS.map((p) => p.key))).max(LIVE_PATTERNS.length),
+    combos: comboInput,
   })
   .partial();
 
@@ -37,7 +39,7 @@ export function optionRoutes({ optionTrader }) {
   const view = async (userId, doc) => {
     const s = doc || new OptionSettings({ user: userId });
     const { enabled, minScore, maxLots, maxOpen, maxTrades, budget, dailyLossPct } = s;
-    const entries = { patternEntries: s.patternEntries !== false, scoreEntries: s.scoreEntries !== false, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)] };
+    const entries = { patternEntries: s.patternEntries !== false, scoreEntries: s.scoreEntries !== false, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []) };
     return { settings: { enabled, minScore, maxLots, maxOpen, maxTrades, budget, dailyLossPct, ...entries }, patternChoices: LIVE_PATTERNS, rules: await loadRules(userId, 'OPT'), today: await optionTrader.todaySummary(userId), weights: OPTION_WEIGHTS, disclaimer: OPTIONS_DISCLAIMER };
   };
 
@@ -46,7 +48,8 @@ export function optionRoutes({ optionTrader }) {
   });
 
   router.put('/', validate(patch), async (req, res) => {
-    const doc = await OptionSettings.findOneAndUpdate({ user: req.userId }, { $set: req.body, $setOnInsert: { user: req.userId } }, { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true });
+    const body = req.body.combos ? { ...req.body, combos: normalizeCombos(req.body.combos) } : req.body;
+    const doc = await OptionSettings.findOneAndUpdate({ user: req.userId }, { $set: body, $setOnInsert: { user: req.userId } }, { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true });
     res.json(await view(req.userId, doc));
   });
 

@@ -4,6 +4,7 @@ import { validate } from '../middleware/validate.js';
 import { AutoLog, AutoSettings, ScanIdea } from '../models/index.js';
 import { summarizeLog } from '../auto/logSummary.js';
 import { loadRules } from '../models/TradeDefaults.js';
+import { comboInput, normalizeCombos } from '../combos/combos.js';
 
 // The setups the scanner can raise today (Level retest and VWAP pullback are switched off for good in scanner/service.js).
 export const SHARE_SETUPS = ['Opening range breakout', 'Gap and go', 'News gap'];
@@ -21,6 +22,7 @@ const patch = z
     maxShares: z.coerce.number().int().min(0).max(100000),
     maxTradeAmount: z.coerce.number().min(1000).max(100_000_000),
     skipSetups: z.array(z.enum(SHARE_SETUPS)).max(SHARE_SETUPS.length),
+    combos: comboInput,
   })
   .partial();
 
@@ -30,7 +32,7 @@ export function autoRoutes({ autoTrader }) {
   const view = async (userId, doc) => {
     const s = doc || new AutoSettings({ user: userId });
     return {
-      settings: { enabled: s.enabled, minScore: s.minScore, maxOpen: s.maxOpen, riskPct: s.riskPct, dailyLossPct: s.dailyLossPct, maxShares: s.maxShares, maxTradeAmount: s.maxTradeAmount, earlyNews: s.earlyNews !== false, skipSetups: [...(s.skipSetups ?? [])] },
+      settings: { enabled: s.enabled, minScore: s.minScore, maxOpen: s.maxOpen, riskPct: s.riskPct, dailyLossPct: s.dailyLossPct, maxShares: s.maxShares, maxTradeAmount: s.maxTradeAmount, earlyNews: s.earlyNews !== false, skipSetups: [...(s.skipSetups ?? [])], combos: normalizeCombos(s.combos ?? []) },
       setupChoices: SHARE_SETUPS,
       rules: await loadRules(userId, 'EQ'),
       today: await autoTrader.todaySummary(userId),
@@ -43,7 +45,8 @@ export function autoRoutes({ autoTrader }) {
   });
 
   router.put('/', validate(patch), async (req, res) => {
-    const doc = await AutoSettings.findOneAndUpdate({ user: req.userId }, { $set: req.body, $setOnInsert: { user: req.userId } }, { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true });
+    const body = req.body.combos ? { ...req.body, combos: normalizeCombos(req.body.combos) } : req.body;
+    const doc = await AutoSettings.findOneAndUpdate({ user: req.userId }, { $set: body, $setOnInsert: { user: req.userId } }, { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true });
     res.json(await view(req.userId, doc));
   });
 

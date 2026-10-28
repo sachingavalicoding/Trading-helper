@@ -2,7 +2,10 @@ import { AutoLog, OptionSettings, Order, Position, Trade } from '../models/index
 import { getFunds } from '../services/walletService.js';
 import { UNDERLYING, isOptionSymbol, optionLabel } from './symbols.js';
 import { readNifty } from './signal.js';
-import { TECHNIQUES, prepare, findSignals, MIN_STOP_ATR, MAX_STOP_ATR } from '../study/patterns.js';
+import { TECHNIQUES, prepare, findSignals, turnoverSeries, MIN_STOP_ATR, MAX_STOP_ATR } from '../study/patterns.js';
+import { breadthSeries } from '../study/optionsStudy.js';
+import { buildChart } from '../combos/conditions.js';
+import { comboSignals, normalizeCombos } from '../combos/combos.js';
 import { roundToTick } from '../utils/money.js';
 import { planTrade } from './plan.js';
 import { loadRules } from '../models/TradeDefaults.js';
@@ -26,7 +29,7 @@ export const DEFAULT_PATTERNS = ['breakout', 'insideBar', 'emaCross'];
 export function entryModes(settings) {
   const known = new Set(LIVE_PATTERNS.map((p) => p.key));
   const chosen = (settings.patterns ?? DEFAULT_PATTERNS).filter((k) => known.has(k));
-  return { patterns: settings.patternEntries === false ? [] : chosen, score: settings.scoreEntries !== false };
+  return { patterns: settings.patternEntries === false ? [] : chosen, score: settings.scoreEntries !== false, combos: normalizeCombos(settings.combos).some((c) => c.on) };
 }
 
 /**
@@ -143,6 +146,10 @@ export class OptionTrader {
             const p = await this.considerPatterns(s, read);
             if (p.order) continue;
           }
+          if (modes.combos) {
+            const p = await this.considerCombos(s, read);
+            if (p.order) continue;
+          }
           if (!modes.score) continue;
           const r = await this.consider(s, read);
           if (r.skipped) logger.info(`options skip for ${s.user}: ${r.skipped}`);
@@ -232,6 +239,43 @@ export class OptionTrader {
     const last = bars.at(-1);
     if (!last || this.now() - (last.time + 300) * 1000 > PATTERN_FRESH_MS) return { skipped: 'no fresh bar' };
     const hits = findSignals(prepare(bars), { only: keys, from: bars.length - 1, windows: this.config.enforceMarketHours }).sort((a, b) => keys.indexOf(a.technique) - keys.indexOf(b.technique));
+    return this.#actOn(settings, read, hits, last, (hit) => LIVE_PATTERNS.find((p) => p.key === hit.technique).label);
+  }
+
+  /**
+   * Buy when one of the user's own combinations (Account > Entries) became true on the 5-minute bar that has just closed. Handled like a
+   * pattern: its own stop level, the same limits and lots. The 50-stock breadth and volume come from the live candles of the scanner.
+   */
+  async considerCombos(settings, read) {
+    const combos = normalizeCombos(settings.combos).filter((c) => c.on);
+    if (!combos.length) return { skipped: 'no combination is switched on' };
+    if (!read?.ready) return { skipped: 'the Nifty chart is not ready yet' };
+    const bars = read.market.done5;
+    const last = bars.at(-1);
+    if (!last || this.now() - (last.time + 300) * 1000 > PATTERN_FRESH_MS) return { skipped: 'no fresh bar' };
+    const chart = this.#comboChart(bars);
+    const hits = combos.flatMap((combo) => comboSignals(chart, combo, { from: bars.length - 1, windows: this.config.enforceMarketHours, label: `combo:${combo.id}` }));
+    const names = new Map(combos.map((c) => [`combo:${c.id}`, c.name]));
+    return this.#actOn(settings, read, hits, last, (hit) => `Combination: ${names.get(hit.technique)}`);
+  }
+
+  /** The Nifty chart with the 50 stocks' breadth and traded value from the scanner's live candles, rebuilt once per 5-minute bar. */
+  #comboChart(bars) {
+    const last = bars.at(-1).time;
+    if (this.comboChart?.time === last) return this.comboChart.chart;
+    const stocks5 = {};
+    for (const symbol of this.scanner?.store?.symbols ?? []) {
+      const c = this.scanner.store.get(symbol, '5m');
+      if (c?.length) stocks5[symbol] = c;
+    }
+    const breadth = breadthSeries(bars, stocks5);
+    const flow = turnoverSeries(bars, stocks5);
+    const chart = buildChart(bars, { breadth, flow, from: Math.max(15, bars.length - 8) });
+    this.comboChart = { time: last, chart };
+    return chart;
+  }
+
+  async #actOn(settings, read, hits, last, labelOf) {
     let result = { skipped: 'no pattern' };
     for (const hit of hits) {
       const seen = `${settings.user}|${hit.technique}|${last.time}`;
@@ -239,7 +283,7 @@ export class OptionTrader {
       if (this.patternSeen.size > 500) this.patternSeen.clear();
       this.patternSeen.add(seen);
       const d = hit.side === 'CE' ? 1 : -1;
-      const label = LIVE_PATTERNS.find((p) => p.key === hit.technique).label;
+      const label = labelOf(hit);
       const spot = read.spot;
       let stop = hit.stop;
       if (d * (spot - stop) < MIN_STOP_ATR * hit.atr) stop = spot - d * MIN_STOP_ATR * hit.atr;

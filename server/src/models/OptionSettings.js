@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { comboSchema } from '../combos/schema.js';
 
 // Per-user switches for the paper options trader. Off until the user turns it on.
 const optionSettingsSchema = new mongoose.Schema(
@@ -14,6 +15,7 @@ const optionSettingsSchema = new mongoose.Schema(
     patterns: { type: [String], default: () => ['breakout', 'insideBar', 'emaCross'] }, // the 30-day study's winners: more than 12 trades and a profit
     scoreEntries: { type: Boolean, default: true }, // buy when the all-checks score reaches the minimum (the original entry)
     dailyLossPct: { type: Number, default: 10, min: 2, max: 30 }, // stop opening trades after losing this % of the budget today
+    combos: { type: [comboSchema], default: [] }, // the user's own entry combinations (Account > Entries); see combos/combos.js
   },
   { timestamps: true },
 );

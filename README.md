@@ -328,6 +328,17 @@ The index has no volume of its own, so VWAP and volume are built from the traded
 
 Two "pattern score" rows test agreement: any 2 of Breakout, Engulfing and Strong momentum bar, and all 3, giving the same direction within 15 minutes. Study only; nothing live uses them yet.
 
+## Combinations (Account > Entries)
+
+Pick several checks and the bot buys only when enough of them agree. Code: `server/src/combos/` (`series.js` the indicator maths, `conditions.js` the 117 checks, `combos.js` the engine, `shares.js` the share side, `verdict.js` the Keep/Drop rule), `GET /api/combos/catalog`, and the `combos` list on `OptionSettings` (`PUT /api/options`) and `AutoSettings` (`PUT /api/auto`).
+
+- **The checks.** Over 75 indicators and conditions (trend: EMAs, supertrend, parabolic SAR, ADX/DI, Aroon, Ichimoku, Vortex, regression, day open, yesterday's high; momentum: RSI, MACD, stochastic, CCI, Williams %R, awesome and ultimate oscillators; volatility: Bollinger, Keltner, ATR, 20-bar high, squeeze; volume and VWAP: VWAP, OBV, Chaikin, MFI, force index, heavy volume; candles; the 50-stock breadth; time of day), plus all 19 chart patterns of the study as events, and a news check for shares. Each is written once for a call and the put is the same check on the mirrored chart, so a put cannot drift from its call.
+- **State and event.** A *state* is true now (RSI above 50). An *event* just happened (MACD crossed up, a breakout) and counts for a window of bars you choose (default 3). You choose how many must hold: all, or at least N.
+- **When it fires.** On the first bar where enough hold, then it waits for them to stop holding (or 3 bars). The stop is the nearest pattern level among the patterns in the combination, else under the last 6 bars.
+- **Options.** Tested in the Options study as "My combination: name" next to the patterns, and bought live like a pattern: on a closed 5-minute bar, once per bar, with the same stop limits, lots and daily limits. VWAP, volume and breadth come from the 50 stocks' live candles (the scanner's store), so they work live too.
+- **Shares.** A share is read on its own 5-minute bars (its own volume and VWAP, the 50-stock breadth). The Shares study trades each combination on all 50 stocks (one idea per side per stock per day, 09:30 to the exit time) with the same ladder, sizing and charges as the scanner rows. Live, once per 5-minute bar, the auto trader takes a combination idea through the same decision as a scanner idea (stop at least 0.5% and one 5-minute ATR away, size from your Account stop, charges check, open and daily limits); a combination has no score, so the minimum score and the setup switches do not apply to it. News is live only (past headlines are not kept), so a study skips a combination that uses it.
+- **Which checks are worth keeping.** Both studies also trade every check on its own (a trade each time it turns true) and mark it **Keep** (made money overall and in both halves of the period), **Unsteady** (won overall, lost in one half), **Drop** (lost) or **Too few** (under 15 trades). The picker hides the checks the last study marked Drop. With over 100 checks a few look good by luck alone, so Keep is a shortlist to try, not proof: run a longer period and watch it live on paper before trusting it.
+
 ## Honest limitations
 
 - Fills are idealized. They happen at LTP with no slippage, no partial fills and no queue position, so real results will be worse.

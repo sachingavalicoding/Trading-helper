@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { comboSchema } from '../combos/schema.js';
 
 // Per-user switches for the paper auto-trader. Off until the user turns it on.
 const autoSettingsSchema = new mongoose.Schema(
@@ -13,6 +14,7 @@ const autoSettingsSchema = new mongoose.Schema(
     earlyNews: { type: Boolean, default: true }, // also take "News gap" ideas, which can start at 09:20 instead of 09:30
     skipSetups: { type: [String], default: [] }, // setups the auto trader leaves alone (Account tab); the scanner still shows them
     maxTradeAmount: { type: Number, default: 30000, min: 1000 }, // most money put into one trade
+    combos: { type: [comboSchema], default: [] }, // the user's own entry combinations (Account > Entries); see combos/combos.js
   },
   { timestamps: true },
 );

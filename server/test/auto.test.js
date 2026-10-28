@@ -51,6 +51,26 @@ test('auto trading is off by default and can be switched on', async () => {
   await request(app).put('/api/auto').set(user.auth).send({ enabled: false }).expect(200);
 });
 
+test('a combination idea has no score to check and the setup switches do not apply to it, but the stop, size and limits do', async () => {
+  const s = settings({ minScore: 90, skipSetups: ['Gap and go'] });
+  const combo = (symbol, over = {}) => ({ ...idea(symbol, 'BUY', 100), combo: true, setup: 'Combo: Mine', ...over });
+  const r = await trader.consider(s, combo('ITC'));
+  assert.ok(r.order, r.skipped);
+  const log = await AutoLog.findOne({ user: s.user, symbol: 'ITC', decision: 'PLACED' }).lean();
+  assert.equal(log.setup, 'Combo: Mine');
+  const thin = await trader.consider(s, combo('LT', { stopLoss: ctx.provider.getLastTick('LT').ltp * 0.999 }));
+  assert.match(thin.skipped, /under the 0.5% minimum/, 'a stop that close is still refused');
+  await request(app).post('/api/positions/exit-all').set(user.auth).expect(200);
+});
+
+test('combinations are saved with the auto trader settings and cleaned', async () => {
+  const put = await request(app).put('/api/auto').set(user.auth).send({ combos: [{ name: 'Volume push', conds: ['volHigh', 'aboveVwap', 'breadth70'], need: 2 }] }).expect(200);
+  assert.deepEqual(put.body.settings.combos, [{ id: 'volume-push', name: 'Volume push', conds: ['volHigh', 'aboveVwap', 'breadth70'], need: 2, window: 3, on: true }]);
+  assert.equal((await request(app).get('/api/auto').set(user.auth).expect(200)).body.settings.combos[0].name, 'Volume push');
+  await request(app).put('/api/auto').set(user.auth).send({ combos: [{ name: 'x', conds: 'rsi' }] }).expect(400);
+  await request(app).put('/api/auto').set(user.auth).send({ combos: [] }).expect(200);
+});
+
 test('places a tagged paper order with its stop and no sale target, and skips weak ideas', async () => {
   const s = settings();
   const weak = await trader.consider(s, idea('TCS', 'BUY', 65));
