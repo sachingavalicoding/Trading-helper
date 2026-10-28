@@ -15,6 +15,11 @@ export const LAST_ENTRY_MIN = 14 * 60; // too little time left for the move to p
 export const MIN_STOP_ATR = 0.8; // a stop closer than this to the price is hit by ordinary noise
 export const MAX_STOP_ATR = 2.0; // if the nearest chart level is further than this, the stop would be too wide to risk
 const MAX_SPENT = 1.5; // today's range already this many times the usual daily range: the move is mostly done
+const REV_BARS = 24; // a reversal is read from the last 24 five-minute bars (2 hours)
+const REV_MIN_DROP_ATR = 4; // the move that is reversing must have run at least this many ATRs
+const REV_MIN_BOUNCE_ATR = 1.2; // the turn must have shown itself: price this far off the extreme...
+const REV_MAX_BOUNCE_ATR = 2; // ...but no further, so the stop just beyond the extreme is still within MAX_STOP_ATR
+const REV_MAX_GIVEBACK = 0.6; // and it has not already won back more than this share of the move
 const STRETCH_ATR = 3; // price this far from its 21 EMA: the move is extended and chasing it is risky
 
 const IST = 19800;
@@ -137,6 +142,47 @@ export function chartStop(m, d) {
   return { price: roundToTick(pick.price), note: pick.note, ok: !far, farBy: far ? round2((d * (m.spot - pick.price)) / m.atr5) : null };
 }
 
+/**
+ * A reversal off the extreme of a sharp move: for a call, a low that came after a fall of at least REV_MIN_DROP_ATR, with price now
+ * REV_MIN_BOUNCE_ATR to REV_MAX_BOUNCE_ATR above it, a higher low since the extreme and a 5-minute bar that closed above the previous bar's high.
+ * Trend scores are all against it at the turn, so it has its own score: 55 plus 9 for each of five confirmations
+ * (RSI came back from an extreme, breadth agrees, MACD momentum building, supertrend turned, a strong last bar), so 3 of 5 reach 82.
+ * The stop is just beyond the extreme, which is where the turn is proved wrong.
+ */
+export function findReversal(m, d) {
+  const bars = m.done5.slice(-REV_BARS);
+  if (bars.length < 12 || !m.lastBar || !m.prevBar) return null;
+  const extremeAt = bars.reduce((best, b, i) => (d > 0 ? (b.low < bars[best].low ? i : best) : (b.high > bars[best].high ? i : best)), 0);
+  if (extremeAt === 0 || extremeAt > bars.length - 3) return null;
+  const extreme = d > 0 ? bars[extremeAt].low : bars[extremeAt].high;
+  const before = bars.slice(0, extremeAt);
+  const start = d > 0 ? Math.max(...before.map((b) => b.high)) : Math.min(...before.map((b) => b.low));
+  const move = d * (start - extreme);
+  const bounce = d * (m.spot - extreme);
+  if (move < REV_MIN_DROP_ATR * m.atr5 || bounce < REV_MIN_BOUNCE_ATR * m.atr5 || bounce > REV_MAX_BOUNCE_ATR * m.atr5 || bounce > REV_MAX_GIVEBACK * move) return null;
+  const turned = d * (m.lastBar.close - (d > 0 ? m.prevBar.high : m.prevBar.low)) > 0 && d * (m.lastBar[d > 0 ? 'low' : 'high'] - extreme) > 0;
+  if (!turned) return null;
+  const rsiNow = rsi(m.done5, 14).slice(-12).map((p) => p.value);
+  const range = m.lastBar.high - m.lastBar.low;
+  const strong = range > 0 && (d > 0 ? (m.lastBar.close - m.lastBar.low) / range : (m.lastBar.high - m.lastBar.close) / range) >= 0.7;
+  const confirmations = [
+    rsiNow.length > 0 && (d > 0 ? Math.min(...rsiNow) < 40 : Math.max(...rsiNow) > 60),
+    m.breadthUp != null && (d > 0 ? m.breadthUp >= 0.5 : m.breadthUp <= 0.5),
+    m.macd != null && m.macd.now > m.macd.prev === d > 0,
+    m.st != null && m.st.dir === d,
+    strong,
+  ];
+  const score = 55 + 9 * confirmations.filter(Boolean).length;
+  const stopPrice = roundToTick(extreme - d * 0.15 * m.atr5);
+  return {
+    kind: 'Reversal',
+    level: roundToTick(extreme),
+    score,
+    stopPrice,
+    note: `turned ${d > 0 ? 'up' : 'down'} after a ${Math.round(move)}-point ${d > 0 ? 'fall' : 'rise'} to ${round2(extreme)}; ${confirmations.filter(Boolean).length} of 5 confirmations`,
+  };
+}
+
 /** The reason to enter now rather than a minute ago or later: a fresh breakout, or a pullback that has turned back. */
 export function findTrigger(m, d) {
   const bars = m.done5;
@@ -194,13 +240,16 @@ export function scoreDirection(m, d, { now = new Date(), enforceWindows = false 
   add('chop', 'Choppiness', c == null ? 0 : c < 50 ? 1 : c < 61.8 ? 0.5 : 0, c == null ? 'No choppiness yet' : `Choppiness ${c.toFixed(0)} (${c < 50 ? 'trending' : c < 61.8 ? 'mixed' : 'sideways'})`);
 
   const score = checks.reduce((s, x) => s + x.points, 0);
-  const trigger = findTrigger(m, d);
-  const stop = chartStop(m, d);
+  const normal = findTrigger(m, d);
+  const reversal = normal ? null : findReversal(m, d);
+  const trigger = normal ?? reversal;
+  const stop = reversal ? { price: reversal.stopPrice, note: `beyond the reversal ${d > 0 ? 'low' : 'high'} ${round2(reversal.level)}`, ok: true } : chartStop(m, d);
+  const finalScore = reversal ? Math.max(score, reversal.score) : score;
   const { minutes } = istParts(now);
   const gates = [
     gate('window', 'Entry time', !enforceWindows || (minutes >= FIRST_ENTRY_MIN && minutes < LAST_ENTRY_MIN), 'New option trades are taken only between 09:45 and 14:00 IST'),
     gate('sideways', 'Not sideways', !((m.chop != null && m.chop > 61.8) || (m.adx != null && m.adx < 15)), 'The index is moving sideways, where options lose to time decay'),
-    gate('trend', 'Bigger trend', !(d * m.trend15 < 0), 'The 15-minute trend points the other way'),
+    gate('trend', 'Bigger trend', Boolean(reversal) || !(d * m.trend15 < 0), 'The 15-minute trend points the other way'),
     gate('stretch', 'Not stretched', m.e21 == null || d * (m.spot - m.e21) <= STRETCH_ATR * m.atr5, 'The index is extended far from its 21 EMA, so chasing it here is risky'),
     gate('rsi', 'RSI', m.rsi == null || !(d > 0 ? m.rsi > 78 : m.rsi < 22), `RSI ${m.rsi?.toFixed(0)} is stretched, so a pullback is likely`),
     gate('spent', 'Move not spent', m.avgRangePct == null || m.dayRangePct < MAX_SPENT * m.avgRangePct, `The index has already moved ${m.dayRangePct.toFixed(1)}% today against a usual ${m.avgRangePct?.toFixed(1)}%`),
@@ -210,7 +259,7 @@ export function scoreDirection(m, d, { now = new Date(), enforceWindows = false 
   return {
     type: d > 0 ? 'CE' : 'PE',
     d,
-    score,
+    score: finalScore,
     checks,
     gates,
     blocked: gates.filter((g) => !g.pass).map((g) => g.text),
@@ -220,12 +269,24 @@ export function scoreDirection(m, d, { now = new Date(), enforceWindows = false 
   };
 }
 
+/** When one side is reversing the other's move, buying the other side would be selling the extreme. */
+export function blockAgainstReversal(ce, pe) {
+  for (const [side, other] of [[ce, pe], [pe, ce]]) {
+    if (side.trigger?.kind === 'Reversal' && !other.blocked.length) {
+      const text = `The index is reversing ${side.d > 0 ? 'up' : 'down'} off ${side.trigger.level}, against this side`;
+      other.gates.push(gate('reversal', 'Not against a reversal', false, text));
+      other.blocked.push(text);
+    }
+  }
+}
+
 /** Read the Nifty chart for both directions. `best` is the stronger side that no hard check blocks, if any. */
 export function readNifty(input, opts = {}) {
   const m = readMarket(input);
   if (!m) return { ready: false };
   const ce = scoreDirection(m, 1, opts);
   const pe = scoreDirection(m, -1, opts);
+  blockAgainstReversal(ce, pe);
   const open = [ce, pe].filter((x) => !x.blocked.length).sort((a, b) => b.score - a.score);
   const lead = [ce, pe].sort((a, b) => b.score - a.score)[0];
   return {
