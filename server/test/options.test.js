@@ -10,7 +10,7 @@ import { optionSymbol, parseOptionSymbol, isOptionSymbol, weeklyExpiries, choose
 import { bsPrice, bsDelta, impliedVol } from '../src/options/pricing.js';
 import { calculateCharges, roundTripCharges } from '../src/services/charges.js';
 import { choppiness, stochastic, heikinAshi, roc, sessionMean } from '../src/signals/indicators.js';
-import { readNifty, chartStop, scoreDirection } from '../src/options/signal.js';
+import { readNifty, chartStop, scoreDirection, blockAgainstReversal } from '../src/options/signal.js';
 import { planTrade } from '../src/options/plan.js';
 
 // ---------- pure pieces ----------
@@ -141,6 +141,54 @@ test('a clean setup passes every hard check, and each check can say no on its ow
   blockedBy({ swings: { lows: [24800], highs: [] }, st: null, e21: 24900, mean: null }, /ATR away/);
   // the same read as a put: nothing agrees
   assert.ok(scoreDirection(cleanMarket(), -1).score < 35);
+});
+
+// A fall of 130 points (5 ATR) to 24970, then a turn: the call side has no trend on its side but the fall has run its course.
+function reversalMarket(over = {}) {
+  const bar = (t, close, hi = close + 3, lo = close - 3) => ({ time: START + t * 300, open: close + 1, high: hi, low: lo, close });
+  const closes = [25100, 25095, 25085, 25070, 25055, 25040, 25025, 25010, 24995, 24985, 24975, 24974, 24978, 24985, 24992, 25001];
+  const done5 = closes.map((c, i) => bar(i, c, c + 3, i === 11 ? 24970 : c - 3));
+  const last = done5.at(-1);
+  const prev = done5.at(-2);
+  return cleanMarket({
+    spot: 25008, done5, c5: done5, e9: 24995, e21: 25030, e50: 25060, trend5: -1, trend15: -1, emaStack: -1, adx: 24, rsi: 44, macd: { now: -1, prev: -3 },
+    st: { dir: 1, line: 24960 }, swings: { lows: [], highs: [] }, pdh: 25200, pdl: 24850, dayHigh: 25103, dayLow: 24970, dayRangePct: 0.6, breadthUp: 0.62,
+    lastBar: { open: last.open, high: 25010, low: 24988, close: 25008 }, prevBar: prev,
+    ...over,
+  });
+}
+
+test('a turn off the low of a sharp fall is a call entry with the stop just beyond the low, and puts are shut out while it holds', () => {
+  const m = reversalMarket();
+  const ce = scoreDirection(m, 1);
+  assert.equal(ce.trigger.kind, 'Reversal');
+  assert.ok(ce.stop.price < 24970 && ce.stop.price > 24960 && ce.stop.ok, `stop ${ce.stop.price}`);
+  assert.deepEqual(ce.blocked, [], 'the 15-minute trend is still down but the reversal overrides it');
+  assert.ok(ce.score >= 80, `score ${ce.score}`);
+  // no reversal without the fall, without the bounce, or after most of the fall is won back
+  assert.notEqual(scoreDirection(cleanMarket(), 1).trigger?.kind, 'Reversal');
+  assert.notEqual(scoreDirection(reversalMarket({ spot: 24976, lastBar: { open: 24975, high: 24978, low: 24972, close: 24976 } }), 1).trigger?.kind, 'Reversal');
+  assert.notEqual(scoreDirection(reversalMarket({ spot: 25060 }), 1).trigger?.kind, 'Reversal');
+  // the other way round: a mirrored rise off a high is a put entry
+  const flip = (b) => ({ ...b, open: 50000 - b.open, high: 50000 - b.low, low: 50000 - b.high, close: 50000 - b.close });
+  const f = reversalMarket();
+  const mirrored = { ...f, spot: 50000 - f.spot, done5: f.done5.map(flip), lastBar: flip(f.lastBar), prevBar: flip(f.prevBar), trend15: 1, breadthUp: 0.38, macd: { now: 1, prev: 3 }, st: { dir: -1, line: 50040 }, rsi: 56 };
+  const pe = scoreDirection(mirrored, -1);
+  assert.equal(pe.trigger.kind, 'Reversal');
+  assert.ok(pe.stop.price > 50000 - 24970);
+});
+
+test('while a call reversal is on, the put side is blocked, so the bot does not sell the low', () => {
+  const m = reversalMarket();
+  const ce = scoreDirection(m, 1);
+  const pe = { ...scoreDirection(m, -1), blocked: [], gates: [] }; // a put side with nothing else against it
+  blockAgainstReversal(ce, pe);
+  assert.ok(pe.blocked.some((x) => /reversing up off 24970/.test(x)), pe.blocked.join(' | '));
+  assert.deepEqual(ce.blocked, []);
+  // a side that is already blocked keeps just its own reasons
+  const shut = { ...scoreDirection(m, -1), blocked: ['x'], gates: [] };
+  blockAgainstReversal(ce, shut);
+  assert.deepEqual(shut.blocked, ['x']);
 });
 
 test('entries are only allowed between 09:45 and 14:00 IST when windows are enforced', () => {
