@@ -46,7 +46,6 @@ export function OptionsEntries({ data, reload }) {
   const stats = useMemo(() => new Map((study.data?.result?.techniques ?? []).map((t) => [t.key, t])), [study.data]);
   const mine = (s.combos || []).filter((c) => c.on).length;
   const triggers = [s.patternEntries && s.patterns.length > 0 && 'patterns', s.comboEntries && mine > 0 && 'combinations', s.scoreEntries && 'score'].filter(Boolean);
-  const mode = STOP_MODES.find((m) => m.value === s.patternStopMode) ?? STOP_MODES[0];
   return (
     <div className="space-y-3">
       <div className="space-y-2">
@@ -95,9 +94,31 @@ export function OptionsEntries({ data, reload }) {
         </Fold>
       </div>
 
-      <div className="space-y-1.5">
-        <h4 className="text-xs font-semibold">Where the stop goes</h4>
-        <p className="text-[11px] leading-snug text-muted">Used for every trigger above, in the study and in Review. {mode.hint}</p>
+      <p className="text-[11px] leading-snug text-muted">Where the stop goes, the trailing stop and the profit lock are in Account &gt; Limits.</p>
+    </div>
+  );
+}
+
+/** Account > Limits > Options: where the first stop goes for every entry (pattern, combination or score): the chart level, capped, ATR or fixed points. */
+export function StopPlacement({ data, reload }) {
+  const [busy, setBusy] = useState(false);
+  async function save(patch) {
+    setBusy(true);
+    try {
+      await api('/options', { method: 'PUT', body: patch });
+      reload();
+    } catch (e) {
+      toast.error(e.message || 'Could not save');
+    } finally {
+      setBusy(false);
+    }
+  }
+  const s = data.settings;
+  const mode = STOP_MODES.find((m) => m.value === s.patternStopMode) ?? STOP_MODES[0];
+  return (
+    <div className="space-y-2 border-t border-line pt-3">
+      <h4 className="text-sm font-semibold">Options: where the stop goes</h4>
+        <p className="text-[11px] leading-snug text-muted">Used for every entry (pattern, combination or score), in the study and in Review. {mode.hint}</p>
         <Segmented className="w-full" size="sm" value={s.patternStopMode} onChange={(v) => save({ patternStopMode: v })} options={STOP_MODES.map((m) => ({ value: m.value, label: m.label }))} />
         {(s.patternStopMode === 'cap' || s.patternStopMode === 'atr') && (
           <label className="flex items-center justify-between gap-3 text-xs text-muted">
@@ -124,7 +145,6 @@ export function OptionsEntries({ data, reload }) {
           </label>
         )}
         <p className="text-[11px] leading-snug text-muted">A stop over 2.5 ATR from the entry, or one that risks more than your loss limit for one lot, is still skipped. The study rows "Breakout + Engulfing, stop …" show what each choice would have earned. The profit lock after entry is the same for all.</p>
-      </div>
     </div>
   );
 }

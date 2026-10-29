@@ -555,9 +555,12 @@ test('the trailing stop is saved with the options settings, off by default, and 
   const first = (await api().get('/api/options').set(u.auth).expect(200)).body.settings;
   assert.equal(first.trailMode, 'off');
   assert.equal(first.trailPoints, 25);
+  assert.equal(first.breakEvenPoints, 0);
   const saved = (await api().put('/api/options').set(u.auth).send({ trailMode: 'points', trailPoints: 30, trailStart: 20 }).expect(200)).body.settings;
   assert.deepEqual([saved.trailMode, saved.trailPoints, saved.trailStart], ['points', 30, 20]);
+  assert.equal((await api().put('/api/options').set(u.auth).send({ breakEvenPoints: 20 }).expect(200)).body.settings.breakEvenPoints, 20);
   await api().put('/api/options').set(u.auth).send({ trailPoints: 1 }).expect(400);
+  await api().put('/api/options').set(u.auth).send({ breakEvenPoints: -5 }).expect(400);
   await api().put('/api/options').set(u.auth).send({ trailMode: 'dollars' }).expect(400);
 });
 
@@ -658,6 +661,45 @@ test('a trailing stop follows the best index price by the points you set and sel
   }
 });
 
+test('break-even moves the chart stop to the entry once the index is far enough up, and the log says BREAKEVEN', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  ctx.provider.setPrice('NIFTY 50', 25000);
+  await settle();
+  await TradeDefaults.create({ user: uid, options: { stopLoss: 1500, lockStart: 0, lockGap: 1, steps: [] } });
+  const s = (await OptionSettings.create({ user: uid, enabled: true, maxLots: 1, breakEvenPoints: 20 })).toObject();
+  const realNow = optionTrader.now;
+  let clock = Date.now();
+  optionTrader.now = () => new Date(clock);
+  optionTrader.start();
+  const minuteLater = async (price) => {
+    clock += 60_000;
+    ctx.provider.setPrice('NIFTY 50', price);
+    await settle();
+  };
+  try {
+    const r = await optionTrader.consider(s, callRead(25000, 40));
+    assert.ok(r.order, r.skipped);
+    ctx.provider.setPrice('NIFTY 50', 25025); // 25 points up: the stop moves from 24960 to the entry, 25000
+    await settle();
+    await minuteLater(25010);
+    await sleep(50);
+    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'OPEN', 'above the entry: still open');
+    await minuteLater(24990); // under the entry but still above the old chart stop (24960)
+    await sleep(50);
+    await minuteLater(24990);
+    await sleep(100);
+    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'CLOSED');
+    const row = await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'PLACED' }).lean();
+    assert.equal(row.outcome.exitReason, 'BREAKEVEN');
+    assert.equal(row.detail.breakEven, 20);
+  } finally {
+    optionTrader.stop();
+    optionTrader.now = realNow;
+    ctx.provider.setPrice('NIFTY 50', 25000);
+  }
+});
+
 test('the profit lock takes the profit once it has been past the start: +1,000 keeps 750 and it follows 250 behind', async () => {
   const fresh = await registerUser(app);
   const uid = fresh.user.id || fresh.user._id;
@@ -746,7 +788,7 @@ test('the options API: settings, the chart read, the log, and a manual buy', asy
   assert.equal(off.settings.enabled, false);
   assert.equal(off.settings.budget, 30000);
   assert.match(off.disclaimer, /paper/i);
-  assert.deepEqual(off.rules, { stopLoss: 1500, lockStart: 1000, lockGap: 250, exitMin: 915, steps: [{ at: 1000, keep: 750 }] }, 'the stop and lock come from the Account tab');
+  assert.deepEqual(off.rules, { stopLoss: 1500, lockStart: 1000, lockGap: 250, exitMin: 915, lockOn: true, steps: [{ at: 1000, keep: 750 }], savedSteps: [{ at: 1000, keep: 750 }] }, 'the stop and lock come from the Account tab');
   assert.equal(off.settings.lockLadder, undefined);
   assert.equal(off.settings.trailPct, undefined);
   const on = (await api().put('/api/options').set(fresh.auth).send({ enabled: true, maxLots: 1 }).expect(200)).body;

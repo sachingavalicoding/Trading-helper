@@ -33,6 +33,7 @@ const rulesSchema = z.object({
   lockStart: z.coerce.number().min(0).max(10_000_000),
   lockGap: z.coerce.number().min(1).max(10_000_000),
   steps: z.array(z.object({ at: z.coerce.number().min(0).max(10_000_000), keep: z.coerce.number().min(0).max(10_000_000) })).max(MAX_STEPS),
+  lockOn: z.boolean(), // false switches the profit lock off for new trades; the rows stay saved
   exitMin: z.coerce.number().int().min(9 * 60 + 30).max(15 * 60 + 15), // the time the auto trader closes its trades, in minutes after midnight IST
 }).partial();
 const defaultsSchema = z.object({ shares: rulesSchema.optional(), options: rulesSchema.optional() });
@@ -109,16 +110,17 @@ export function tradingRoutes({ engine, market, config }) {
     res.json(await engine.setExits(req.userId, req.params.symbol.toUpperCase(), req.body));
   });
 
-  const defaultsView = (doc) => ({ shares: rulesFor(doc, 'EQ'), options: rulesFor(doc, 'OPT') });
+  const defaultsView = (doc, opts) => ({ shares: rulesFor(doc, 'EQ', opts), options: rulesFor(doc, 'OPT', opts) });
 
   router.get('/trade-defaults', async (req, res) => {
     res.json(defaultsView(await TradeDefaults.findOne({ user: req.userId }).lean()));
   });
 
   router.put('/trade-defaults', validate(defaultsSchema), async (req, res) => {
-    const next = defaultsView(await TradeDefaults.findOne({ user: req.userId }).lean());
+    const next = defaultsView(await TradeDefaults.findOne({ user: req.userId }).lean(), { raw: true });
     for (const key of ['shares', 'options']) {
       const body = req.body[key] ?? {};
+      if (body.lockOn !== undefined) next[key].lockOn = body.lockOn;
       if (body.exitMin !== undefined) next[key].exitMin = body.exitMin;
       if (body.steps) {
         const problem = ladderProblem(body.steps);

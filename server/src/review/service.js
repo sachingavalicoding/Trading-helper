@@ -11,7 +11,7 @@ import { loadRules } from '../models/TradeDefaults.js';
 import { dayStory, reviewPatterns, warmBars } from './patterns.js';
 import { normalizeCombos } from '../combos/combos.js';
 import { stopRuleOf } from '../study/patterns.js';
-import { trailOf } from '../study/simulate.js';
+import { breakEvenOf, trailOf } from '../study/simulate.js';
 import { candleDay, candleOn, dirOf, judge, moveOf, morningWindow, prevCloseBefore, sessionAfter, tally } from './day.js';
 
 const round = (n, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
@@ -186,6 +186,7 @@ export class ReviewService {
       maxLots: settings?.maxLots ?? 2,
       exitMin: rules.exitMin,
       trail: trailOf(settings),
+      breakEven: breakEvenOf(settings),
     };
     if (!c1.length) return { day, candles: [], signals: [], patterns: [] };
     return reviewPatterns({ c1, day, params, stocks5: await this.#savedStocks5(day), combos: normalizeCombos(settings?.combos), stopRule: stopRuleOf(settings) });

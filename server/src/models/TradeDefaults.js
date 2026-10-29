@@ -11,6 +11,7 @@ const rules = (stopLoss, lockStart, lockGap) => ({
   lockStart: { type: Number, default: lockStart, min: 0 }, // profit in rupees at which the lock starts; 0 = no profit lock
   lockGap: { type: Number, default: lockGap, min: 1 }, // rupees the stop stays behind the best profit
   steps: { type: [{ _id: false, at: Number, keep: Number }], default: [] }, // the typed ladder; empty = use lockStart and lockGap
+  lockOn: { type: Boolean, default: true }, // false = no profit lock for new trades; the typed rows are kept so the lock can be switched back on
   exitMin: { type: Number, default: 915, min: 570, max: 915 }, // minutes after midnight IST when the auto trader closes its trades: 915 = 15:15, the square-off
 });
 
@@ -30,13 +31,17 @@ export const TRADE_DEFAULTS = { shares: { stopLoss: 200, lockStart: 250, lockGap
 export const TradeDefaults = mongoose.model('TradeDefaults', tradeDefaultsSchema);
 
 /** The stop and lock rules for one segment ('EQ' or 'OPT'), with anything unset falling back to the built-in values. */
-export function rulesFor(doc, segment) {
+export function rulesFor(doc, segment, { raw = false } = {}) {
   const key = segment === 'OPT' ? 'options' : 'shares';
   const base = TRADE_DEFAULTS[key];
   const d = doc?.[key] ?? {};
-  const out = { stopLoss: d.stopLoss ?? base.stopLoss, lockStart: d.lockStart ?? base.lockStart, lockGap: d.lockGap ?? base.lockGap, exitMin: d.exitMin ?? DEFAULT_EXIT_MIN };
+  const out = { stopLoss: d.stopLoss ?? base.stopLoss, lockStart: d.lockStart ?? base.lockStart, lockGap: d.lockGap ?? base.lockGap, exitMin: d.exitMin ?? DEFAULT_EXIT_MIN, lockOn: d.lockOn !== false };
   const typed = (d.steps ?? []).map(({ at, keep }) => ({ at, keep }));
   out.steps = typed.length ? typed : out.lockStart > out.lockGap ? [{ at: out.lockStart, keep: out.lockStart - out.lockGap }] : [];
+  if (raw) return out;
+  // Switched off: everything that reads the rules sees no profit lock, while `savedSteps` keeps the rows for the screen.
+  out.savedSteps = out.steps;
+  if (!out.lockOn) Object.assign(out, { steps: [], lockStart: 0 });
   return out;
 }
 

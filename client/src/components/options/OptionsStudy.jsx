@@ -6,7 +6,7 @@ import { copyText } from '../../lib/copyText.js';
 import { formatPnl, formatPrice, pnlClass } from '../../lib/format.js';
 import { useStudy } from '../../lib/useStudy.js';
 import { EXIT_WORD, exitText, hourRows, istStamp, sizingText, studyText, verdict } from '../../lib/study.js';
-import { stopRuleText, trailText } from '../../lib/stops.js';
+import { breakEvenText, stopRuleText, trailText } from '../../lib/stops.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 import { IndicatorRanking } from '../study/IndicatorRanking.jsx';
 import { AutoFound } from '../study/AutoFound.jsx';
@@ -244,7 +244,7 @@ export function OptionsStudy() {
           {r.simulated && <Card className="border-warn p-3 text-xs text-warn">This was made on the sample feed, whose history is random, so the numbers mean nothing. Log in to Upstox and run it again.</Card>}
           <Card className="flex items-center justify-between gap-2 p-3 text-xs">
             <p className="text-muted">
-              {r.period.from} to {r.period.to} · {r.period.days} trading days · {sizingText(r.params)} · {exitText(r.params)} · {stopRuleText(r.params.stopRule)}{r.params.trail ? ` · ${trailText(r.params.trail)}` : ''} · premiums estimated at {Math.round(r.params.iv * 100)}% volatility
+              {r.period.from} to {r.period.to} · {r.period.days} trading days · {sizingText(r.params)} · {exitText(r.params)} · {stopRuleText(r.params.stopRule)}{r.params.trail ? ` · ${trailText(r.params.trail)}` : ''}{r.params.breakEven ? ` · ${breakEvenText(r.params.breakEven)}` : ''} · premiums estimated at {Math.round(r.params.iv * 100)}% volatility
             </p>
             <button type="button" onClick={copy} className="btn btn-sm shrink-0">
               <ClipboardCopy className="h-3.5 w-3.5" /> Copy

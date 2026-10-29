@@ -20,6 +20,9 @@ export function trailOf(settings) {
   return { points, start: settings.trailStart ?? points };
 }
 
+/** Points after which the stop moves to the entry price (break-even), or 0 when it is off. */
+export const breakEvenOf = (settings) => Number(settings?.breakEvenPoints) > 0 ? Number(settings.breakEvenPoints) : 0;
+
 export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread you cross buying and selling at the market
 
 /**
@@ -27,13 +30,14 @@ export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread 
  * @param byTime  Map of bar time -> index in c1
  * @param signal  { side: 'CE'|'PE', time (entry minute, epoch s), stop (Nifty level) }
  * @param params  { exitMin (minutes after midnight IST when everything is closed, default 15:15), iv, lockStart, lockGap, steps (the typed ladder: [{ at, keep }], overrides lockStart and lockGap), lotSize, holidays, expiryWeekday, lossLimit, maxLots }
+ *                `breakEven` (points, 0 = off) moves the stop to the entry price once the index has gone that far your way (exit reason BREAKEVEN).
  *                `trail` ({ points, start }) adds a trailing stop: once the index has moved `start` points your way the chart stop sits `points` behind the best price and never moves back (exit reason TRAIL).
  *                `target` (rupees per lot, 0 = use the profit lock) and `fixedLots` (0 = size the lots to the loss limit) are for studying other exits.
  *                With a `lossLimit` (the Account stop) the lots are sized like the live trader: as many as keep the loss at the chart stop within
  *                the limit, up to `maxLots`, none when even one lot loses more. A hard stop sits at HARD_STOP_MULT times the limit. Without one, 1 lot.
  */
 export function simulateTrade({ c1, byTime, signal, params }) {
-  const { trail = null, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN } = params;
+  const { trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN } = params;
   const start = byTime.get(signal.time);
   if (start == null) return null;
   if (istParts(new Date(signal.time * 1000)).minutes >= exitMin) return null; // no new trade at or after the time you close
@@ -66,7 +70,7 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   let best = 0;
   let worst = 0;
   let stopNow = signal.stop; // the chart level; a trailing stop moves it up (down for a put) and never back
-  let trailed = false;
+  let stopWhy = 'STOP'; // which rule last moved the stop: the chart level, break-even or the trailing stop
   let lockLevel = null; // a profit in rupees; the trade is sold when it falls to it
   let exit = null;
   for (let j = start; j < c1.length; j++) {
@@ -113,17 +117,22 @@ export function simulateTrade({ c1, byTime, signal, params }) {
     }
     worst = Math.min(worst, profitAt(premiumAt(against, bar.time)));
     if (long ? bar.close < stopNow : bar.close > stopNow) {
-      exit = { time: bar.time + 60, spot: bar.close, profit: closeProfit, reason: trailed ? 'TRAIL' : 'STOP' };
+      exit = { time: bar.time + 60, spot: bar.close, profit: closeProfit, reason: stopWhy };
       break;
     }
     best = Math.max(best, profitAt(premiumAt(favour, bar.time)));
+    const gained = long ? favour - entryBar.open : entryBar.open - favour;
+    if (breakEven > 0 && gained >= breakEven && (long ? entryBar.open > stopNow : entryBar.open < stopNow)) {
+      stopNow = entryBar.open;
+      stopWhy = 'BREAKEVEN';
+    }
     if (trail) {
-      const moved = long ? favour - entryBar.open : entryBar.open - favour;
+      const moved = gained;
       if (moved >= trail.start) {
         const level = long ? favour - trail.points : favour + trail.points;
         if (long ? level > stopNow : level < stopNow) {
           stopNow = level;
-          trailed = true;
+          stopWhy = 'TRAIL';
         }
       }
     }
