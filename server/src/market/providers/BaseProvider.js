@@ -65,6 +65,11 @@ export class BaseProvider extends EventEmitter {
     throw new Error('This feed has no candle history to save');
   }
 
+  /** Today's `unit`-minute candles so far, oldest first. Throws when the call fails, so a caller knows today was not read. */
+  async getTodayCandles(_symbol, _unit) {
+    throw new Error('This feed has no candle history to save');
+  }
+
   /** Daily candles for roughly the last `days` calendar days, oldest first; [] when the feed has none. */
   async getDailyHistory(_symbol, _days) {
     return [];

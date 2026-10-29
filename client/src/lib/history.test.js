@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayText, jobPercent, savedText, sizeText, SYNC_LABEL } from './history.js';
+import { dayText, jobPercent, liveText, savedText, sizeText, SYNC_LABEL } from './history.js';
 
 describe('history helpers', () => {
   it('writes sizes in KB and MB', () => {
@@ -17,8 +17,14 @@ describe('history helpers', () => {
   });
 
   it('labels the button and counts progress', () => {
-    expect(SYNC_LABEL).toBe('Download last 3 months');
+    expect(SYNC_LABEL).toBe('Update to now');
     expect(jobPercent({ done: 17, total: 51 })).toBe(33);
     expect(jobPercent({ done: 0, total: 0 })).toBe(0);
+  });
+
+  it('says how far today is saved, in Indian time', () => {
+    expect(liveText(null)).toMatch(/not saved yet/);
+    const t = Date.parse('2026-10-29T08:11:00Z') / 1000; // 13:41 IST candle, which closes at 13:42
+    expect(liveText(t)).toMatch(/Today saved up to 13:42/);
   });
 });

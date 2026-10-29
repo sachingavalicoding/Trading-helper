@@ -9,6 +9,8 @@ import { summarizeLog } from '../auto/logSummary.js';
 import { DEFAULT_LOT_SIZE, UNDERLYING, optionLabel } from '../options/symbols.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { reviewPatterns } from './patterns.js';
+import { normalizeCombos } from '../combos/combos.js';
+import { stopRuleOf } from '../study/patterns.js';
 import { candleDay, candleOn, dirOf, judge, moveOf, morningWindow, prevCloseBefore, sessionAfter, tally } from './day.js';
 
 const round = (n, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
@@ -184,7 +186,7 @@ export class ReviewService {
       exitMin: rules.exitMin,
     };
     if (!c1.length) return { day, candles: [], signals: [], patterns: [] };
-    return reviewPatterns({ c1, day, params, stocks5: await this.#savedStocks5(day) });
+    return reviewPatterns({ c1, day, params, stocks5: await this.#savedStocks5(day), combos: normalizeCombos(settings?.combos), stopRule: stopRuleOf(settings) });
   }
 
   /** One stock on one day: its 5-minute chart, the news with what the price did after each headline, the ideas and the user's trades. */

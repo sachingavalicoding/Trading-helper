@@ -119,6 +119,20 @@ export function comboSignals(chart, combo, { from = 15, windows = true, when = n
   return out.sort((x, y) => x.i - y.i);
 }
 
+/** Which checks of a combination held on bar i of the chart, as a call (d = 1) or a put (d = -1): a state on the bar, an event anywhere in the last `window` bars. */
+export function heldConditions(chart, combo, d, i) {
+  const window = combo.window || DEFAULT_WINDOW;
+  return combo.conds
+    .map((k) => CONDITION_BY_KEY.get(k))
+    .filter(Boolean)
+    .map((cond) => {
+      let held = false;
+      if (cond.kind === 'state') held = holds(chart, cond, d, i);
+      else for (let k = Math.max(0, i - window + 1); k <= i && !held; k++) held = holds(chart, cond, d, k);
+      return { key: cond.key, label: cond.label, held };
+    });
+}
+
 /** One line saying what a combination needs, for the study table and the log. */
 export function describeCombo(combo) {
   const names = combo.conds.map((k) => CONDITION_BY_KEY.get(k)?.label || k);

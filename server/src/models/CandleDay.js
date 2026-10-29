@@ -19,6 +19,7 @@ const candleCoverageSchema = new mongoose.Schema(
     symbol: { type: String, required: true, unique: true },
     from: { type: String, required: true },
     to: { type: String, required: true },
+    partial: { type: String, default: null }, // the day (always `to`) saved only up to the time of the last download, not yet the whole session
   },
   { timestamps: true },
 );

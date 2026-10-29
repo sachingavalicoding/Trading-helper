@@ -757,3 +757,37 @@ test('an option bought by hand is not closed by the 15:00 cut-off or the stall r
   }
   await ctx.engine.exitPosition(uid, r.plan.symbol);
 });
+
+test('the entry triggers (score, patterns, combinations) are separate switches, and a fixed stop in points is saved and validated', async () => {
+  const u = await registerUser(app);
+  const first = (await api().get('/api/options').set(u.auth).expect(200)).body.settings;
+  assert.deepEqual([first.comboEntries, first.patternStopPoints], [true, 30]);
+  await api().put('/api/options').set(u.auth).send({ patternStopMode: 'fixed', patternStopPoints: 45, comboEntries: false, combos: [{ name: 'Push', conds: ['rsiAbove50'], need: 1 }] }).expect(200);
+  const saved = (await api().get('/api/options').set(u.auth).expect(200)).body.settings;
+  assert.deepEqual([saved.patternStopMode, saved.patternStopPoints, saved.comboEntries], ['fixed', 45, false]);
+  await api().put('/api/options').set(u.auth).send({ patternStopPoints: 5 }).expect(400);
+  await api().put('/api/options').set(u.auth).send({ comboEntries: 'maybe' }).expect(400);
+
+  const base = { patternEntries: false, scoreEntries: false, patterns: [], combos: saved.combos };
+  assert.equal(entryModes({ ...base, comboEntries: false }).combos, false, 'combinations switched off: none is used even though one is saved');
+  assert.equal(entryModes({ ...base, comboEntries: true }).combos, true);
+  assert.equal(entryModes({ ...base }).combos, true, 'settings saved before the switch existed keep their combinations');
+  assert.deepEqual([entryModes({ ...base, scoreEntries: true }).score, entryModes({ ...base, patternEntries: true, patterns: ['breakout'] }).patterns], [true, ['breakout']]);
+});
+
+test('with a fixed stop, a pattern entry puts the stop that many points from the entry', async () => {
+  const u = await registerUser(app);
+  const realNow = optionTrader.now;
+  optionTrader.now = () => new Date(MIDMORNING());
+  try {
+    const uid = u.user.id || u.user._id;
+    await api().put('/api/options').set(u.auth).send({ enabled: true, patterns: ['breakout'], patternStopMode: 'fixed', patternStopPoints: 30 }).expect(200);
+    const s = await OptionSettings.findOne({ user: uid }).lean();
+    const r = await optionTrader.considerPatterns(s, breakoutRead());
+    assert.ok(r.order, r.skipped);
+    assert.ok(Math.abs(25018 - r.plan.stopSpot - 30) < 1, `stop ${25018 - r.plan.stopSpot} points under the entry`);
+    await api().post('/api/positions/exit-all').set(u.auth).expect(200);
+  } finally {
+    optionTrader.now = realNow;
+  }
+});

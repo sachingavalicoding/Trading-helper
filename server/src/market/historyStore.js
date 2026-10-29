@@ -60,19 +60,23 @@ export class HistoryStore {
 
   async coverage(symbol) {
     const c = await CandleCoverage.findOne({ symbol }).lean();
-    return c ? { from: c.from, to: c.to } : null;
+    return c ? { from: c.from, to: c.to, ...(c.partial ? { partial: c.partial } : {}) } : null;
   }
 
-  async setCoverage(symbol, { from, to }) {
+  /** Widens what a symbol is saved for; `partial` names a day that is saved only up to now (it stays until a later download completes it). */
+  async setCoverage(symbol, { from, to, partial = null }) {
     const have = await this.coverage(symbol);
-    const next = have ? { from: from < have.from ? from : have.from, to: to > have.to ? to : have.to } : { from, to };
+    const range = have ? { from: from < have.from ? from : have.from, to: to > have.to ? to : have.to } : { from, to };
+    const keep = have?.partial && have.partial > this.lastCompleteDay() ? have.partial : null;
+    const open = partial ?? keep;
+    const next = { ...range, partial: open && open === range.to ? open : null };
     await CandleCoverage.updateOne({ symbol }, { $set: next }, { upsert: true });
     return next;
   }
 
   /** Saves the complete days found in `candles` (days after the last complete day are left out). Returns how many days were written. */
-  async saveCandles(symbol, candles) {
-    const last = this.lastCompleteDay();
+  async saveCandles(symbol, candles, { live = false } = {}) {
+    const last = live ? this.today : this.lastCompleteDay();
     const days = new Map();
     for (const c of candles) {
       const d = dayOf(c.time);
@@ -86,6 +90,14 @@ export class HistoryStore {
     });
     if (ops.length) await CandleDay.bulkWrite(ops, { ordered: false });
     return ops.length;
+  }
+
+  /** When today's candles were last saved (the newest candle's time of the Nifty), or null when today is not saved. */
+  async liveAt(symbol) {
+    const doc = await CandleDay.findOne({ symbol, day: this.today }).lean();
+    if (!doc) return null;
+    const candles = unpackCandles(doc.data.buffer ? Buffer.from(doc.data.buffer) : doc.data, doc.count);
+    return candles.at(-1)?.time ?? null;
   }
 
   /** Candles of the saved days from `fromDay` to `toDay`, oldest first. */
@@ -111,6 +123,6 @@ export class HistoryStore {
       CandleDay.distinct('day'),
       CandleDay.aggregate([{ $group: { _id: null, bytes: { $sum: { $binarySize: '$data' } }, docs: { $sum: 1 } } }]),
     ]);
-    return { symbols, from: first?.day ?? null, to: last?.day ?? null, days: days.length, bytes: size[0]?.bytes ?? 0, records: size[0]?.docs ?? 0, retainDays: this.retainDays };
+    return { symbols, from: first?.day ?? null, to: last?.day ?? null, liveDay: last?.day === this.today ? this.today : null, days: days.length, bytes: size[0]?.bytes ?? 0, records: size[0]?.docs ?? 0, retainDays: this.retainDays };
   }
 }

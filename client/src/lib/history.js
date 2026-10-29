@@ -18,8 +18,15 @@ export function savedText(saved) {
   return `${saved.symbols} symbols, ${saved.days} trading days, ${dayText(saved.from)} to ${dayText(saved.to)}, ${sizeText(saved.bytes)}.`;
 }
 
-/** The one download button: it fetches only the days that are not saved yet. */
-export const SYNC_LABEL = 'Download last 3 months';
+/** The one download button: it fetches the days that are not saved yet and today so far, and drops the oldest days beyond three months. */
+export const SYNC_LABEL = 'Update to now';
+
+/** "Today saved up to 13:42" from the time (seconds) of the newest saved candle of today, or what to do when today is not saved. */
+export function liveText(liveAt) {
+  if (!liveAt) return 'Today is not saved yet. Press the button during or after the session to add it.';
+  const t = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date((liveAt + 60) * 1000));
+  return `Today saved up to ${t}. Press the button again for the later minutes.`;
+}
 
 /** Progress of a running download as a 0-100 number. */
 export function jobPercent(job) {

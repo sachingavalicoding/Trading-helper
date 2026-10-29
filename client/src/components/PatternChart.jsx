@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { createChart, createSeriesMarkers, CandlestickSeries, ColorType, LineStyle } from 'lightweight-charts';
 import { toChartTime } from '../lib/chart.js';
-import { CODE } from '../lib/patternReview.js';
+import { codeOf } from '../lib/patternReview.js';
 import { formatPnl } from '../lib/format.js';
 import { useTheme } from '../context/ThemeContext.jsx';
 
@@ -81,7 +81,7 @@ export function PatternChart({ candles, signals, selected, onPick, height = 300 
         shape: call ? 'arrowUp' : 'arrowDown',
         color: s.skipped ? cssVar('--muted') : call ? up : down,
         size: on ? 2 : 1,
-        text: `${CODE[s.technique] || s.technique}${on ? ' ◀' : ''}`,
+        text: `${codeOf(s.technique)}${on ? ' ◀' : ''}`,
       };
     });
     const s = signals.find((x) => x.id === selected);

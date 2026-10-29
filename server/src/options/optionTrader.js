@@ -2,7 +2,7 @@ import { AutoLog, OptionSettings, Order, Position, Trade } from '../models/index
 import { getFunds } from '../services/walletService.js';
 import { UNDERLYING, isOptionSymbol, optionLabel } from './symbols.js';
 import { readNifty } from './signal.js';
-import { TECHNIQUES, prepare, findSignals, turnoverSeries, ruleStop, MIN_STOP_ATR, MAX_STOP_ATR } from '../study/patterns.js';
+import { TECHNIQUES, prepare, findSignals, turnoverSeries, ruleStop, stopRuleOf, MIN_STOP_ATR, MAX_STOP_ATR } from '../study/patterns.js';
 import { breadthSeries } from '../study/optionsStudy.js';
 import { buildChart } from '../combos/conditions.js';
 import { comboSignals, normalizeCombos } from '../combos/combos.js';
@@ -29,7 +29,7 @@ export const DEFAULT_PATTERNS = ['breakout', 'insideBar', 'emaCross'];
 export function entryModes(settings) {
   const known = new Set(LIVE_PATTERNS.map((p) => p.key));
   const chosen = (settings.patterns ?? DEFAULT_PATTERNS).filter((k) => known.has(k));
-  return { patterns: settings.patternEntries === false ? [] : chosen, score: settings.scoreEntries !== false, combos: normalizeCombos(settings.combos).some((c) => c.on) };
+  return { patterns: settings.patternEntries === false ? [] : chosen, score: settings.scoreEntries !== false, combos: settings.comboEntries !== false && normalizeCombos(settings.combos).some((c) => c.on) };
 }
 
 /**
@@ -223,7 +223,18 @@ export class OptionTrader {
       return { skipped: 'no setup' };
     }
     if (side.score < settings.minScore) return side.score >= settings.minScore - 10 ? this.#skip(settings, side, `score ${side.score} is below ${settings.minScore}`) : { skipped: 'no setup' };
-    return this.#enter(settings, read, side);
+    return this.#enter(settings, read, this.#ruled(settings, read, side));
+  }
+
+  /** The chosen stop rule applied to a score entry: unless it is the chart level, the stop is moved to where the rule puts it. */
+  #ruled(settings, read, side) {
+    const rule = stopRuleOf(settings);
+    const atr = read.atr5 ?? read.market?.atr5;
+    if (rule.mode === 'chart' || !(atr > 0) || !side.stop) return side;
+    const d = side.type === 'CE' ? 1 : -1;
+    let price = ruleStop({ side: side.type, stop: side.stop.price, atr }, read.spot, rule);
+    if (d * (read.spot - price) < MIN_STOP_ATR * atr) price = read.spot - d * MIN_STOP_ATR * atr;
+    return { ...side, stop: { ...side.stop, price: roundToTick(price), note: `${side.stop.note}; moved by your stop setting to Nifty ${roundToTick(price)}` } };
   }
 
   /**
@@ -285,7 +296,7 @@ export class OptionTrader {
       const d = hit.side === 'CE' ? 1 : -1;
       const label = labelOf(hit);
       const spot = read.spot;
-      let stop = ruleStop(hit, spot, { mode: settings.patternStopMode ?? 'chart', k: settings.patternStopAtr ?? 2 });
+      let stop = ruleStop(hit, spot, stopRuleOf(settings));
       if (d * (spot - stop) < MIN_STOP_ATR * hit.atr) stop = spot - d * MIN_STOP_ATR * hit.atr;
       const side = { type: hit.side, d, score: undefined, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at Nifty ${roundToTick(stop)}`, ok: true }, pattern: hit.technique };
       if (d * (spot - stop) > MAX_STOP_ATR * hit.atr) {

@@ -7,7 +7,7 @@ import { HistoryStore, packCandles, unpackCandles } from '../src/market/historyS
 import { HistorySync, windowsBack } from '../src/market/historySync.js';
 import { MarketDataService } from '../src/market/MarketDataService.js';
 import { MockProvider } from '../src/market/providers/MockProvider.js';
-import { CandleDay } from '../src/models/index.js';
+import { CandleDay, CandleCoverage } from '../src/models/index.js';
 import { addDays, daysBetween } from '../src/market/days.js';
 
 let ctx;
@@ -171,4 +171,71 @@ test('the history routes need a login, report what is saved, and refuse a downlo
   const refused = await request(app).post('/api/history/sync').set(auth).send({}).expect(400);
   assert.match(refused.body.error.message, /Upstox/);
   await request(app).post('/api/history/sync').set(auth).send({ days: 2 }).expect(400);
+});
+
+test('a live download saves today so far, reads it again on the next press, and completes it after the close', async () => {
+  await CandleDay.deleteMany({});
+  await CandleCoverage.deleteMany({});
+  let upTo = 200; // candles of today the broker has so far
+  const calls = [];
+  const market = {
+    provider: {
+      isSimulated: false,
+      async getCandlesBetween(symbol, unit, from, to) {
+        calls.push(`${symbol} ${from}..${to}`);
+        return series(from, to);
+      },
+      async getTodayCandles(symbol) {
+        calls.push(`${symbol} today`);
+        return series('2026-10-29', '2026-10-29').slice(0, upTo);
+      },
+    },
+  };
+  const clock = at('2026-10-29T07:30:00Z'); // 13:00 IST, a Thursday
+  const store = new HistoryStore({ now: clock });
+  const sync = new HistorySync({ market, store, symbols: ['NIFTY 50'], now: clock });
+  const wait = async () => { for (let i = 0; i < 200 && sync.status().state === 'running'; i++) await new Promise((r) => setTimeout(r, 25)); };
+
+  sync.start({ days: 10 });
+  await wait();
+  assert.equal((await store.coverage('NIFTY 50')).to, '2026-10-28', 'without live, today is left out');
+  assert.equal(await CandleDay.countDocuments({ symbol: 'NIFTY 50', day: '2026-10-29' }), 0);
+
+  sync.start({ days: 10, live: true });
+  await wait();
+  assert.deepEqual(await store.coverage('NIFTY 50'), { from: '2026-10-18', to: '2026-10-29', partial: '2026-10-29' });
+  const today = await store.read('NIFTY 50', '2026-10-29', '2026-10-29');
+  assert.equal(today.length, 200);
+  assert.equal(await store.liveAt('NIFTY 50'), today.at(-1).time);
+  assert.equal((await store.summary()).liveDay, '2026-10-29');
+
+  upTo = 320;
+  calls.length = 0;
+  sync.start({ days: 10, live: true });
+  await wait();
+  assert.deepEqual(calls, ['NIFTY 50 today'], 'only today is read again');
+  assert.equal((await store.read('NIFTY 50', '2026-10-29', '2026-10-29')).length, 320, 'the saved day is replaced, not doubled');
+  assert.equal(await sync.behind(), false, 'during the session the saved history is not behind');
+
+  // after the close the day is read whole and stops being partial
+  const evening = at('2026-10-29T10:30:00Z');
+  const store2 = new HistoryStore({ now: evening });
+  const sync2 = new HistorySync({ market, store: store2, symbols: ['NIFTY 50'], now: evening });
+  assert.equal(await sync2.behind(), true, 'a day saved only up to some time is behind once it is over');
+  calls.length = 0;
+  sync2.start({ days: 10 });
+  for (let i = 0; i < 200 && sync2.status().state === 'running'; i++) await new Promise((r) => setTimeout(r, 25));
+  assert.deepEqual(calls, ['NIFTY 50 2026-10-29..2026-10-29']);
+  assert.deepEqual(await store2.coverage('NIFTY 50'), { from: '2026-10-18', to: '2026-10-29' });
+  assert.equal((await store2.read('NIFTY 50', '2026-10-29', '2026-10-29')).length, 375);
+  assert.equal(await sync2.behind(), false);
+});
+
+test('the sync route takes live and the history report says when today was saved', async () => {
+  const app = createApp(ctx);
+  const { auth } = await registerUser(app);
+  const res = (await request(app).get('/api/history').set(auth).expect(200)).body;
+  assert.ok('liveAt' in res);
+  assert.match(res.note, /today so far/);
+  await request(app).post('/api/history/sync').set(auth).send({ live: 'yes' }).expect(400);
 });

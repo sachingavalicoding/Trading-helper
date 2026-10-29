@@ -25,6 +25,7 @@ const STOP_RULES = [
   { key: 'beAtr10', rule: { mode: 'atr', k: 1 }, label: 'Breakout + Engulfing, stop 1 ATR from entry', text: 'The same two patterns with the stop always 1 ATR from the entry (about the size of one 5-minute swing), whatever the chart level is.' },
   { key: 'beAtr15', rule: { mode: 'atr', k: 1.5 }, label: 'Breakout + Engulfing, stop 1.5 ATR from entry', text: 'The same two patterns with the stop always 1.5 ATR from the entry.' },
   { key: 'beAtr20', rule: { mode: 'atr', k: 2 }, label: 'Breakout + Engulfing, stop 2 ATR from entry', text: 'The same two patterns with the stop always 2 ATR from the entry.' },
+  ...[20, 30, 40].map((points) => ({ key: `beFix${points}`, rule: { mode: 'fixed', points }, label: `Breakout + Engulfing, fixed stop ${points} points`, text: `The same two patterns with the stop always ${points} Nifty points from the entry, whatever the chart level is.` })),
 ];
 const LABELS = {
   ...Object.fromEntries(TECHNIQUES.map((t) => [t.key, t])),
@@ -199,9 +200,9 @@ export function patternsWithScore(signals, scores, floor) {
 }
 
 /** The stop a signal is traded with: at least MIN_STOP_ATR from the entry, and `wide` when it is further than MAX_STOP_ATR (the trade is skipped). */
-export function fitStop(signal, entry) {
+export function fitStop(signal, entry, base = null) {
   const d = signal.side === 'CE' ? 1 : -1;
-  let stop = ruleStop(signal, entry, signal.stopRule);
+  let stop = ruleStop(signal, entry, signal.stopRule ?? base);
   if (d * (entry - stop) < MIN_STOP_ATR * signal.atr) stop = entry - d * MIN_STOP_ATR * signal.atr;
   return { stop, wide: d * (entry - stop) > MAX_STOP_ATR * signal.atr };
 }
@@ -216,7 +217,7 @@ function tradesFor(signals, { c1, byTime, params }) {
     const day = dayKey(s.time);
     if (s.time < busyUntil || (perDay.get(day) || 0) >= MAX_PER_DAY) continue;
     const entry = byTime.get(s.time) != null ? c1[byTime.get(s.time)].open : s.close;
-    const { stop, wide } = fitStop(s, entry);
+    const { stop, wide } = fitStop(s, entry, params.stopRule);
     if (wide) {
       skippedWide += 1;
       continue;
@@ -314,7 +315,7 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   return {
     generatedAt: new Date().toISOString(),
     period: { from: dayKey(fromTime), to: dayKey(complete.at(-1).time), days: studyDays.length },
-    params: { days: params.days, iv: params.iv, lossLimit: params.lossLimit ?? 0, maxLots: params.maxLots ?? 1, lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? null, lotSize: params.lotSize, exit: params.target > 0 ? 'target' : 'lock', target: params.target ?? 0, fixedLots: params.fixedLots ?? 0, exitMin: params.exitMin ?? 15 * 60 + 15, minScore: params.minScore ?? 80, maxStopAtr: MAX_STOP_ATR, maxPerDay: MAX_PER_DAY },
+    params: { days: params.days, iv: params.iv, lossLimit: params.lossLimit ?? 0, maxLots: params.maxLots ?? 1, lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? null, lotSize: params.lotSize, exit: params.target > 0 ? 'target' : 'lock', target: params.target ?? 0, fixedLots: params.fixedLots ?? 0, exitMin: params.exitMin ?? 15 * 60 + 15, minScore: params.minScore ?? 80, maxStopAtr: MAX_STOP_ATR, maxPerDay: MAX_PER_DAY, stopRule: params.stopRule ?? null },
     haveBreadth: Boolean(breadth),
     haveFlow: Boolean(flow),
     botBreakdown: botBreakdown(botTrades),
