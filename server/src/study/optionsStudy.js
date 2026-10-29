@@ -2,7 +2,7 @@ import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { istParts } from '../market/marketHours.js';
 import { readNifty, FIRST_ENTRY_MIN, LAST_ENTRY_MIN } from '../options/signal.js';
 import { round2 } from '../utils/money.js';
-import { TECHNIQUES, available, prepare, findSignals, turnoverSeries, MIN_STOP_ATR, MAX_STOP_ATR } from './patterns.js';
+import { TECHNIQUES, available, prepare, findSignals, turnoverSeries, ruleStop, MIN_STOP_ATR, MAX_STOP_ATR } from './patterns.js';
 import { simulateTrade, summarize } from './simulate.js';
 import { CONDITIONS, buildChart, usable } from '../combos/conditions.js';
 import { comboSignals, singleCombo, missingData, describeCombo } from '../combos/combos.js';
@@ -19,6 +19,13 @@ const SCORE_PATTERNS = ['breakout', 'pullback', 'engulfing']; // the patterns th
 const SCORE_FLOORS = [60, 70, 80];
 const AGREE_PATTERNS = ['breakout', 'engulfing', 'momentumBar']; // the ones that made money in the 62-day study
 const AGREE_LABEL = 'Breakout, Engulfing and Strong momentum bar';
+// Breakout + Engulfing with the stop worked out from the entry instead of the chart level, to see what the far-stop skips and the room cost or gain.
+const STOP_RULES = [
+  { key: 'beCap20', rule: { mode: 'cap', k: 2 }, label: 'Breakout + Engulfing, far stops pulled in to 2 ATR', text: 'The same two patterns, but when the chart stop is further than 2 ATR from the entry the stop is put at 2 ATR instead of skipping the trade. A nearer chart stop stays.' },
+  { key: 'beAtr10', rule: { mode: 'atr', k: 1 }, label: 'Breakout + Engulfing, stop 1 ATR from entry', text: 'The same two patterns with the stop always 1 ATR from the entry (about the size of one 5-minute swing), whatever the chart level is.' },
+  { key: 'beAtr15', rule: { mode: 'atr', k: 1.5 }, label: 'Breakout + Engulfing, stop 1.5 ATR from entry', text: 'The same two patterns with the stop always 1.5 ATR from the entry.' },
+  { key: 'beAtr20', rule: { mode: 'atr', k: 2 }, label: 'Breakout + Engulfing, stop 2 ATR from entry', text: 'The same two patterns with the stop always 2 ATR from the entry.' },
+];
 const LABELS = {
   ...Object.fromEntries(TECHNIQUES.map((t) => [t.key, t])),
   confluence: { key: 'confluence', label: 'Two or more agree', text: 'Two different techniques give the same direction within 15 minutes. Stop at the nearest of their stops.' },
@@ -29,6 +36,7 @@ const LABELS = {
   breakoutEngulf: { key: 'breakoutEngulf', label: 'Breakout + Engulfing together', text: 'Breakout of the last hour and the engulfing candle, taken by one bot: one trade at a time and at most 3 a day, as live.' },
   patternsAll: { key: 'patternsAll', label: 'Patterns alone (Breakout, Pullback, Engulfing)', text: 'Any of the three patterns that worked, taken as soon as it appears, with no score check. The baseline for the three tests below.' },
   ...Object.fromEntries(SCORE_FLOORS.map((floor) => [`patternScore${floor}`, { key: `patternScore${floor}`, label: `Patterns, score ${floor}+ agrees`, text: `The same three patterns, but only when the live score for that side is also at least ${floor}. The pattern decides, the score confirms.` }])),
+  ...Object.fromEntries(STOP_RULES.map((r) => [r.key, r])),
   [BOT_KEY]: { key: BOT_KEY, label: 'Current bot (all checks)', text: 'What the live options trader does today: every chart check must agree and the score must reach the minimum. Shown to compare the others against.' },
 };
 
@@ -193,7 +201,7 @@ export function patternsWithScore(signals, scores, floor) {
 /** The stop a signal is traded with: at least MIN_STOP_ATR from the entry, and `wide` when it is further than MAX_STOP_ATR (the trade is skipped). */
 export function fitStop(signal, entry) {
   const d = signal.side === 'CE' ? 1 : -1;
-  let stop = signal.stop;
+  let stop = ruleStop(signal, entry, signal.stopRule);
   if (d * (entry - stop) < MIN_STOP_ATR * signal.atr) stop = entry - d * MIN_STOP_ATR * signal.atr;
   return { stop, wide: d * (entry - stop) > MAX_STOP_ATR * signal.atr };
 }
@@ -259,6 +267,7 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   groups.patternsAll = patternsWithScore(found, bot.scores, null);
   groups.breakoutMid = found.filter((s) => s.technique === 'breakout').map((s) => ({ ...s, technique: 'breakoutMid', stop: s.close + (s.stop - s.close) * 0.5 }));
   groups.breakoutEngulf = found.filter((s) => s.technique === 'breakout' || s.technique === 'engulfing');
+  for (const { key, rule } of STOP_RULES) groups[key] = groups.breakoutEngulf.map((s) => ({ ...s, stopRule: rule }));
   for (const floor of SCORE_FLOORS) groups[`patternScore${floor}`] = patternsWithScore(found, bot.scores, floor);
 
   // The user's own combinations (Account > Entries): the same ones the live trader uses.

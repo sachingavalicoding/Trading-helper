@@ -33,6 +33,19 @@ export const TECHNIQUES = [
   { key: 'volumeClimax', label: 'Volume climax at a low / high', extra: true, needs: 'flow', text: 'A bar at the 20-bar low on 2.5 times the usual volume that closes in its top half: sellers look exhausted. Stop under the bar.' },
 ];
 
+/**
+ * Where a pattern trade's stop goes for a given entry. `rule` is { mode: 'chart' | 'cap' | 'atr', k }: 'chart' is the pattern's own level,
+ * 'cap' is that level but never further than k ATR from the entry (a far stop is pulled in instead of the trade being skipped), 'atr' is always k ATR
+ * from the entry. Works for a call (stop below) and a put (stop above); `signal` is { side, stop, atr }.
+ */
+export function ruleStop(signal, entry, rule) {
+  if (!rule || rule.mode === 'chart' || !(rule.k > 0)) return signal.stop;
+  const d = signal.side === 'CE' ? 1 : -1;
+  const reach = rule.k * signal.atr;
+  if (rule.mode === 'atr') return entry - d * reach;
+  return d * (entry - signal.stop) > reach ? entry - d * reach : signal.stop;
+}
+
 /** Techniques that can be tested with the data at hand: the ones that need the 50 stocks' volume wait until it is known. */
 export const available = (t, { breadth = false, flow = false } = {}) => (t.key !== 'breadth' || breadth) && (t.needs !== 'flow' || flow);
 

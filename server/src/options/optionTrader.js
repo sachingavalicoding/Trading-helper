@@ -2,7 +2,7 @@ import { AutoLog, OptionSettings, Order, Position, Trade } from '../models/index
 import { getFunds } from '../services/walletService.js';
 import { UNDERLYING, isOptionSymbol, optionLabel } from './symbols.js';
 import { readNifty } from './signal.js';
-import { TECHNIQUES, prepare, findSignals, turnoverSeries, MIN_STOP_ATR, MAX_STOP_ATR } from '../study/patterns.js';
+import { TECHNIQUES, prepare, findSignals, turnoverSeries, ruleStop, MIN_STOP_ATR, MAX_STOP_ATR } from '../study/patterns.js';
 import { breadthSeries } from '../study/optionsStudy.js';
 import { buildChart } from '../combos/conditions.js';
 import { comboSignals, normalizeCombos } from '../combos/combos.js';
@@ -285,7 +285,7 @@ export class OptionTrader {
       const d = hit.side === 'CE' ? 1 : -1;
       const label = labelOf(hit);
       const spot = read.spot;
-      let stop = hit.stop;
+      let stop = ruleStop(hit, spot, { mode: settings.patternStopMode ?? 'chart', k: settings.patternStopAtr ?? 2 });
       if (d * (spot - stop) < MIN_STOP_ATR * hit.atr) stop = spot - d * MIN_STOP_ATR * hit.atr;
       const side = { type: hit.side, d, score: undefined, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at Nifty ${roundToTick(stop)}`, ok: true }, pattern: hit.technique };
       if (d * (spot - stop) > MAX_STOP_ATR * hit.atr) {

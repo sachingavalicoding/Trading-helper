@@ -13,6 +13,8 @@ const optionSettingsSchema = new mongoose.Schema(
     budget: { type: Number, default: 30000, min: 5000 }, // money set aside for options; premiums in open trades never exceed it
     patternEntries: { type: Boolean, default: true }, // buy when one of the chosen chart patterns shows (see study/patterns.js)
     patterns: { type: [String], default: () => ['breakout', 'insideBar', 'emaCross'] }, // the 30-day study's winners: more than 12 trades and a profit
+    patternStopMode: { type: String, enum: ['chart', 'cap', 'atr'], default: 'chart' }, // where a pattern or combination entry puts its stop: the chart level, the chart level pulled in to patternStopAtr, or always patternStopAtr from the entry
+    patternStopAtr: { type: Number, default: 2, min: 0.8, max: 2.5 }, // in 5-minute ATRs
     scoreEntries: { type: Boolean, default: true }, // buy when the all-checks score reaches the minimum (the original entry)
     dailyLossPct: { type: Number, default: 10, min: 2, max: 30 }, // stop opening trades after losing this % of the budget today
     combos: { type: [comboSchema], default: [] }, // the user's own entry combinations (Account > Entries); see combos/combos.js

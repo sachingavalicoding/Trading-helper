@@ -3,7 +3,7 @@ import { Bot } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { formatPrice, pnlClass } from '../../lib/format.js';
-import { Badge, Card } from '../ui.jsx';
+import { Badge, Card, Segmented } from '../ui.jsx';
 
 const FIELDS = [
   { key: 'budget', label: 'Money set aside for options (₹)', step: 1000, min: 5000, max: 100000000 },
@@ -11,6 +11,12 @@ const FIELDS = [
   { key: 'maxTrades', label: 'Most trades a day', step: 1, min: 1, max: 10 },
   { key: 'dailyLossPct', label: 'Stop for the day after losing (%)', step: 1, min: 2, max: 30 },
   { key: 'minScore', label: 'Minimum score', step: 5, min: 60, max: 100 },
+];
+
+const STOP_MODES = [
+  { value: 'chart', label: 'Chart level' },
+  { value: 'cap', label: 'Chart, pulled in' },
+  { value: 'atr', label: 'From entry' },
 ];
 
 const STUDY_WINNERS = ['breakout', 'engulfing']; // 30-day study: over 20 trades each and a win rate above the roughly 61% break-even (inside bar and EMA cross made money on only 6 and 7 trades)
@@ -61,6 +67,24 @@ export function OptionsEntries({ data, reload }) {
             ))}
           </ul>
         )}
+        <div className="space-y-1.5">
+          <p className="text-[11px] leading-snug text-muted">
+            <b className="text-fg">Stop for pattern entries.</b> The pattern's own chart level can be far away, and the bot skips a trade whose stop is over 2.5 ATR (about 2.5 five-minute swings) from the entry. The study rows "Breakout + Engulfing, stop … ATR" show what each choice would have earned.
+          </p>
+          <Segmented className="w-full" size="sm" value={s.patternStopMode} onChange={(v) => save({ patternStopMode: v })} options={STOP_MODES} />
+          {s.patternStopMode !== 'chart' && (
+            <label className="flex items-center justify-between gap-3 text-xs text-muted">
+              <span>{s.patternStopMode === 'cap' ? 'Never further than' : 'Always'} (ATRs from the entry)</span>
+              <select className="field num !w-24 !px-2 !py-1.5 !text-sm" value={s.patternStopAtr} disabled={busy} onChange={(e) => save({ patternStopAtr: Number(e.target.value) })} aria-label="Stop distance in ATRs">
+                {[0.8, 1, 1.5, 2, 2.5].map((k) => (
+                  <option key={k} value={k}>
+                    {k} ATR
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
         <div className="flex items-center justify-between gap-3">
           <p className="text-[11px] leading-snug text-muted">
             <b className="text-fg">Score entries.</b> The original rule: every chart check agrees and the score reaches the minimum.
