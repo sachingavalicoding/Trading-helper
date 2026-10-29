@@ -9,6 +9,8 @@ import { logger } from '../utils/logger.js';
 const WINDOW_DAYS = 27; // the history API reads a month at most per request
 const TOP_UP_AFTER_MIN = 15 * 60 + 40; // the automatic top-up runs after the close, when the day's candles are all in
 const CHECK_EVERY_MS = 10 * 60000;
+const LIVE_FROM_MIN = 9 * 60 + 20; // during the session the saved history follows the day: today so far is read again about every quarter hour
+const LIVE_EVERY_MS = 14 * 60000;
 
 /** The date windows to read, newest first, between two days (inclusive). */
 export function windowsBack(fromDay, toDay) {
@@ -32,6 +34,7 @@ export class HistorySync {
     this.symbols = symbols;
     this.job = { state: 'idle' };
     this.timer = null;
+    this.lastLive = 0;
   }
 
   status() {
@@ -114,8 +117,17 @@ export class HistorySync {
         if (this.job.state === 'running' || this.market.provider.isSimulated) return;
         const { minutes } = istParts(this.now());
         const weekday = new Date(this.now().getTime() + 19800000).getUTCDay();
-        const evening = minutes >= TOP_UP_AFTER_MIN && weekday >= 1 && weekday <= 5;
-        if ((evening || this.store.lastCompleteDay() < this.store.today) && (await this.behind())) this.start({ days: RETAIN_DAYS - 1 });
+        const trading = weekday >= 1 && weekday <= 5;
+        const evening = minutes >= TOP_UP_AFTER_MIN && trading;
+        if ((evening || this.store.lastCompleteDay() < this.store.today) && (await this.behind())) {
+          this.start({ days: RETAIN_DAYS - 1 });
+          return;
+        }
+        const inSession = trading && minutes >= LIVE_FROM_MIN && minutes < TOP_UP_AFTER_MIN;
+        if (inSession && this.now().getTime() - this.lastLive >= LIVE_EVERY_MS && (await this.store.coverage(UNDERLYING))) {
+          this.lastLive = this.now().getTime();
+          this.start({ days: RETAIN_DAYS - 1, live: true });
+        }
       } catch (e) {
         logger.warn(`History top-up check failed: ${e.message}`);
       }

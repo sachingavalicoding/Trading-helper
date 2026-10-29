@@ -8,7 +8,7 @@ import { summarizeIdeas, resultR } from '../scanner/stats.js';
 import { summarizeLog } from '../auto/logSummary.js';
 import { DEFAULT_LOT_SIZE, UNDERLYING, optionLabel } from '../options/symbols.js';
 import { loadRules } from '../models/TradeDefaults.js';
-import { reviewPatterns } from './patterns.js';
+import { dayStory, reviewPatterns, warmBars } from './patterns.js';
 import { normalizeCombos } from '../combos/combos.js';
 import { stopRuleOf } from '../study/patterns.js';
 import { candleDay, candleOn, dirOf, judge, moveOf, morningWindow, prevCloseBefore, sessionAfter, tally } from './day.js';
@@ -229,6 +229,9 @@ export class ReviewService {
       day,
       move,
       candles,
+      warm: warmBars(aggregateCandles(c1, '5m'), day),
+      minutes: c1.filter((b) => istParts(new Date(b.time * 1000)).dateKey === day).map(({ time, open, high, low, close, volume }) => ({ time, open, high, low, close, volume })),
+      story: dayStory(candles, { minSwing: 0 }),
       news: headlines,
       ideas: ideas.map((i) => ({ id: String(i._id), setup: i.setup, side: i.side, score: i.score, entry: i.entry, stopLoss: i.stopLoss, target1: i.target1, status: i.status, exitPrice: i.exitPrice, bestR: i.bestR ?? null, worstR: i.worstR ?? null, resultR: round(resultR(i) ?? 0), raisedAt: i.createdAt, closedAt: i.closedAt || null })),
       trades: positions.map((p) => ({ id: String(p._id), direction: p.direction, qty: p.buyQty || p.sellQty, avgPrice: p.avgPrice, realizedPnl: p.realizedPnl, charges: p.charges, status: p.status, openedAt: p.openedAt, closedAt: p.closedAt || null })),

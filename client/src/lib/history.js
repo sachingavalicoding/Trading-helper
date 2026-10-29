@@ -33,3 +33,12 @@ export function jobPercent(job) {
   if (!job || !job.total) return 0;
   return Math.min(100, Math.round((job.done / job.total) * 100));
 }
+
+/** What failed in a download, in words: the first few symbols with the reason of the first. Entries are { symbol, error }. */
+export function failedText(failed) {
+  if (!failed?.length) return '';
+  const names = failed.slice(0, 4).map((f) => f.symbol ?? String(f));
+  const more = failed.length > 4 ? ` and ${failed.length - 4} more` : '';
+  const why = failed[0]?.error ? ` (${failed[0].error})` : '';
+  return `${names.join(', ')}${more}${why}`;
+}

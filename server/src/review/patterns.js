@@ -111,6 +111,74 @@ export function biggestMoves(c1, day, signals, exitMin) {
   return out;
 }
 
+const WARM_BARS = 150; // earlier 5-minute bars sent with a day, so the chart's indicators have context from its first candle
+
+/** The 5-minute bars before `day`, newest last, for indicator warm-up. */
+export const warmBars = (bars5, day, n = WARM_BARS) => bars5.filter((b) => dayOf(b.time) < day).slice(-n);
+
+/**
+ * The shape of a day in a few lines: its open, high, low and close, and the legs it moved in. A leg is a run in one direction that
+ * is not undone by a pull-back of `swing` (three average 5-minute ranges, at least `minSwing`); what lies between legs was a range.
+ * @param bars5 the day's 5-minute bars, oldest first
+ */
+export function dayStory(bars5, { minSwing = 0 } = {}) {
+  if (bars5.length < 6) return null;
+  const tr = bars5.map((b, i) => Math.max(b.high - b.low, i ? Math.abs(b.high - bars5[i - 1].close) : 0, i ? Math.abs(b.low - bars5[i - 1].close) : 0));
+  const atr = tr.reduce((a, b) => a + b, 0) / tr.length;
+  const swing = Math.max(3 * atr, minSwing);
+  let hi = bars5[0];
+  let lo = bars5[0];
+  for (const b of bars5) {
+    if (b.high > hi.high) hi = b;
+    if (b.low < lo.low) lo = b;
+  }
+  // zigzag on highs and lows: a leg ends when price pulls back `swing` from its extreme
+  const legs = [];
+  let dir = 0;
+  let from = { price: bars5[0].open, time: bars5[0].time };
+  let ext = { price: bars5[0].open, time: bars5[0].time };
+  for (const b of bars5) {
+    if (dir === 0) {
+      if (b.high - from.price >= swing) {
+        dir = 1;
+        ext = { price: b.high, time: b.time };
+      } else if (from.price - b.low >= swing) {
+        dir = -1;
+        ext = { price: b.low, time: b.time };
+      }
+    } else if (dir === 1) {
+      if (b.high > ext.price) ext = { price: b.high, time: b.time };
+      else if (ext.price - b.low >= swing) {
+        legs.push({ dir: 1, from, to: ext });
+        from = ext;
+        dir = -1;
+        ext = { price: b.low, time: b.time };
+      }
+    } else if (b.low < ext.price) ext = { price: b.low, time: b.time };
+    else if (b.high - ext.price >= swing) {
+      legs.push({ dir: -1, from, to: ext });
+      from = ext;
+      dir = 1;
+      ext = { price: b.high, time: b.time };
+    }
+  }
+  if (dir !== 0) legs.push({ dir, from, to: ext });
+  const last = bars5.at(-1);
+  return {
+    open: round2(bars5[0].open),
+    high: { price: round2(hi.high), time: hi.time },
+    low: { price: round2(lo.low), time: lo.time },
+    close: round2(last.close),
+    changePts: round2(last.close - bars5[0].open),
+    rangePts: round2(hi.high - lo.low),
+    atr5: round2(atr),
+    swing: round2(swing),
+    legs: legs
+      .filter((l) => Math.abs(l.to.price - l.from.price) >= swing)
+      .map((l) => ({ dir: l.dir > 0 ? 'up' : 'down', from: l.from.time, to: l.to.time + 300, fromPrice: round2(l.from.price), toPrice: round2(l.to.price), pts: round2(Math.abs(l.to.price - l.from.price)) })),
+  };
+}
+
 /**
  * @param c1      Nifty 1-minute bars, several sessions, oldest first (the earlier sessions give the indicators their context)
  * @param day     'YYYY-MM-DD' (IST)
@@ -127,6 +195,7 @@ export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], s
   const flow = turnoverSeries(bars5, stocks5);
   const patterns = chartPatterns(Boolean(flow)).map(({ key, label, text }) => ({ key, label, text }));
   if (!candles.length) return { day, candles: [], signals: [], patterns };
+  const minutes = c1.filter((b) => dayOf(b.time) === day).map(({ time, open, high, low, close }) => ({ time, open, high, low, close }));
 
   const byTime = new Map(c1.map((b, i) => [b.time, i]));
   const breadth = breadthSeries(bars5, stocks5);
@@ -192,6 +261,9 @@ export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], s
   return {
     day,
     candles,
+    warm: warmBars(bars5, day),
+    minutes,
+    story: dayStory(candles, { minSwing: 25 }),
     open: candles[0].open,
     patterns,
     note: flow ? null : FLOW_NOTE,

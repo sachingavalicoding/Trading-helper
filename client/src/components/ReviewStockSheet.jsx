@@ -64,7 +64,7 @@ export function ReviewStockSheet({ symbol, day, onClose }) {
             <p className="text-sm text-down">{error.message}</p>
           ) : (
             <>
-              <ReviewChart candles={data.candles} open={m?.open} prevClose={m?.prevClose} marks={marks} />
+              <ReviewChart candles={data.candles} warm={data.warm} minutes={data.minutes} isIndex={symbol === 'NIFTY 50'} open={m?.open} prevClose={m?.prevClose} marks={marks} />
               <dl className="grid grid-cols-3 gap-3 rounded-xl bg-surface-2 p-3">
                 <Stat label="Open" value={formatPrice(m?.open)} />
                 <Stat label="Close" value={formatPrice(m?.close)} />

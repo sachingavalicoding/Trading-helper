@@ -4,7 +4,7 @@ import { readNifty, FIRST_ENTRY_MIN, LAST_ENTRY_MIN } from '../options/signal.js
 import { round2 } from '../utils/money.js';
 import { TECHNIQUES, available, prepare, findSignals, turnoverSeries, ruleStop, MIN_STOP_ATR, MAX_STOP_ATR } from './patterns.js';
 import { simulateTrade, summarize } from './simulate.js';
-import { CONDITIONS, buildChart, usable } from '../combos/conditions.js';
+import { CONDITIONS, CONDITION_BY_KEY, buildChart, usable } from '../combos/conditions.js';
 import { comboSignals, singleCombo, missingData, describeCombo } from '../combos/combos.js';
 import { verdictOf, halvesOf } from '../combos/verdict.js';
 
@@ -311,6 +311,8 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   }
   techniques.sort((a, b) => b.net - a.net);
   const indicators = params.rank === false ? [] : await rankIndicators({ chart, inStudy, midTime, complete, byTime, params, onProgress });
+  const trainEnd = complete.find((b) => DAY(b.time) === studyDays[Math.floor((studyDays.length * 2) / 3)])?.time ?? null;
+  const autoFound = params.autoFind ? await autoFind({ chart, inStudy, trainEnd, studyDays: studyDays.length, complete, byTime, params, onProgress }) : null;
   const botTrades = botRun ? botRun.trades : [];
   return {
     generatedAt: new Date().toISOString(),
@@ -321,8 +323,89 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
     botBreakdown: botBreakdown(botTrades),
     techniques,
     indicators,
+    autoFound,
     combosSkipped,
     breadth: breadthStudy(bars5, breadth, fromTime),
+  };
+}
+
+// ---------- auto-find: combinations that hold on days they were not chosen on ----------
+
+const FIND_BASES = ['p_breakout', 'p_engulfing', 'p_momentumBar']; // the patterns that paid in the studies; a filter is added to each
+const FIND_TOP = 10; // the best filters (by the older days) are also tried two at a time
+const FIND_MIN_DAYS = 15;
+const FIND_MIN_TRAIN = 10;
+const FIND_MIN_TEST = 5;
+const FIND_SHOW = 8;
+
+/**
+ * Tries each base pattern with every other check as a filter, then with the best filters in pairs, trades each on paper and judges it on two
+ * parts of the period: the older two thirds (where it is picked) and the newest third (which it never saw). Only a combination that made
+ * money on both, with enough trades on both, is shown. With hundreds tried, some still win by luck, so the list is a shortlist to try on paper.
+ */
+async function autoFind({ chart, inStudy, trainEnd, studyDays, complete, byTime, params, onProgress }) {
+  if (studyDays < FIND_MIN_DAYS || trainEnd == null) return { skipped: `needs at least ${FIND_MIN_DAYS} trading days, this run had ${studyDays}` };
+  const bases = FIND_BASES.filter((k) => CONDITION_BY_KEY.has(k) && usable(CONDITION_BY_KEY.get(k), chart.have));
+  const filters = CONDITIONS.filter((c) => usable(c, chart.have) && c.needs !== 'news' && !c.pattern);
+  const part = (trades) => {
+    const m = summarize(trades);
+    return { trades: m.trades, net: m.net, winRate: m.winRate };
+  };
+  const cache = new Map();
+  let tried = 0;
+  const evaluate = async (conds) => {
+    const key = [...conds].sort().join('+');
+    if (cache.has(key)) return cache.get(key);
+    const combo = { id: key, name: key, conds, need: conds.length, window: 3 };
+    const { trades } = tradesFor(comboSignals(chart, combo).filter(inStudy), { c1: complete, byTime, params });
+    const row = { conds, train: part(trades.filter((t) => t.entryTime < trainEnd)), test: part(trades.filter((t) => t.entryTime >= trainEnd)), all: summarize(trades) };
+    cache.set(key, row);
+    tried += 1;
+    if (tried % 12 === 0) {
+      onProgress(`Auto-find: ${tried} combinations tried`);
+      await yieldTurn();
+    }
+    return row;
+  };
+
+  const baselines = [];
+  for (const b of bases) baselines.push({ base: b, ...(await evaluate([b])) });
+  const pairs = [];
+  for (const b of bases) for (const f of filters) pairs.push(await evaluate([b, f.key]));
+  // the filters that did best on the older days, whichever pattern they went with
+  const bestOf = new Map();
+  for (const row of pairs) {
+    const f = row.conds[1];
+    if (row.train.trades >= FIND_MIN_TRAIN && row.train.net > (bestOf.get(f) ?? 0)) bestOf.set(f, row.train.net);
+  }
+  const top = [...bestOf].sort((a, b) => b[1] - a[1]).slice(0, FIND_TOP).map(([k]) => k);
+  const triples = [];
+  for (const b of bases) for (let i = 0; i < top.length; i++) for (let j = i + 1; j < top.length; j++) triples.push(await evaluate([b, top[i], top[j]]));
+
+  const found = [...pairs, ...triples]
+    .filter((r) => r.train.trades >= FIND_MIN_TRAIN && r.train.net > 0 && r.test.trades >= FIND_MIN_TEST && r.test.net > 0)
+    .sort((a, b) => b.test.net - a.test.net || b.train.net - a.train.net)
+    .slice(0, FIND_SHOW)
+    .map((r) => ({
+      conds: r.conds,
+      labels: r.conds.map((k) => CONDITION_BY_KEY.get(k).label),
+      trades: r.all.trades,
+      winRate: r.all.winRate,
+      net: r.all.net,
+      calls: r.all.bySide.CE,
+      puts: r.all.bySide.PE,
+      train: r.train,
+      test: r.test,
+    }));
+  return {
+    tried,
+    trainEnd: dayKey(trainEnd),
+    trainDays: Math.floor((studyDays * 2) / 3),
+    testDays: studyDays - Math.floor((studyDays * 2) / 3),
+    minTrain: FIND_MIN_TRAIN,
+    minTest: FIND_MIN_TEST,
+    baselines: baselines.map((b) => ({ conds: b.conds, label: CONDITION_BY_KEY.get(b.base).label, train: b.train, test: b.test })),
+    found,
   };
 }
 

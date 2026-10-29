@@ -374,3 +374,63 @@ test('Review shows what each stop would have done, the user combinations with th
   assert.equal(skipped.combosSkipped.length, 1);
   assert.match(skipped.combosSkipped[0].reason, /volume of the 50 stocks/);
 });
+
+// ---------- auto-find ----------
+
+test('auto-find tries a pattern with each check and the best pairs, judges them on days they were not picked on, and says when the run is too short', async () => {
+  const base = { ...PARAMS, lossLimit: 1500, maxLots: 2, rank: false };
+  const none = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20 } });
+  assert.equal(none.autoFound, null, 'off unless asked for');
+  const short = await runOptionsStudy({ nifty1: minutes(12), params: { ...base, days: 8, autoFind: true } });
+  assert.match(short.autoFound.skipped, /at least 15 trading days/);
+
+  const seen = [];
+  const r = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, autoFind: true }, onProgress: (x) => seen.push(x) });
+  const a = r.autoFound;
+  assert.ok(a.tried > 150, `${a.tried} combinations tried`);
+  assert.equal(a.trainDays + a.testDays, 20);
+  assert.ok(a.baselines.length >= 2 && a.baselines.every((b) => b.train && b.test));
+  assert.ok(seen.some((x) => /Auto-find/.test(x)));
+  assert.ok(a.found.length <= 8);
+  for (const f of a.found) {
+    assert.ok(f.conds.length >= 2 && f.conds.length <= 3 && f.conds[0].startsWith('p_'));
+    assert.ok(f.train.trades >= a.minTrain && f.train.net > 0, 'it made money on the older days');
+    assert.ok(f.test.trades >= a.minTest && f.test.net > 0, 'and on the newest days it never saw');
+    assert.equal(f.labels.length, f.conds.length);
+  }
+  assert.ok(a.found.every((f, i) => i === 0 || f.test.net <= a.found[i - 1].test.net), 'best on the unseen days first');
+});
+
+// ---------- Review: day story, warm-up bars, minute bars ----------
+
+test('the day story finds the legs a day moved in, and Review sends warm-up bars, minute bars and the story with a day', async () => {
+  const { dayStory, warmBars, reviewPatterns } = await import('../src/review/patterns.js');
+  // 5-minute bars: up 100 points, down 60, up 80 with small noise
+  const path = [];
+  let p = 22700;
+  const leg = (to, n) => {
+    const step = (to - p) / n;
+    for (let k = 0; k < n; k++) {
+      path.push({ time: 1_700_000_000 + path.length * 300, open: p, high: Math.max(p, p + step) + 2, low: Math.min(p, p + step) - 2, close: p + step });
+      p += step;
+    }
+  };
+  leg(22800, 10);
+  leg(22740, 8);
+  leg(22820, 10);
+  const story = dayStory(path, { minSwing: 25 });
+  assert.deepEqual(story.legs.map((l) => l.dir), ['up', 'down', 'up']);
+  assert.ok(story.legs[0].pts > 90 && story.legs[1].pts > 50 && story.legs[2].pts > 70);
+  assert.ok(story.high.price >= 22820 && story.low.price <= 22700 && story.changePts > 100);
+  assert.equal(dayStory(path.slice(0, 3)), null, 'too few bars: no story');
+
+  const c1 = minutes(8);
+  const dayOf = (t) => new Date(t * 1000 + 19800_000).toISOString().slice(0, 10);
+  const days = [...new Set(c1.map((b) => dayOf(b.time)))];
+  const day = days[4];
+  const r = reviewPatterns({ c1, day, params: { ...PARAMS, lossLimit: 1500, maxLots: 2 } });
+  assert.ok(r.minutes.length > 300 && r.minutes.every((b) => dayOf(b.time) === day));
+  assert.ok(r.warm.length > 0 && r.warm.every((b) => dayOf(b.time) < day) && r.warm.length <= 150);
+  assert.ok(r.story && r.story.legs.every((l) => l.to > l.from));
+  assert.equal(warmBars([], day).length, 0);
+});

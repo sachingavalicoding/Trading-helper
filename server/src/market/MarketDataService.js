@@ -99,7 +99,18 @@ export class MarketDataService extends EventEmitter {
     if (!pick) return null;
     this.contracts.set(pick.symbol, pick);
     await this.provider.subscribe([pick.symbol]);
-    return { ...pick, ltp: this.getLtp(pick.symbol), spot };
+    return { ...pick, ltp: await this.#priceOf(pick.symbol), spot };
+  }
+
+  /** The price of a symbol just subscribed to: its first tick comes a moment after the subscription, so wait for it (up to `ms`) instead of reading nothing. */
+  async #priceOf(symbol, ms = 1500) {
+    const end = Date.now() + ms;
+    let ltp = this.getLtp(symbol);
+    while (!ltp && Date.now() < end) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      ltp = this.getLtp(symbol);
+    }
+    return ltp;
   }
 
   /** Start streaming a contract (e.g. one that is already held after a restart). */
@@ -141,8 +152,24 @@ export class MarketDataService extends EventEmitter {
     const stored = await this.history.read(symbol, addDays(today, -days), upTo);
     const since = daysBetween(upTo, today);
     const tail = since >= 1 ? (await this.getRange(symbol, 1, since + 1)).filter((c) => istParts(new Date(c.time * 1000)).dateKey > upTo) : [];
-    const merged = [...new Map([...stored, ...tail].map((c) => [c.time, c])).values()].sort((a, b) => a.time - b.time);
+    // today saved only up to the last update: the minutes since then come from the broker (kept for a minute and a half, so a study of 50 stocks asks once each)
+    const fresh = since === 0 && cov.partial === today ? await this.#todayTail(symbol) : [];
+    const merged = [...new Map([...stored, ...tail, ...fresh].map((c) => [c.time, c])).values()].sort((a, b) => a.time - b.time);
     return unit === 1 ? merged : aggregateCandles(merged.map((c) => ({ ...c })), `${unit}m`);
+  }
+
+  async #todayTail(symbol) {
+    const key = `${symbol}|today`;
+    const hit = this.historyCache.get(key);
+    if (hit && Date.now() - hit.at < 90_000) return hit.candles;
+    try {
+      const today = istParts(new Date()).dateKey;
+      const candles = (await this.provider.getTodayCandles(symbol, 1)).filter((c) => istParts(new Date(c.time * 1000)).dateKey === today);
+      this.historyCache.set(key, { at: Date.now(), candles });
+      return candles;
+    } catch {
+      return []; // what is saved is still used
+    }
   }
 
   /** The 1-minute candles around `day` for Review: the broker's last sessions plus the saved days before and after it, so an older day has its chart. */
