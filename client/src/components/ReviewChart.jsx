@@ -1,71 +1,29 @@
-import { useEffect, useRef } from 'react';
-import { createChart, createSeriesMarkers, CandlestickSeries, ColorType, LineStyle } from 'lightweight-charts';
-import { toChartTime } from '../lib/chart.js';
+import { useMemo } from 'react';
+import { LineStyle } from 'lightweight-charts';
 import { useTheme } from '../context/ThemeContext.jsx';
+import { DayChart } from './DayChart.jsx';
 
 const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
-/** The bar a moment falls in: before the first bar it sits on the first, after the last on the last. */
-export function barTime(candles, at) {
-  if (!candles.length) return null;
-  const t = toChartTime(new Date(at).getTime() / 1000);
-  let hit = candles[0].time;
-  for (const c of candles) {
-    if (c.time <= t) hit = c.time;
-    else break;
-  }
-  return hit;
-}
-
 /**
- * One finished (or running) day as 5-minute candles, with the open and previous close drawn across it
- * and a marker where each headline, scanner idea or trade of yours came in.
- * `marks`: [{ at, text, kind: 'news-up' | 'news-down' | 'buy' | 'sell' }]
+ * One finished (or running) day as candles on the full chart (timeframes, indicators, fullscreen), with the open and previous close
+ * drawn across it and a marker where each headline, scanner idea or trade of yours came in.
+ * `marks`: [{ at, text, kind: 'news-up' | 'news-down' | 'buy' | 'sell' }]. `isIndex`: Nifty has no volume.
  */
-export function ReviewChart({ candles, open, prevClose, marks = [], height = 260 }) {
-  const ref = useRef(null);
+export function ReviewChart({ candles, warm, minutes, open, prevClose, marks = [], isIndex = false, height = 300 }) {
   const { theme } = useTheme();
-
-  useEffect(() => {
-    if (!ref.current || !candles?.length) return undefined;
+  const { markers, lines } = useMemo(() => {
     const up = cssVar('--up');
     const down = cssVar('--down');
-    const border = cssVar('--border');
-    const chart = createChart(ref.current, {
-      autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: cssVar('--muted'), fontSize: 10 },
-      grid: { vertLines: { visible: false }, horzLines: { color: border } },
-      rightPriceScale: { borderVisible: false, minimumWidth: 52 },
-      timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false },
-      handleScroll: { horzTouchDrag: true, pressedMouseMove: true, vertTouchDrag: false },
-      handleScale: { pinch: true, mouseWheel: true },
+    const markers = marks.map((m, i) => {
+      const bearish = m.kind === 'news-down' || m.kind === 'sell';
+      return { id: String(i), time: new Date(m.at).getTime() / 1000, position: bearish ? 'aboveBar' : 'belowBar', shape: bearish ? 'arrowDown' : 'arrowUp', color: m.kind.startsWith('news') ? cssVar('--accent2') : m.kind === 'buy' ? up : down, text: m.text };
     });
-    const series = chart.addSeries(CandlestickSeries, { upColor: up, downColor: down, wickUpColor: up, wickDownColor: down, borderVisible: false });
-    series.setData(candles.map((c) => ({ time: toChartTime(c.time), open: c.open, high: c.high, low: c.low, close: c.close })));
-    if (open) series.createPriceLine({ price: open, color: cssVar('--accent2'), lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'Open' });
-    if (prevClose) series.createPriceLine({ price: prevClose, color: cssVar('--muted'), lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: true, title: 'Prev close' });
-    const shaped = marks
-      .map((m) => ({ ...m, time: barTime(candles.map((c) => ({ time: toChartTime(c.time) })), m.at) }))
-      .filter((m) => m.time != null)
-      .sort((a, b) => a.time - b.time)
-      .map((m) => ({
-        time: m.time,
-        position: m.kind === 'news-down' || m.kind === 'sell' ? 'aboveBar' : 'belowBar',
-        shape: m.kind === 'news-down' || m.kind === 'sell' ? 'arrowDown' : 'arrowUp',
-        color: m.kind.startsWith('news') ? cssVar('--accent2') : m.kind === 'buy' ? up : down,
-        text: m.text,
-      }));
-    createSeriesMarkers(series, shaped);
-    chart.timeScale().fitContent();
-    return () => chart.remove();
-  }, [candles, open, prevClose, marks, theme]);
-
-  if (!candles?.length) {
-    return (
-      <div style={{ height: height / 2 }} className="flex items-center justify-center rounded-xl bg-surface-2 px-6 text-center text-xs text-muted">
-        No intraday chart for this day. The broker keeps only the last few sessions of minute candles.
-      </div>
-    );
-  }
-  return <div ref={ref} style={{ height }} className="w-full" />;
+    const lines = [];
+    if (open) lines.push({ price: open, color: cssVar('--accent2'), title: 'Open' });
+    if (prevClose) lines.push({ price: prevClose, color: cssVar('--muted'), title: 'Prev close', style: LineStyle.Dotted });
+    return { markers, lines };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marks, open, prevClose, theme]);
+  return <DayChart candles={candles} warm={warm} minutes={minutes} isIndex={isIndex} markers={markers} lines={lines} height={height} />;
 }

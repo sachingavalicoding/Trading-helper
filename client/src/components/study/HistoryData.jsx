@@ -3,7 +3,7 @@ import { Database, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
-import { jobPercent, liveText, savedText, SYNC_LABEL } from '../../lib/history.js';
+import { failedText, jobPercent, liveText, savedText, SYNC_LABEL } from '../../lib/history.js';
 import { Badge, Card, Skeleton } from '../ui.jsx';
 
 const JOB_TONE = { running: 'accent', done: 'up', partial: 'warn', failed: 'down' };
@@ -70,7 +70,11 @@ export function HistoryData() {
             </>
           )}
           {job.error && <p className="text-[11px] text-down">{job.error}</p>}
-          {job.failed?.length > 0 && <p className="text-[11px] text-warn">Could not finish: {job.failed.join(', ')}. Press the button again to retry.</p>}
+          {job.failed?.length > 0 && (
+            <p className="text-[11px] leading-snug text-warn">
+              Could not finish {job.failed.length} of {job.total}: {failedText(job.failed)}. Press the button again to retry; what is saved is kept.
+            </p>
+          )}
         </Card>
       )}
     </div>

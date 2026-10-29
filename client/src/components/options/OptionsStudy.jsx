@@ -9,6 +9,8 @@ import { EXIT_WORD, exitText, hourRows, istStamp, sizingText, studyText, verdict
 import { stopRuleText } from '../../lib/stops.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 import { IndicatorRanking } from '../study/IndicatorRanking.jsx';
+import { AutoFound } from '../study/AutoFound.jsx';
+import { Switch } from './OptionsAutoCard.jsx';
 
 const DAYS = [
   { value: 1, label: 'Today' },
@@ -175,6 +177,7 @@ export function OptionsStudy() {
   const [exit, setExit] = useState('lock');
   const [target, setTarget] = useState('1000');
   const [lots, setLots] = useState(0);
+  const [find, setFind] = useState(false);
   const { state, error, running, run } = useStudy('options');
   const time = useExitTime('options');
   const targetValue = Number(target);
@@ -206,11 +209,17 @@ export function OptionsStudy() {
         )}
         <Segmented className="w-full" size="sm" value={lots} onChange={setLots} options={[{ value: 0, label: 'Lots sized to my loss limit' }, { value: 1, label: '1 lot' }]} />
         <ExitTimeField time={time} />
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] leading-snug text-muted">
+            <b className="text-fg">Also look for new combinations.</b> Tries each of the three best patterns with every other check, learns on the older two thirds of the days and keeps only what also made money on the newer third. Slower; needs 15 days or more.
+          </p>
+          <Switch on={find} label="Look for new combinations" onClick={() => setFind((v) => !v)} />
+        </div>
         {targetBad && <p className="text-xs text-down">The target must be between ₹100 and ₹1,00,000.</p>}
         <Segmented className="w-full" size="sm" value={days} onChange={setDays} options={DAYS} />
         {days > 30 && <p className="text-[11px] leading-snug text-muted">Longer than 30 days reads the saved candles (Account, Studies, Data tab), so download them first.</p>}
         <div className="flex justify-end">
-          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
+          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin, autoFind: find })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Run study'}
           </button>
         </div>
@@ -236,6 +245,7 @@ export function OptionsStudy() {
           {r.techniques.map((t) => (
             <Technique key={t.key} t={t} bot={bot} />
           ))}
+          <AutoFound af={r.autoFound} />
           <IndicatorRanking rows={r.indicators} skipped={r.combosSkipped} />
           <BotBreakdown cut={r.botBreakdown} />
           <Breadth rows={r.breadth} />

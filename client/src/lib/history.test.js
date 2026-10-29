@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayText, jobPercent, liveText, savedText, sizeText, SYNC_LABEL } from './history.js';
+import { dayText, failedText, jobPercent, liveText, savedText, sizeText, SYNC_LABEL } from './history.js';
 
 describe('history helpers', () => {
   it('writes sizes in KB and MB', () => {
@@ -20,6 +20,12 @@ describe('history helpers', () => {
     expect(SYNC_LABEL).toBe('Update to now');
     expect(jobPercent({ done: 17, total: 51 })).toBe(33);
     expect(jobPercent({ done: 0, total: 0 })).toBe(0);
+  });
+
+  it('names what failed in a download instead of printing objects', () => {
+    expect(failedText([])).toBe('');
+    expect(failedText([{ symbol: 'TCS', error: 'HTTP 429' }])).toBe('TCS (HTTP 429)');
+    expect(failedText(['A', 'B', 'C', 'D', 'E', 'F'].map((symbol) => ({ symbol, error: 'x' })))).toBe('A, B, C, D and 2 more (x)');
   });
 
   it('says how far today is saved, in Indian time', () => {

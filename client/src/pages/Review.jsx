@@ -5,6 +5,7 @@ import { useApi } from '../lib/useApi.js';
 import { formatPnl, formatPrice, pnlClass } from '../lib/format.js';
 import { VERDICT, pctText, shiftDay, takeaways } from '../lib/review.js';
 import { afterText, dayTotals, exitLine, loadSeen, loadWatch, moveLines, offerCombos, saveSeen, saveWatch, shortLabel, sideWord, skipText, watched, whyText } from '../lib/patternReview.js';
+import { dayType, legCount, storyLines } from '../lib/dayStory.js';
 import { stopRuleText, whatIfText } from '../lib/stops.js';
 import { ReviewChart } from '../components/ReviewChart.jsx';
 import { PatternChart } from '../components/PatternChart.jsx';
@@ -125,6 +126,29 @@ function ImpactRow({ title, impact }) {
   );
 }
 
+/** The day in words: its type, the high and low, and every big swing with the option side that was right in it. */
+function DayStory({ story }) {
+  const kind = dayType(story);
+  if (!story || !kind) return null;
+  const n = legCount(story);
+  return (
+    <Card className="space-y-1.5 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-semibold">The day in words</div>
+        <Badge tone={kind.key.endsWith('up') ? 'up' : kind.key.endsWith('down') ? 'down' : 'muted'}>{kind.label}</Badge>
+      </div>
+      {storyLines(story, clock).map((line) => (
+        <p key={line} className="text-[11px] leading-snug">
+          {line}
+        </p>
+      ))}
+      <p className="text-[11px] leading-snug text-muted">
+        {kind.hint} {n.total ? `${n.total} swings of at least ${Math.round(story.swing)} points (3 times the usual 5-minute bar), ${n.up} up and ${n.down} down.` : ''} Found afterwards, so it explains the day; it is not a signal you could have seen live.
+      </p>
+    </Card>
+  );
+}
+
 function OptionsTab({ day }) {
   const { data, loading, error } = useApi(`/review/day?day=${day}`, []);
   const { data: chart } = useApi(`/review/stock/NIFTY%2050?day=${day}`, []);
@@ -140,7 +164,7 @@ function OptionsTab({ day }) {
           <div className="text-[11px] font-medium uppercase tracking-wider text-accent2">Nifty 50 on {day}</div>
           <div className={`num text-sm font-bold ${pnlClass(m.openToClosePct)}`}>{pctText(m.openToClosePct)}</div>
         </div>
-        <ReviewChart candles={chart?.candles} open={m.open} prevClose={m.prevClose} marks={[]} />
+        <ReviewChart candles={chart?.candles} warm={chart?.warm} minutes={chart?.minutes} isIndex open={m.open} prevClose={m.prevClose} marks={[]} />
         <dl className="num grid grid-cols-4 gap-2 text-center text-xs">
           {[
             ['Open', formatPrice(m.open)],
@@ -155,6 +179,8 @@ function OptionsTab({ day }) {
           ))}
         </dl>
       </Card>
+
+      <DayStory story={chart?.story} />
 
       <div className="grid gap-2 md:grid-cols-2">
         <ImpactRow title="A Call (CE) bought at the open: the index moved" impact={nifty.ifCallAtOpen} />
@@ -340,8 +366,10 @@ function PatternsTab({ day }) {
         </Card>
       )}
 
+      <DayStory story={data.story} />
+
       <Card className="space-y-2 p-3">
-        <PatternChart candles={data.candles} signals={chosen} selected={selected} onPick={(id) => setSelected((cur) => (cur === id ? null : id))} />
+        <PatternChart candles={data.candles} warm={data.warm} minutes={data.minutes} signals={chosen} selected={selected} onPick={(id) => setSelected((cur) => (cur === id ? null : id))} />
         <p className="text-center text-[11px] text-muted">Tap an arrow or a row below to see how that entry played out.</p>
       </Card>
 

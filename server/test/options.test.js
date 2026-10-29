@@ -791,3 +791,32 @@ test('with a fixed stop, a pattern entry puts the stop that many points from the
     optionTrader.now = realNow;
   }
 });
+
+test('a signal is tried again on the next scan when the contract it picked had no price yet, instead of being lost for that bar', async () => {
+  const u = await registerUser(app);
+  const realNow = optionTrader.now;
+  const market = optionTrader.market;
+  const realPick = market.pickOption.bind(market);
+  optionTrader.now = () => new Date(MIDMORNING());
+  let calls = 0;
+  market.pickOption = async (arg) => {
+    const c = await realPick(arg);
+    calls += 1;
+    return calls === 1 && c ? { ...c, ltp: null } : c; // the first strike the bot touches has no tick yet
+  };
+  try {
+    const uid = u.user.id || u.user._id;
+    await api().put('/api/options').set(u.auth).send({ enabled: true, patterns: ['breakout'] }).expect(200);
+    const s = await OptionSettings.findOne({ user: uid }).lean();
+    const read = breakoutRead();
+    const first = await optionTrader.considerPatterns(s, read);
+    assert.match(first.skipped, /live price/);
+    const second = await optionTrader.considerPatterns(s, read);
+    assert.ok(second.order, `tried again on the same bar: ${second.skipped}`);
+    await api().post('/api/positions/exit-all').set(u.auth).expect(200);
+    assert.match((await optionTrader.considerPatterns(s, read)).skipped, /no pattern|already/, 'once bought, the bar is not bought again');
+  } finally {
+    market.pickOption = realPick;
+    optionTrader.now = realNow;
+  }
+});

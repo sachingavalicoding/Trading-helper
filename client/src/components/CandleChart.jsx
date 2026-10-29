@@ -15,8 +15,8 @@ const withAlpha = (hex, a) => {
   const n = Number.parseInt(hex.replace('#', ''), 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 };
-const STORE_KEY = 'npt_indicators';
-const loadIndicators = () => {
+export const STORE_KEY = 'npt_indicators';
+export const loadIndicators = () => {
   try {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY));
     if (Array.isArray(saved)) return saved.filter((id) => INDICATORS.some((i) => i.id === id));
@@ -31,7 +31,7 @@ const TIMEFRAMES = ['1m', '5m', '15m'];
 const MIN_BAR_SPACING = 3;
 const MAX_BAR_SPACING = 22;
 
-function IndicatorSheet({ active, available, onToggle, onClose }) {
+export function IndicatorSheet({ active, available, onToggle, onClose }) {
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Indicators">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-black/50" onClick={onClose} />

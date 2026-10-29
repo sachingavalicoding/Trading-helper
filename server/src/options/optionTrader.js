@@ -305,6 +305,8 @@ export class OptionTrader {
       }
       result = await this.#enter(settings, read, side);
       if (result.order) return result;
+      // no price yet for a contract just picked is not a verdict on the signal: try this bar again on the next scan (it is still fresh)
+      if (/live price/.test(result.skipped ?? '')) this.patternSeen.delete(seen);
     }
     return result;
   }
