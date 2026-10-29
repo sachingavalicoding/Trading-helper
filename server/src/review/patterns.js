@@ -1,7 +1,9 @@
 import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { istParts } from '../market/marketHours.js';
-import { TECHNIQUES, available, prepare, findSignals, turnoverSeries } from '../study/patterns.js';
-import { fitStop } from '../study/optionsStudy.js';
+import { TECHNIQUES, available, prepare, findSignals, turnoverSeries, ruleStop } from '../study/patterns.js';
+import { fitStop, breadthSeries } from '../study/optionsStudy.js';
+import { buildChart } from '../combos/conditions.js';
+import { comboSignals, describeCombo, heldConditions, missingData } from '../combos/combos.js';
 import { simulateTrade, EXIT_MIN } from '../study/simulate.js';
 import { round2 } from '../utils/money.js';
 
@@ -10,6 +12,7 @@ import { round2 } from '../utils/money.js';
 
 export const TARGET_PER_LOT = 1000; // the "book it at" exit shown beside the profit-lock exit
 const WATCH_MIN = 60; // how long after the entry the index path is followed
+const MIN_MOVE_PTS = 30; // a run smaller than this is not worth tracing
 
 const dayOf = (t) => istParts(new Date(t * 1000)).dateKey;
 
@@ -44,13 +47,79 @@ function pathAfter(c1, startIdx, long, exitMin) {
   return { best: { pts: round2(best.pts), minutes: best.minutes }, worst: { pts: round2(worst.pts), minutes: worst.minutes }, after: round2(last) };
 }
 
+const WHAT_IF = [
+  { key: 'chart', label: 'Chart level' },
+  { key: 'atr10', label: '1 ATR', rule: { mode: 'atr', k: 1 } },
+  { key: 'atr15', label: '1.5 ATR', rule: { mode: 'atr', k: 1.5 } },
+  { key: 'atr20', label: '2 ATR', rule: { mode: 'atr', k: 2 } },
+  ...[20, 30, 40].map((points) => ({ key: `fix${points}`, label: `${points} pts`, rule: { mode: 'fixed', points } })),
+];
+
+/**
+ * What each way of placing the stop would have done to this entry, on the index alone: how far it is, and whether the index went that far
+ * against the entry within the hour (and when). It shows how much room a trade needed to survive, which is what the stop setting trades off.
+ */
+export function stopWhatIf(c1, startIdx, signal, entry, exitMin) {
+  const long = signal.side === 'CE';
+  const day = dayOf(c1[startIdx].time);
+  return WHAT_IF.map(({ key, label, rule }) => {
+    const stop = ruleStop(signal, entry, rule ?? { mode: 'chart' });
+    const pts = Math.max(round2(Math.abs(entry - stop)), 0);
+    let hitAfter = null;
+    for (let j = startIdx; j < c1.length; j++) {
+      const bar = c1[j];
+      const minutes = Math.round((bar.time - c1[startIdx].time) / 60);
+      const at = istParts(new Date(bar.time * 1000));
+      if (at.dateKey !== day || at.minutes >= exitMin || minutes > WATCH_MIN) break;
+      if ((long ? entry - bar.low : bar.high - entry) >= pts) {
+        hitAfter = minutes;
+        break;
+      }
+    }
+    return { key, label, pts, hitAfter };
+  });
+}
+
+/**
+ * The biggest run up and the biggest run down of the session in hindsight (a low followed by a later high, and the reverse), and which signals
+ * formed near the start of it, so a missed move can be traced to the signal that was skipped, or to no signal at all.
+ */
+export function biggestMoves(c1, day, signals, exitMin) {
+  const bars = c1.filter((b) => dayOf(b.time) === day && istParts(new Date(b.time * 1000)).minutes < exitMin);
+  const out = [];
+  for (const up of [true, false]) {
+    let anchor = null;
+    let best = null;
+    for (const b of bars) {
+      if (up) {
+        if (!anchor || b.low < anchor.price) anchor = { price: b.low, time: b.time };
+        const pts = b.high - anchor.price;
+        if (!best || pts > best.pts) best = { pts, from: anchor.time, to: b.time };
+      } else {
+        if (!anchor || b.high > anchor.price) anchor = { price: b.high, time: b.time };
+        const pts = anchor.price - b.low;
+        if (!best || pts > best.pts) best = { pts, from: anchor.time, to: b.time };
+      }
+    }
+    if (!best || best.pts < MIN_MOVE_PTS) continue;
+    const side = up ? 'CE' : 'PE';
+    const near = signals
+      .filter((s) => s.side === side && s.time >= best.from - 900 && s.time < best.to)
+      .map((s) => ({ id: s.id, technique: s.technique, time: s.time, skipped: s.skipped ?? null, net: s.lock?.net ?? null }));
+    out.push({ side, pts: round2(best.pts), from: best.from, to: best.to, signals: near });
+  }
+  return out;
+}
+
 /**
  * @param c1      Nifty 1-minute bars, several sessions, oldest first (the earlier sessions give the indicators their context)
  * @param day     'YYYY-MM-DD' (IST)
  * @param params  as `simulateTrade`: { iv, lockStart, lockGap, lotSize, holidays, expiryWeekday, lossLimit, maxLots, exitMin }
  * @param stocks5 { SYMBOL: 5-minute candles } of the 50 stocks when saved, which unlocks the volume and VWAP patterns
+ * @param combos  the user's own combinations (normalized), traded like patterns
+ * @param stopRule the user's stop rule (see ruleStop), applied to every signal; the chart level when null
  */
-export function reviewPatterns({ c1, day, params, stocks5 = null }) {
+export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], stopRule = null }) {
   const exitMin = params.exitMin ?? EXIT_MIN;
   let bars5 = aggregateCandles(c1, '5m');
   if (bars5.length && bars5.at(-1).time + 300 > c1.at(-1).time + 60) bars5 = bars5.slice(0, -1); // the last bucket is still forming
@@ -60,14 +129,32 @@ export function reviewPatterns({ c1, day, params, stocks5 = null }) {
   if (!candles.length) return { day, candles: [], signals: [], patterns };
 
   const byTime = new Map(c1.map((b, i) => [b.time, i]));
+  const breadth = breadthSeries(bars5, stocks5);
   const found = findSignals(prepare(bars5, null, flow)).filter((s) => dayOf(s.time - 300) === day && s.technique !== 'doubleBottomMid');
+  // The user's own combinations, drawn and traded like patterns; `why` says which of their checks held.
+  const chart = combos.length ? buildChart(bars5, { breadth, flow }) : null;
+  const combosSkipped = [];
+  const comboInfo = new Map();
+  for (const combo of combos.filter((c) => c.on !== false)) {
+    const missing = missingData(combo, chart.have);
+    if (missing.length) {
+      combosSkipped.push({ id: combo.id, name: combo.name, reason: `needs ${[...new Set(missing)].map((m) => (m === 'flow' ? 'volume of the 50 stocks' : m === 'breadth' ? 'the 50-stock breadth' : m)).join(' and ')}, which are not saved` });
+      continue;
+    }
+    const key = `combo:${combo.id}`;
+    patterns.push({ key, label: `Mine: ${combo.name}`, text: describeCombo(combo), combo: true });
+    comboInfo.set(key, combo);
+    for (const s of comboSignals(chart, combo, { label: key }).filter((x) => dayOf(x.time - 300) === day)) {
+      found.push({ ...s, why: heldConditions(chart, combo, s.side === 'CE' ? 1 : -1, s.i) });
+    }
+  }
   const signals = [];
   for (const s of found.sort((a, b) => a.time - b.time || a.technique.localeCompare(b.technique))) {
     const startIdx = byTime.get(s.time);
     if (startIdx == null) continue; // the bar after it has not been traded yet
     const long = s.side === 'CE';
     const entry = c1[startIdx].open;
-    const { stop, wide } = fitStop(s, entry);
+    const { stop, wide } = fitStop(s, entry, stopRule);
     const base = {
       id: `${s.technique}-${s.side}-${s.time}`,
       technique: s.technique,
@@ -77,7 +164,9 @@ export function reviewPatterns({ c1, day, params, stocks5 = null }) {
       entry: round2(entry),
       stop: round2(stop),
       stopPts: round2(Math.abs(entry - stop)),
+      ...(s.why ? { why: s.why } : {}),
       ...pathAfter(c1, startIdx, long, exitMin),
+      whatIf: stopWhatIf(c1, startIdx, s, entry, exitMin),
     };
     if (wide) {
       signals.push({ ...base, skipped: 'far' });
@@ -107,6 +196,9 @@ export function reviewPatterns({ c1, day, params, stocks5 = null }) {
     patterns,
     note: flow ? null : FLOW_NOTE,
     signals,
+    moves: biggestMoves(c1, day, signals, exitMin),
+    combosSkipped,
+    stopRule: stopRule ?? { mode: 'chart' },
     exits: { lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? [{ at: params.lockStart, keep: params.lockStart - params.lockGap }], lossLimit: params.lossLimit, target: TARGET_PER_LOT, exitMin },
   };
 }

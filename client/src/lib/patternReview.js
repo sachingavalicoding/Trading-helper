@@ -18,6 +18,33 @@ export function loadWatch() {
   return DEFAULT_WATCH;
 }
 
+const SEEN_KEY = 'npt_watch_combos_seen';
+
+/** Your combinations the Review has already offered: a new one is switched on once, and after that the choice is yours. */
+export function loadSeen() {
+  try {
+    const v = JSON.parse(localStorage.getItem(SEEN_KEY));
+    if (Array.isArray(v)) return v;
+  } catch {
+    /* nothing remembered */
+  }
+  return [];
+}
+
+export function saveSeen(list) {
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify(list));
+  } catch {
+    /* the choice is simply not remembered */
+  }
+}
+
+/** Switch on the combinations of `patterns` that have never been offered; returns the new watch list and seen list, or null when nothing is new. */
+export function offerCombos(watch, seen, patterns) {
+  const fresh = (patterns || []).filter((p) => p.combo && !seen.includes(p.key)).map((p) => p.key);
+  return fresh.length ? { watch: [...watch, ...fresh], seen: [...seen, ...fresh] } : null;
+}
+
 export function saveWatch(list) {
   try {
     localStorage.setItem(KEY, JSON.stringify(list));
@@ -27,7 +54,10 @@ export function saveWatch(list) {
 }
 
 /** "Breakout of the last hour" -> "Breakout"; the long label is on the pattern's own text. */
-export const shortLabel = (label) => String(label).split(/ (?:of|at|in|\/)|,/)[0];
+export const shortLabel = (label) => (String(label).startsWith('Mine: ') ? String(label) : String(label).split(/ (?:of|at|in|\/)|,/)[0]);
+
+/** The tag drawn beside an arrow: the pattern's own code, or MY for one of your combinations. */
+export const codeOf = (technique) => CODE[technique] || (String(technique).startsWith('combo:') ? 'MY' : technique);
 
 export const sideWord = (side) => (side === 'CE' ? 'Call' : 'Put');
 
@@ -60,4 +90,25 @@ export function dayTotals(signals) {
   const traded = signals.filter((s) => !s.skipped);
   const sum = (k) => traded.reduce((a, s) => a + (s[k]?.net ?? 0), 0);
   return { signals: signals.length, traded: traded.length, skipped: signals.length - traded.length, lock: sum('lock'), target: sum('target'), lockWins: traded.filter((s) => s.lock.net > 0).length, targetWins: traded.filter((s) => s.target.net > 0).length };
+}
+
+const HHMM = (clock, t) => clock(t);
+
+/** The biggest moves of the day with what the signals near their start did, in one sentence each: this is how a missed move is traced. */
+export function moveLines(moves, patterns, clock = HHMM.bind(null, (t) => t)) {
+  const name = (key) => shortLabel(patterns.find((p) => p.key === key)?.label ?? key);
+  return (moves || []).map((m) => {
+    const head = `${m.side === 'CE' ? 'Up' : 'Down'} ${Math.round(m.pts)} points, ${clock(m.from)} to ${clock(m.to)} (a ${m.side === 'CE' ? 'call' : 'put'} bought at the low would have been on the right side).`;
+    if (!m.signals.length) return `${head} No signal formed within 15 minutes before it or during it, so none of the patterns or combinations in this list would have caught it.`;
+    const parts = m.signals.map((x) => `${name(x.technique)} at ${clock(x.time)} ${x.skipped ? `was skipped (${SKIP_SHORT[x.skipped] || x.skipped})` : `was traded: ${formatPnl(x.net)}`}`);
+    return `${head} Signals near it: ${parts.join('; ')}.`;
+  });
+}
+
+const SKIP_SHORT = { far: 'stop too far', limit: 'over the loss limit', late: 'after the exit time', price: 'no option price' };
+
+/** How the checks of a combination stood when it fired: ✓ for a check that held, – for one that did not (a combination of "at least 2 of 3" can fire without all). */
+export function whyText(why) {
+  if (!why?.length) return '';
+  return why.map((w) => (w.held ? `✓ ${w.label}` : `– ${w.label}`)).join('  ');
 }

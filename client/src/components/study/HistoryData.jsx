@@ -3,7 +3,7 @@ import { Database, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
-import { jobPercent, savedText, SYNC_LABEL } from '../../lib/history.js';
+import { jobPercent, liveText, savedText, SYNC_LABEL } from '../../lib/history.js';
 import { Badge, Card, Skeleton } from '../ui.jsx';
 
 const JOB_TONE = { running: 'accent', done: 'up', partial: 'warn', failed: 'down' };
@@ -46,12 +46,13 @@ export function HistoryData() {
           <h3 className="text-sm font-semibold">Saved candles</h3>
         </div>
         <p className="num text-xs">{savedText(data.saved)}</p>
+        {!data.simulated && data.saved?.days > 0 && <p className="text-[11px] text-muted">{liveText(data.liveAt)}</p>}
         {data.simulated && <p className="text-[11px] text-warn">The sample feed has no real history. Log in to Upstox, then download.</p>}
         <button type="button" onClick={start} disabled={starting || running || data.simulated} className="btn btn-primary w-full">
           <Download size={16} aria-hidden />
           {running ? 'Downloading…' : SYNC_LABEL}
         </button>
-        <p className="text-[11px] leading-snug text-muted">The first full download asks Upstox for about 3 months of candles, paced to stay under its limit, so it takes a few minutes. Days already saved are never fetched again, so pressing it twice only fetches what is missing. After 15:40 each weekday the day is added on its own.</p>
+        <p className="text-[11px] leading-snug text-muted">The first press asks Upstox for about 3 months of candles, paced to stay under its limit, so it takes a few minutes. After that it only fetches the days that are missing and today so far (so a study can include today), and removes the oldest days beyond 3 months. Days already saved are never fetched again, except today, which is read again on each press. After 15:40 each weekday the day is completed on its own.</p>
       </Card>
 
       {job && job.state !== 'idle' && (

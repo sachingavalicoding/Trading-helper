@@ -315,8 +315,8 @@ Candle history (daily, minute and intraday) leaves for Upstox at most 5 requests
 
 Studies and Review read three months of 1-minute candles (Nifty and the 50 stocks) from your own MongoDB instead of calling Upstox again each time. Charts, option charts, trading and live prices still use Upstox directly.
 
-- **One button:** log in to Upstox, then Account > Studies > Data > "Download last 3 months" (or `POST /api/history/sync`). It fetches only the days that are not saved yet, so pressing it again costs nothing, and it resumes where it stopped if it is interrupted or rate limited. The sample (mock) feed has no history, so the button is refused there.
-- **Storage:** one packed, gzipped document per symbol per day (`CandleDay`, about 3 KB) plus a coverage record per symbol (`CandleCoverage`). Roughly 10 MB for 51 symbols. Only finished days are stored (a day counts as finished after 15:35 IST).
+- **One button:** log in to Upstox, then Account > Studies > Data > "Update to now" (or `POST /api/history/sync`, `live` true by default). The first press downloads about 3 months. After that it fetches only the days that are not saved yet **and today so far** (from Upstox's intraday candles, so a study can include today), and then removes the oldest days beyond 3 months. Today is read again on each press and stays marked partial (`CandleCoverage.partial`) until the evening top-up replaces it with the whole day. Days already saved are never fetched again, it resumes where it stopped if it is interrupted or rate limited, and the screen shows how far today is saved. The sample (mock) feed has no history, so the button is refused there.
+- **Storage:** one packed, gzipped document per symbol per day (`CandleDay`, about 3 KB) plus a coverage record per symbol (`CandleCoverage`). Roughly 10 MB for 51 symbols. A finished day (after 15:35 IST) is stored whole; today is stored only by the live update.
 - **Every evening** after 15:40 IST on weekdays the server adds the new day and deletes anything older than 92 days, but only once a first download exists.
 - **Reading:** a study over N days uses the saved days plus today's live candles. Before anything is saved it falls back to asking Upstox, as before. The Options study offers up to 62 trading days (about 3 months); the Shares study stays at 15 days.
 
@@ -339,9 +339,22 @@ Pick several checks and the bot buys only when enough of them agree. Code: `serv
 - **Shares.** A share is read on its own 5-minute bars (its own volume and VWAP, the 50-stock breadth). The Shares study trades each combination on all 50 stocks (one idea per side per stock per day, 09:30 to the exit time) with the same ladder, sizing and charges as the scanner rows. Live, once per 5-minute bar, the auto trader takes a combination idea through the same decision as a scanner idea (stop at least 0.5% and one 5-minute ATR away, size from your Account stop, charges check, open and daily limits); a combination has no score, so the minimum score and the setup switches do not apply to it. News is live only (past headlines are not kept), so a study skips a combination that uses it.
 - **Which checks are worth keeping.** Both studies also trade every check on its own (a trade each time it turns true) and mark it **Keep** (made money overall and in both halves of the period), **Unsteady** (won overall, lost in one half), **Drop** (lost) or **Too few** (under 15 trades). The picker hides the checks the last study marked Drop. With over 100 checks a few look good by luck alone, so Keep is a shortlist to try, not proof: run a longer period and watch it live on paper before trusting it.
 
-## Stop for pattern entries
+## Entry triggers and the stop (Account > Entries > Options)
 
-A pattern's stop is its own chart level (for Breakout: under the lowest low of the last 6 bars), and the bot skips a trade whose stop is over 2.5 ATR from the entry or whose one-lot loss at the stop passes the loss limit. In a strong move that skips many breakouts (130 of 258 signals in the 30-day study). `patternStopMode` on `OptionSettings` (Account > Entries > Options > Stop for pattern entries) can change it: `chart` (default, unchanged), `cap` (the chart level, but pulled in to `patternStopAtr` ATRs when it is further, so the trade is taken instead of skipped) or `atr` (always that many ATRs from the entry). It applies to patterns and combinations alike. The Options study has matching rows, "Breakout + Engulfing, stop 1 / 1.5 / 2 ATR from entry" and "far stops pulled in to 2 ATR" (`ruleStop` in `study/patterns.js`), so you can compare them with the chart stop on the same signals before switching.
+**What triggers a buy** is three separate switches: *Score* (the original all-checks rule), *Chart patterns* (the patterns you pick) and *My combinations* (`comboEntries`, the ones you built). Any mix works, including only one of them. Patterns and combinations are checked first on each closed 5-minute bar, then the score.
+
+**Where the stop goes** is one choice for every trigger, the study and Review (`patternStopMode`, `patternStopAtr`, `patternStopPoints` on `OptionSettings`; `ruleStop` and `stopRuleOf` in `study/patterns.js`):
+
+- **Calculated** (`chart`, the default): the chart level where the idea is proven wrong (for Breakout, under the lowest low of the last 6 bars). The bot skips a trade whose stop is over 2.5 ATR from the entry or whose one-lot loss passes the loss limit.
+- **Calculated, capped** (`cap`): the chart level, but pulled in to that many ATRs when it is further, so the trade is taken instead of skipped.
+- **ATR** (`atr`): always that many ATRs from the entry.
+- **Fixed** (`fixed`): always that many Nifty points from the entry.
+
+For a score entry anything but Calculated moves the stop the score read gave. The Options study trades every row with the chosen rule and also keeps comparison rows with their own rules ("Breakout + Engulfing, stop 1 / 1.5 / 2 ATR from entry", "far stops pulled in to 2 ATR", "fixed stop 20 / 30 / 40 points"), so you can compare them on the same signals before switching. In the 30-day study of 15 Sep to 29 Oct the chart stop beat every stop measured from the entry (+₹20.6k against +₹14.8k for the pulled-in stop and less for the others), because a stop at the chart level is hit less often. Shares keep their own stop.
+
+## Review (Patterns)
+
+For one day Review draws the Nifty chart with each pattern and each of *your combinations* ("Mine" chips, switched on the first time they appear). Tap a signal to see what a one-lot buy would have done under your profit lock and under a fixed booking, **which of the combination's checks held** when it fired, and **what each stop would have done to it** (chart level, 1 / 1.5 / 2 ATR, 20 / 30 / 40 points: how far it is and whether the index went that far against the entry within the hour). *Biggest moves of the day* finds the largest run up and down afterwards and lists the signals near its start, so a missed move is traced to a skipped signal (and why) or to no signal at all. Stops follow your stop setting.
 
 ## Honest limitations
 

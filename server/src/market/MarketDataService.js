@@ -136,9 +136,11 @@ export class MarketDataService extends EventEmitter {
     const cov = this.history ? await this.history.coverage(symbol).catch(() => null) : null;
     if (!cov) return this.getRange(symbol, unit, days);
     const today = istParts(new Date()).dateKey;
-    const stored = await this.history.read(symbol, addDays(today, -days), cov.to);
-    const since = daysBetween(cov.to, today);
-    const tail = since >= 1 ? (await this.getRange(symbol, 1, since + 1)).filter((c) => istParts(new Date(c.time * 1000)).dateKey > cov.to) : [];
+    // a day saved only up to some time of an earlier date is read again from the broker, whole
+    const upTo = cov.partial && cov.partial < today ? addDays(cov.partial, -1) : cov.to;
+    const stored = await this.history.read(symbol, addDays(today, -days), upTo);
+    const since = daysBetween(upTo, today);
+    const tail = since >= 1 ? (await this.getRange(symbol, 1, since + 1)).filter((c) => istParts(new Date(c.time * 1000)).dateKey > upTo) : [];
     const merged = [...new Map([...stored, ...tail].map((c) => [c.time, c])).values()].sort((a, b) => a.time - b.time);
     return unit === 1 ? merged : aggregateCandles(merged.map((c) => ({ ...c })), `${unit}m`);
   }

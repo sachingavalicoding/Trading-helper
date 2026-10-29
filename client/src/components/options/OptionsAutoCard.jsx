@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { formatPrice, pnlClass } from '../../lib/format.js';
 import { Badge, Card, Segmented } from '../ui.jsx';
+import { STOP_ATRS, STOP_MODES, STOP_POINTS } from '../../lib/stops.js';
 
 const FIELDS = [
   { key: 'budget', label: 'Money set aside for options (₹)', step: 1000, min: 5000, max: 100000000 },
@@ -11,12 +12,6 @@ const FIELDS = [
   { key: 'maxTrades', label: 'Most trades a day', step: 1, min: 1, max: 10 },
   { key: 'dailyLossPct', label: 'Stop for the day after losing (%)', step: 1, min: 2, max: 30 },
   { key: 'minScore', label: 'Minimum score', step: 5, min: 60, max: 100 },
-];
-
-const STOP_MODES = [
-  { value: 'chart', label: 'Chart level' },
-  { value: 'cap', label: 'Chart, pulled in' },
-  { value: 'atr', label: 'From entry' },
 ];
 
 const STUDY_WINNERS = ['breakout', 'engulfing']; // 30-day study: over 20 trades each and a win rate above the roughly 61% break-even (inside bar and EMA cross made money on only 6 and 7 trades)
@@ -46,12 +41,23 @@ export function OptionsEntries({ data, reload }) {
   const s = data.settings;
   const chosen = new Set(s.patterns);
   const toggle = (key) => save({ patterns: data.patternChoices.map((p) => p.key).filter((k) => (k === key ? !chosen.has(k) : chosen.has(k))) });
+  const mine = (s.combos || []).filter((c) => c.on).length;
+  const triggers = [s.scoreEntries && 'score', s.patternEntries && s.patterns.length > 0 && 'patterns', s.comboEntries && mine > 0 && 'combinations'].filter(Boolean);
+  const mode = STOP_MODES.find((m) => m.value === s.patternStopMode) ?? STOP_MODES[0];
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="space-y-2">
+        <h4 className="text-xs font-semibold">What triggers a buy</h4>
+        <p className="text-[11px] leading-snug text-muted">Switch on any mix. Each one on its own works too: only score, only patterns, only your combinations, or all three.</p>
         <div className="flex items-center justify-between gap-3">
           <p className="text-[11px] leading-snug text-muted">
-            <b className="text-fg">Chart patterns.</b> Buys when a pattern completes on a closed 5-minute bar, with the pattern's own chart stop.
+            <b className="text-fg">Score.</b> The original rule: every chart check agrees and the score reaches the minimum.
+          </p>
+          <Switch on={s.scoreEntries} disabled={busy} label="Score entries" onClick={() => save({ scoreEntries: !s.scoreEntries })} />
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] leading-snug text-muted">
+            <b className="text-fg">Chart patterns.</b> Buys when a pattern completes on a closed 5-minute bar. Pick the patterns below.
           </p>
           <Switch on={s.patternEntries} disabled={busy} label="Chart patterns" onClick={() => save({ patternEntries: !s.patternEntries })} />
         </div>
@@ -67,30 +73,44 @@ export function OptionsEntries({ data, reload }) {
             ))}
           </ul>
         )}
-        <div className="space-y-1.5">
-          <p className="text-[11px] leading-snug text-muted">
-            <b className="text-fg">Stop for pattern entries.</b> The pattern's own chart level can be far away, and the bot skips a trade whose stop is over 2.5 ATR (about 2.5 five-minute swings) from the entry. The study rows "Breakout + Engulfing, stop … ATR" show what each choice would have earned.
-          </p>
-          <Segmented className="w-full" size="sm" value={s.patternStopMode} onChange={(v) => save({ patternStopMode: v })} options={STOP_MODES} />
-          {s.patternStopMode !== 'chart' && (
-            <label className="flex items-center justify-between gap-3 text-xs text-muted">
-              <span>{s.patternStopMode === 'cap' ? 'Never further than' : 'Always'} (ATRs from the entry)</span>
-              <select className="field num !w-24 !px-2 !py-1.5 !text-sm" value={s.patternStopAtr} disabled={busy} onChange={(e) => save({ patternStopAtr: Number(e.target.value) })} aria-label="Stop distance in ATRs">
-                {[0.8, 1, 1.5, 2, 2.5].map((k) => (
-                  <option key={k} value={k}>
-                    {k} ATR
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
         <div className="flex items-center justify-between gap-3">
           <p className="text-[11px] leading-snug text-muted">
-            <b className="text-fg">Score entries.</b> The original rule: every chart check agrees and the score reaches the minimum.
+            <b className="text-fg">My combinations.</b> Buys when one of the combinations you built turns true ({mine ? `${mine} switched on` : 'none built yet, make one under My combinations'}).
           </p>
-          <Switch on={s.scoreEntries} disabled={busy} label="Score entries" onClick={() => save({ scoreEntries: !s.scoreEntries })} />
+          <Switch on={s.comboEntries} disabled={busy} label="My combinations" onClick={() => save({ comboEntries: !s.comboEntries })} />
         </div>
+        <p className={`text-[11px] leading-snug ${triggers.length ? 'text-muted' : 'text-warn'}`}>{triggers.length ? `Buying on: ${triggers.join(', ')}. Patterns and combinations are checked first, then the score.` : 'Nothing will be bought: switch on at least one trigger.'}</p>
+      </div>
+
+      <div className="space-y-1.5">
+        <h4 className="text-xs font-semibold">Where the stop goes</h4>
+        <p className="text-[11px] leading-snug text-muted">Used for every trigger above, in the study and in Review. {mode.hint}</p>
+        <Segmented className="w-full" size="sm" value={s.patternStopMode} onChange={(v) => save({ patternStopMode: v })} options={STOP_MODES.map((m) => ({ value: m.value, label: m.label }))} />
+        {(s.patternStopMode === 'cap' || s.patternStopMode === 'atr') && (
+          <label className="flex items-center justify-between gap-3 text-xs text-muted">
+            <span>{s.patternStopMode === 'cap' ? 'Never further than' : 'Always'} (ATRs from the entry)</span>
+            <select className="field num !w-24 !px-2 !py-1.5 !text-sm" value={s.patternStopAtr} disabled={busy} onChange={(e) => save({ patternStopAtr: Number(e.target.value) })} aria-label="Stop distance in ATRs">
+              {STOP_ATRS.map((k) => (
+                <option key={k} value={k}>
+                  {k} ATR
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {s.patternStopMode === 'fixed' && (
+          <label className="flex items-center justify-between gap-3 text-xs text-muted">
+            <span>Nifty points from the entry</span>
+            <select className="field num !w-24 !px-2 !py-1.5 !text-sm" value={s.patternStopPoints} disabled={busy} onChange={(e) => save({ patternStopPoints: Number(e.target.value) })} aria-label="Stop distance in points">
+              {(STOP_POINTS.includes(s.patternStopPoints) ? STOP_POINTS : [...STOP_POINTS, s.patternStopPoints].sort((x, y) => x - y)).map((p) => (
+                <option key={p} value={p}>
+                  {p} pts
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <p className="text-[11px] leading-snug text-muted">A stop over 2.5 ATR from the entry, or one that risks more than your loss limit for one lot, is still skipped. The study rows "Breakout + Engulfing, stop …" show what each choice would have earned. The profit lock after entry is the same for all.</p>
       </div>
     </div>
   );
@@ -141,7 +161,7 @@ export function OptionsAutoCard({ data, reload }) {
         Buys one Nifty at-the-money call or put when the chart is clear. The stop and the profit lock are the ones in your Account tab, and everything the auto trader bought is closed at the exit time in your Account tab (15:15 unless you changed it).
       </p>
       <p className="text-[11px] leading-snug text-muted">
-        Buys on: {s.patternEntries ? `${s.patterns.length} chart patterns` : 'no chart patterns'}, score entries {s.scoreEntries ? 'on' : 'off'}. Change this in Account &gt; Entries.
+        Buys on: {s.patternEntries ? `${s.patterns.length} chart patterns` : 'no chart patterns'}, {s.comboEntries ? 'your combinations' : 'no combinations'}, score entries {s.scoreEntries ? 'on' : 'off'}. Change this in Account &gt; Entries.
       </p>
       <p className="text-[11px] leading-snug text-muted">{data.disclaimer}</p>
     </Card>

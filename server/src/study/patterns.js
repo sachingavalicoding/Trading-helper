@@ -34,17 +34,23 @@ export const TECHNIQUES = [
 ];
 
 /**
- * Where a pattern trade's stop goes for a given entry. `rule` is { mode: 'chart' | 'cap' | 'atr', k }: 'chart' is the pattern's own level,
- * 'cap' is that level but never further than k ATR from the entry (a far stop is pulled in instead of the trade being skipped), 'atr' is always k ATR
- * from the entry. Works for a call (stop below) and a put (stop above); `signal` is { side, stop, atr }.
+ * Where a trade's stop goes for a given entry. `rule` is { mode: 'chart' | 'cap' | 'atr' | 'fixed', k, points }: 'chart' is the pattern's own
+ * level, 'cap' is that level but never further than k ATR from the entry (a far stop is pulled in instead of the trade being skipped), 'atr' is
+ * always k ATR from the entry, 'fixed' is always `points` Nifty points from the entry. Works for a call (stop below) and a put (stop above);
+ * `signal` is { side, stop, atr }.
  */
 export function ruleStop(signal, entry, rule) {
-  if (!rule || rule.mode === 'chart' || !(rule.k > 0)) return signal.stop;
+  if (!rule || rule.mode === 'chart') return signal.stop;
   const d = signal.side === 'CE' ? 1 : -1;
+  if (rule.mode === 'fixed') return rule.points > 0 ? entry - d * rule.points : signal.stop;
+  if (!(rule.k > 0)) return signal.stop;
   const reach = rule.k * signal.atr;
   if (rule.mode === 'atr') return entry - d * reach;
   return d * (entry - signal.stop) > reach ? entry - d * reach : signal.stop;
 }
+
+/** The stop rule a user's options settings describe (Account > Entries > Stop). */
+export const stopRuleOf = (settings) => ({ mode: settings?.patternStopMode ?? 'chart', k: settings?.patternStopAtr ?? 2, points: settings?.patternStopPoints ?? 30 });
 
 /** Techniques that can be tested with the data at hand: the ones that need the 50 stocks' volume wait until it is known. */
 export const available = (t, { breadth = false, flow = false } = {}) => (t.key !== 'breadth' || breadth) && (t.needs !== 'flow' || flow);

@@ -166,6 +166,19 @@ export class UpstoxProvider extends BaseProvider {
     return [...seen.values()].sort((a, b) => a.time - b.time);
   }
 
+  /** Today's `unit`-minute candles so far, from the intraday endpoint, oldest first. Throws on a refused or failed call. */
+  async getTodayCandles(symbol, unit) {
+    const key = this.keyBySymbol.get(symbol);
+    if (!key) return [];
+    const res = await this.#get(`/v3/historical-candle/intraday/${encodeURIComponent(key)}/minutes/${unit}`);
+    const seen = new Map();
+    for (const [ts, open, high, low, close, volume] of res?.data?.candles || []) {
+      const time = Math.floor(new Date(ts).getTime() / 1000);
+      seen.set(time, { time, open, high, low, close, volume: volume || 0 });
+    }
+    return [...seen.values()].sort((a, b) => a.time - b.time);
+  }
+
   async getDailyHistory(symbol, days = 45) {
     const key = this.keyBySymbol.get(symbol);
     if (!key) return [];

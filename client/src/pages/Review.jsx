@@ -4,7 +4,8 @@ import { ChevronLeft, ChevronRight, Lightbulb } from 'lucide-react';
 import { useApi } from '../lib/useApi.js';
 import { formatPnl, formatPrice, pnlClass } from '../lib/format.js';
 import { VERDICT, pctText, shiftDay, takeaways } from '../lib/review.js';
-import { afterText, dayTotals, exitLine, loadWatch, saveWatch, shortLabel, sideWord, skipText, watched } from '../lib/patternReview.js';
+import { afterText, dayTotals, exitLine, loadSeen, loadWatch, moveLines, offerCombos, saveSeen, saveWatch, shortLabel, sideWord, skipText, watched, whyText } from '../lib/patternReview.js';
+import { stopRuleText, whatIfText } from '../lib/stops.js';
 import { ReviewChart } from '../components/ReviewChart.jsx';
 import { PatternChart } from '../components/PatternChart.jsx';
 import { ReviewStockSheet } from '../components/ReviewStockSheet.jsx';
@@ -225,7 +226,26 @@ function SignalDetail({ s, pattern, exits }) {
       <p className="text-xs">
         Nifty <b className="num">{formatPrice(s.entry)}</b> at entry. Stop at <b className="num text-down">{formatPrice(s.stop)}</b> ({Math.round(s.stopPts)} points away).
       </p>
+      {s.why && (
+        <p className="rounded-xl bg-surface-2 p-2 text-[11px] leading-snug">
+          <b>Why it fired.</b> {whyText(s.why)}
+        </p>
+      )}
       <p className="text-xs leading-snug">{afterText(s)}</p>
+      {s.whatIf && (
+        <div className="space-y-1">
+          <div className="text-[11px] font-semibold">If the stop had been placed differently</div>
+          <ul className="grid grid-cols-1 gap-x-3 text-[11px] sm:grid-cols-2">
+            {s.whatIf.map((w) => (
+              <li key={w.key} className="flex justify-between gap-2 border-b border-line py-0.5">
+                <span>{w.label}</span>
+                <span className={`num text-right ${w.hitAfter == null ? 'text-up' : 'text-down'}`}>{whatIfText(w)}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[11px] leading-snug text-muted">"Held for the hour" means the index never went that far against the entry in the first hour. A tight stop that gets hit early would have cut a trade that later went your way; a wide one risks more money per lot.</p>
+        </div>
+      )}
       {s.skipped ? (
         <p className="rounded-xl bg-surface-2 p-2.5 text-xs">{skipText(s, exits)}</p>
       ) : (
@@ -262,6 +282,13 @@ function PatternsTab({ day }) {
   const [watch, setWatch] = useState(loadWatch);
   const [selected, setSelected] = useState(null);
   useEffect(() => setSelected(null), [day]);
+  useEffect(() => {
+    const offer = data && offerCombos(watch, loadSeen(), data.patterns);
+    if (!offer) return;
+    setWatch(offer.watch);
+    saveWatch(offer.watch);
+    saveSeen(offer.seen);
+  }, [data, watch]);
   const chosen = useMemo(() => watched(data?.signals ?? [], watch), [data, watch]);
   const totals = useMemo(() => dayTotals(chosen), [chosen]);
   if (loading && !data) return <Skeleton className="h-72 w-full" />;
@@ -292,8 +319,26 @@ function PatternsTab({ day }) {
             ))}
         </div>
         {data.note && <p className="text-[11px] text-warn">{data.note}</p>}
+        {data.combosSkipped?.map((c) => (
+          <p key={c.id} className="text-[11px] text-warn">
+            {c.name} is not drawn: {c.reason}.
+          </p>
+        ))}
+        <p className="text-[11px] text-muted">Stops on this screen follow your setting: {stopRuleText(data.stopRule)}. Your combinations (Account &gt; Entries) are the "Mine" chips.</p>
         <p className="text-[11px] text-muted">The number is how many times it formed on this day. Arrows on the chart: up for a call, down for a put, grey when the bot would skip it.</p>
       </Card>
+
+      {data.moves?.length > 0 && (
+        <Card className="space-y-1.5 p-3">
+          <div className="text-xs font-semibold">Biggest moves of the day</div>
+          {moveLines(data.moves, data.patterns, clock).map((line) => (
+            <p key={line} className="text-[11px] leading-snug">
+              {line}
+            </p>
+          ))}
+          <p className="text-[11px] leading-snug text-muted">Found afterwards, from the lowest low to the highest high. It shows whether a signal was there at the start, and if it was skipped, why.</p>
+        </Card>
+      )}
 
       <Card className="space-y-2 p-3">
         <PatternChart candles={data.candles} signals={chosen} selected={selected} onPick={(id) => setSelected((cur) => (cur === id ? null : id))} />

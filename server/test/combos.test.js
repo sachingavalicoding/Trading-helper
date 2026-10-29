@@ -313,3 +313,64 @@ test('the options study adds Breakout + Engulfing rows with the stop worked out 
   assert.equal(rows.beAtr10.signals, rows.breakoutEngulf.signals, 'the same signals, a different stop');
   assert.ok(rows.beAtr10.skippedWide <= rows.breakoutEngulf.skippedWide);
 });
+
+// ---------- the stop choice, shared by trading, the study and Review ----------
+
+test('a fixed stop is that many Nifty points from the entry, for calls and puts, and the user settings turn into the rule', async () => {
+  const { ruleStop, stopRuleOf } = await import('../src/study/patterns.js');
+  const call = { side: 'CE', stop: 24900, atr: 10 };
+  const put = { side: 'PE', stop: 25100, atr: 10 };
+  assert.equal(ruleStop(call, 25000, { mode: 'fixed', points: 30 }), 24970);
+  assert.equal(ruleStop(put, 25000, { mode: 'fixed', points: 30 }), 25030);
+  assert.equal(ruleStop(call, 25000, { mode: 'fixed', points: 0 }), 24900, 'no points: the chart level');
+  assert.deepEqual(stopRuleOf({}), { mode: 'chart', k: 2, points: 30 });
+  assert.deepEqual(stopRuleOf({ patternStopMode: 'fixed', patternStopPoints: 45, patternStopAtr: 1.5 }), { mode: 'fixed', k: 1.5, points: 45 });
+});
+
+test('the options study uses the stop rule of the settings on every row, the comparison rows keep their own, and fixed-point rows are added', async () => {
+  const base = { ...PARAMS, days: 10, lossLimit: 1500, maxLots: 2, rank: false };
+  const chart = await runOptionsStudy({ nifty1: minutes(14), params: base });
+  const fixed = await runOptionsStudy({ nifty1: minutes(14), params: { ...base, stopRule: { mode: 'fixed', points: 25 } } });
+  const row = (r, k) => r.techniques.find((t) => t.key === k);
+  for (const k of ['beFix20', 'beFix30', 'beFix40']) assert.ok(row(chart, k), k);
+  assert.match(row(chart, 'beFix30').label, /fixed stop 30 points/);
+  assert.deepEqual(fixed.params.stopRule, { mode: 'fixed', points: 25 });
+  assert.equal(chart.params.stopRule, null);
+  assert.equal(row(fixed, 'beFix30').net, row(chart, 'beFix30').net, 'a comparison row has its own stop whatever the setting is');
+  const a = row(chart, 'breakoutEngulf');
+  const b = row(fixed, 'breakoutEngulf');
+  assert.equal(a.signals, b.signals);
+  assert.ok(a.net !== b.net || a.trades !== b.trades, 'the setting changes how the main rows trade');
+});
+
+test('Review shows what each stop would have done, the user combinations with the checks that held, and the biggest moves with the signals near them', async () => {
+  const { reviewPatterns } = await import('../src/review/patterns.js');
+  const c1 = minutes(8);
+  const dayOf = (t) => new Date(t * 1000 + 19800_000).toISOString().slice(0, 10);
+  const days = [...new Set(c1.map((b) => dayOf(b.time)))].slice(3);
+  const combo = { id: 'trendpush', name: 'Trend push', conds: ['rsiAbove50', 'macdZero'], need: 1, window: 3, on: true };
+  let seen = null;
+  for (const d of days) {
+    const r = reviewPatterns({ c1, day: d, params: { ...PARAMS, lossLimit: 1500, maxLots: 2 }, combos: [combo], stopRule: { mode: 'fixed', points: 30 } });
+    if (!seen || r.signals.length > seen.signals.length) seen = r;
+  }
+  assert.ok(seen.patterns.some((p) => p.key === 'combo:trendpush' && p.combo && /Mine: Trend push/.test(p.label)));
+  assert.deepEqual(seen.stopRule, { mode: 'fixed', points: 30 });
+  assert.ok(seen.signals.length > 0);
+  for (const s of seen.signals) {
+    assert.deepEqual(s.whatIf.map((w) => w.key), ['chart', 'atr10', 'atr15', 'atr20', 'fix20', 'fix30', 'fix40']);
+    assert.ok(s.whatIf.every((w) => w.pts >= 0 && (w.hitAfter == null || w.hitAfter >= 0)));
+    assert.equal(s.whatIf.find((w) => w.key === 'fix30').pts, 30);
+    assert.ok(s.whatIf.find((w) => w.key === 'fix30').hitAfter == null || Math.abs(s.worst.pts) >= 29.9, 'hit only when the index went that far against it');
+  }
+  const mine = seen.signals.filter((s) => s.technique === 'combo:trendpush');
+  assert.ok(mine.length > 0, 'the combination fired on the random chart');
+  assert.ok(mine.every((s) => s.why.length === 2 && s.why.some((w) => w.held)));
+  assert.ok(Array.isArray(seen.moves) && seen.moves.every((m) => m.pts >= 30 && m.to > m.from && ['CE', 'PE'].includes(m.side)));
+  assert.ok(seen.moves.flatMap((m) => m.signals).every((x) => x.id && x.technique && typeof x.time === 'number'));
+
+  const flowCheck = CONDITIONS.find((c) => c.needs === 'flow');
+  const skipped = reviewPatterns({ c1, day: days[0], params: PARAMS, combos: [{ id: 'vol', name: 'Volume push', conds: [flowCheck.key], need: 1, window: 3, on: true }] });
+  assert.equal(skipped.combosSkipped.length, 1);
+  assert.match(skipped.combosSkipped[0].reason, /volume of the 50 stocks/);
+});

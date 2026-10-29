@@ -9,6 +9,7 @@ import { OptionsStudy } from '../options/OptionsStudy.jsx';
 import { OptionsEntries, Switch } from '../options/OptionsAutoCard.jsx';
 import { SharesStudy } from './SharesStudy.jsx';
 import { HistoryData } from './HistoryData.jsx';
+import { stopShort } from '../../lib/stops.js';
 import { ComboBuilder } from './ComboBuilder.jsx';
 
 const STUDIES = [
@@ -83,7 +84,7 @@ export function entrySummary(options, auto) {
     const chosen = new Set(s.patterns);
     const labels = options.patternChoices.filter((p) => chosen.has(p.key)).map((p) => p.label.split(' (')[0]);
     const mine = (s.combos || []).filter((c) => c.on).length;
-    parts.push(`Options: ${s.patternEntries ? (labels.length ? labels.join(', ') : 'no pattern') : 'patterns off'}, score entries ${s.scoreEntries ? 'on' : 'off'}${mine ? `, ${mine} of your combinations` : ''}`);
+    parts.push(`Options: ${s.patternEntries ? (labels.length ? labels.join(', ') : 'no pattern') : 'patterns off'}, score entries ${s.scoreEntries ? 'on' : 'off'}${mine ? `, ${s.comboEntries === false ? 'combinations off' : `${mine} of your combinations`}` : ''}, ${stopShort(s)}`);
   }
   if (auto) {
     const off = new Set(auto.settings.skipSetups);

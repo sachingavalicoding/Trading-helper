@@ -102,3 +102,17 @@ describe('combinations and indicators in the pasted text', () => {
     expect(text).toMatch(/Indicators on their own \(buys and sells\)/);
   });
 });
+
+describe('stop rule text', () => {
+  it('describes each way of placing the stop', async () => {
+    const { stopRuleText, stopShort, whatIfText } = await import('./stops.js');
+    expect(stopRuleText(null)).toBe('stop is the chart level on a closed 1-minute candle');
+    expect(stopRuleText({ mode: 'cap', k: 2 })).toMatch(/pulled in to 2 ATR/);
+    expect(stopRuleText({ mode: 'atr', k: 1.5 })).toMatch(/1\.5 ATR from the entry/);
+    expect(stopRuleText({ mode: 'fixed', points: 30 })).toMatch(/30 Nifty points from the entry/);
+    expect(stopShort({ patternStopMode: 'fixed', patternStopPoints: 40 })).toBe('40 point stop');
+    expect(stopShort({ patternStopMode: 'chart' })).toBe('chart stop');
+    expect(whatIfText({ pts: 29.6, hitAfter: null })).toBe('30 points, held for the hour');
+    expect(whatIfText({ pts: 20, hitAfter: 12 })).toBe('20 points, hit after 12 min');
+  });
+});

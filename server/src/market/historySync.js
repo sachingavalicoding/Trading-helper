@@ -3,6 +3,7 @@ import { UNDERLYING } from '../options/symbols.js';
 import { addDays } from './days.js';
 import { HistoryStore, RETAIN_DAYS } from './historyStore.js';
 import { conflict, badRequest } from '../utils/errors.js';
+import { istParts } from './marketHours.js';
 import { logger } from '../utils/logger.js';
 
 const WINDOW_DAYS = 27; // the history API reads a month at most per request
@@ -37,13 +38,16 @@ export class HistorySync {
     return this.job;
   }
 
-  /** Starts the download of the last `days` days (what is already saved is skipped) and returns at once. */
-  start({ days = RETAIN_DAYS - 1 } = {}) {
+  /**
+   * Starts the download of the last `days` days (what is already saved is skipped) and returns at once. With `live`, today's candles so far
+   * are saved too (read again on each press), so a study can use the running day.
+   */
+  start({ days = RETAIN_DAYS - 1, live = false } = {}) {
     if (this.job.state === 'running') throw conflict('The download is already running');
     if (this.market.provider.isSimulated) throw badRequest('The sample feed has no real history. Log in to Upstox first.', 'NO_HISTORY');
     const job = { state: 'running', step: 'Starting', done: 0, total: this.symbols.length, failed: [], startedAt: Date.now() };
     this.job = job;
-    this.#run(job, days)
+    this.#run(job, days, live)
       .then(() => Object.assign(job, { state: job.failed.length ? 'partial' : 'done', step: '', finishedAt: Date.now() }))
       .catch((e) => {
         logger.warn(`History download failed: ${e.message}`);
@@ -52,13 +56,13 @@ export class HistorySync {
     return job;
   }
 
-  async #run(job, days) {
+  async #run(job, days, live) {
     const last = this.store.lastCompleteDay();
     const startDay = addDays(last, -days);
     for (const [n, symbol] of this.symbols.entries()) {
       job.step = `${symbol} (${n + 1}/${this.symbols.length})`;
       try {
-        await this.#symbol(symbol, startDay, last);
+        await this.#symbol(symbol, startDay, last, live);
       } catch (e) {
         job.failed.push({ symbol, error: String(e.message).slice(0, 120) });
         logger.warn(`History for ${symbol} stopped: ${e.message}`);
@@ -71,12 +75,14 @@ export class HistorySync {
   }
 
   /** Fills what is missing for one symbol: the days after what is saved, then the days before it, window by window so a stop loses little. */
-  async #symbol(symbol, startDay, last) {
+  async #symbol(symbol, startDay, last, live) {
     const cov = await this.store.coverage(symbol);
     const todo = [];
+    // a day saved only up to some time is read again from its start, as a whole day once the session is over
+    const have = cov?.partial && cov.partial <= last ? addDays(cov.partial, -1) : cov?.to;
     if (!cov) todo.push(...windowsBack(startDay, last));
     else {
-      if (cov.to < last) todo.push(...windowsBack(addDays(cov.to, 1), last).reverse());
+      if (have < last) todo.push(...windowsBack(addDays(have, 1), last).reverse());
       if (cov.from > startDay) todo.push(...windowsBack(startDay, addDays(cov.from, -1)));
     }
     for (const w of todo) {
@@ -84,12 +90,21 @@ export class HistorySync {
       await this.store.saveCandles(symbol, candles);
       await this.store.setCoverage(symbol, w);
     }
+    const today = this.store.today;
+    if (live && today > last) {
+      const candles = (await this.market.provider.getTodayCandles(symbol, 1)).filter((c) => istParts(new Date(c.time * 1000)).dateKey === today);
+      if (candles.length) {
+        await this.store.saveCandles(symbol, candles, { live: true });
+        await this.store.setCoverage(symbol, { from: today, to: today, partial: today });
+      }
+    }
   }
 
   /** Is the saved history behind the last finished session? Only a history that has been downloaded once is topped up by itself. */
   async behind() {
     const cov = await this.store.coverage(UNDERLYING);
-    return Boolean(cov) && cov.to < this.store.lastCompleteDay();
+    const last = this.store.lastCompleteDay();
+    return Boolean(cov) && (cov.to < last || Boolean(cov.partial && cov.partial <= last));
   }
 
   /** Every few minutes: after the close, add the day to the saved history, and trim it to three months. */
@@ -97,7 +112,7 @@ export class HistorySync {
     const tick = async () => {
       try {
         if (this.job.state === 'running' || this.market.provider.isSimulated) return;
-        const { minutes } = (await import('./marketHours.js')).istParts(this.now());
+        const { minutes } = istParts(this.now());
         const weekday = new Date(this.now().getTime() + 19800000).getUTCDay();
         const evening = minutes >= TOP_UP_AFTER_MIN && weekday >= 1 && weekday <= 5;
         if ((evening || this.store.lastCompleteDay() < this.store.today) && (await this.behind())) this.start({ days: RETAIN_DAYS - 1 });

@@ -1,5 +1,6 @@
 import { StudyRun, OptionSettings, AutoSettings } from '../models/index.js';
 import { normalizeCombos } from '../combos/combos.js';
+import { stopRuleOf } from './patterns.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { NIFTY50 } from '../market/instruments.js';
 import { UNDERLYING } from '../options/symbols.js';
@@ -84,6 +85,7 @@ export class StudyService {
       expiryWeekday: this.market.expiryWeekday,
       minScore: settings?.minScore ?? 80,
       combos: normalizeCombos(settings?.combos),
+      stopRule: stopRuleOf(settings),
       lossLimit: rules.stopLoss ?? 0,
       maxLots: settings?.maxLots ?? 2,
       target,
