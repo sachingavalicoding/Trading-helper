@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useApi } from '../../lib/useApi.js';
 import { api } from '../../lib/api.js';
@@ -10,6 +10,7 @@ import { OptionsEntries, Switch } from '../options/OptionsAutoCard.jsx';
 import { SharesStudy } from './SharesStudy.jsx';
 import { HistoryData } from './HistoryData.jsx';
 import { stopShort } from '../../lib/stops.js';
+import { resultLine, resultTone } from '../../lib/results.js';
 import { ComboBuilder } from './ComboBuilder.jsx';
 
 const STUDIES = [
@@ -44,6 +45,8 @@ export function ReportsAndStudies() {
 /** The share setups the auto trader may trade. A switched-off setup still shows in the scanner; it is just not bought. */
 function ShareSetups({ data, reload }) {
   const [busy, setBusy] = useState(false);
+  const study = useApi('/study/shares', []);
+  const stats = useMemo(() => new Map((study.data?.result?.bySetup ?? []).map((r) => [r.key, r])), [study.data]);
   if (!data) return <Skeleton className="h-24" />;
   const off = new Set(data.settings.skipSetups);
 
@@ -62,11 +65,14 @@ function ShareSetups({ data, reload }) {
 
   return (
     <div className="space-y-2">
-      <p className="text-[11px] leading-snug text-muted">The auto trader buys a share only when its setup is on. Level retest and VWAP pullback stay off for good, because they lost money in the track record.</p>
+      <p className="text-[11px] leading-snug text-muted">The auto trader buys a share only when its setup is on. The result under each setup is from your latest Shares study ({study.data?.result ? `${study.data.result.period.days} days` : 'run one under Studies'}). Level retest and VWAP pullback stay off for good, because they lost money in the track record.</p>
       <ul className="divide-y divide-line">
         {data.setupChoices.map((setup) => (
           <li key={setup} className="flex items-center justify-between gap-2 py-1.5 text-xs">
-            <span>{setup}</span>
+            <span className="min-w-0">
+              {setup}
+              {stats.get(setup) && <span className={`num block text-[11px] ${resultTone(stats.get(setup))}`}>{resultLine(stats.get(setup))}</span>}
+            </span>
             <Switch on={!off.has(setup)} disabled={busy} label={setup} onClick={() => toggle(setup)} />
           </li>
         ))}
@@ -84,7 +90,7 @@ export function entrySummary(options, auto) {
     const chosen = new Set(s.patterns);
     const labels = options.patternChoices.filter((p) => chosen.has(p.key)).map((p) => p.label.split(' (')[0]);
     const mine = (s.combos || []).filter((c) => c.on).length;
-    parts.push(`Options: ${s.patternEntries ? (labels.length ? labels.join(', ') : 'no pattern') : 'patterns off'}, score entries ${s.scoreEntries ? 'on' : 'off'}${mine ? `, ${s.comboEntries === false ? 'combinations off' : `${mine} of your combinations`}` : ''}, ${stopShort(s)}`);
+    parts.push(`Options: ${s.patternEntries ? (labels.length ? labels.join(', ') : 'no pattern') : 'patterns off'}, ${s.scoreEntries ? 'score on' : 'score off'}${mine ? `, ${s.comboEntries === false ? 'combinations off' : `${mine} of your combinations`}` : ''}, ${stopShort(s)}`);
   }
   if (auto) {
     const off = new Set(auto.settings.skipSetups);

@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Bot } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
+import { useApi } from '../../lib/useApi.js';
 import { formatPrice, pnlClass } from '../../lib/format.js';
-import { Badge, Card, Segmented } from '../ui.jsx';
+import { Badge, Card, Fold, Segmented } from '../ui.jsx';
+import { resultLine, resultTone } from '../../lib/results.js';
 import { STOP_ATRS, STOP_MODES, STOP_POINTS } from '../../lib/stops.js';
 
 const FIELDS = [
@@ -11,7 +13,6 @@ const FIELDS = [
   { key: 'maxLots', label: 'Most lots in one trade', step: 1, min: 1, max: 20 },
   { key: 'maxTrades', label: 'Most trades a day', step: 1, min: 1, max: 10 },
   { key: 'dailyLossPct', label: 'Stop for the day after losing (%)', step: 1, min: 2, max: 30 },
-  { key: 'minScore', label: 'Minimum score', step: 5, min: 60, max: 100 },
 ];
 
 const STUDY_WINNERS = ['breakout', 'engulfing']; // 30-day study: over 20 trades each and a win rate above the roughly 61% break-even (inside bar and EMA cross made money on only 6 and 7 trades)
@@ -41,36 +42,36 @@ export function OptionsEntries({ data, reload }) {
   const s = data.settings;
   const chosen = new Set(s.patterns);
   const toggle = (key) => save({ patterns: data.patternChoices.map((p) => p.key).filter((k) => (k === key ? !chosen.has(k) : chosen.has(k))) });
+  const study = useApi('/study/options', []);
+  const stats = useMemo(() => new Map((study.data?.result?.techniques ?? []).map((t) => [t.key, t])), [study.data]);
   const mine = (s.combos || []).filter((c) => c.on).length;
-  const triggers = [s.scoreEntries && 'score', s.patternEntries && s.patterns.length > 0 && 'patterns', s.comboEntries && mine > 0 && 'combinations'].filter(Boolean);
+  const triggers = [s.patternEntries && s.patterns.length > 0 && 'patterns', s.comboEntries && mine > 0 && 'combinations', s.scoreEntries && 'score'].filter(Boolean);
   const mode = STOP_MODES.find((m) => m.value === s.patternStopMode) ?? STOP_MODES[0];
   return (
     <div className="space-y-3">
       <div className="space-y-2">
         <h4 className="text-xs font-semibold">What triggers a buy</h4>
-        <p className="text-[11px] leading-snug text-muted">Switch on any mix. Each one on its own works too: only score, only patterns, only your combinations, or all three.</p>
+        <p className="text-[11px] leading-snug text-muted">Switch on what you trust. The result beside each pattern is from your latest Options study ({study.data?.result ? `${study.data.result.period.days} days` : 'run one under Studies'}), so you can see which ones pay before you switch them on.</p>
         <div className="flex items-center justify-between gap-3">
           <p className="text-[11px] leading-snug text-muted">
-            <b className="text-fg">Score.</b> The original rule: every chart check agrees and the score reaches the minimum.
-          </p>
-          <Switch on={s.scoreEntries} disabled={busy} label="Score entries" onClick={() => save({ scoreEntries: !s.scoreEntries })} />
-        </div>
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] leading-snug text-muted">
-            <b className="text-fg">Chart patterns.</b> Buys when a pattern completes on a closed 5-minute bar. Pick the patterns below.
+            <b className="text-fg">Chart patterns.</b> Buys when a pattern completes on a closed 5-minute bar.
           </p>
           <Switch on={s.patternEntries} disabled={busy} label="Chart patterns" onClick={() => save({ patternEntries: !s.patternEntries })} />
         </div>
         {s.patternEntries && (
           <ul className="divide-y divide-line">
-            {data.patternChoices.map((p) => (
-              <li key={p.key} className="flex items-center justify-between gap-2 py-1.5 text-xs">
-                <span className="min-w-0">
-                  {p.label} {STUDY_WINNERS.includes(p.key) && <Badge tone="up">Study winner</Badge>}
-                </span>
-                <Switch on={chosen.has(p.key)} disabled={busy} label={p.label} onClick={() => toggle(p.key)} />
-              </li>
-            ))}
+            {data.patternChoices.map((p) => {
+              const r = stats.get(p.key);
+              return (
+                <li key={p.key} className="flex items-center justify-between gap-2 py-1.5 text-xs">
+                  <span className="min-w-0">
+                    {p.label} {STUDY_WINNERS.includes(p.key) && <Badge tone="up">Study winner</Badge>}
+                    {r && <span className={`num block text-[11px] ${resultTone(r)}`}>{resultLine(r)}</span>}
+                  </span>
+                  <Switch on={chosen.has(p.key)} disabled={busy} label={p.label} onClick={() => toggle(p.key)} />
+                </li>
+              );
+            })}
           </ul>
         )}
         <div className="flex items-center justify-between gap-3">
@@ -79,7 +80,19 @@ export function OptionsEntries({ data, reload }) {
           </p>
           <Switch on={s.comboEntries} disabled={busy} label="My combinations" onClick={() => save({ comboEntries: !s.comboEntries })} />
         </div>
-        <p className={`text-[11px] leading-snug ${triggers.length ? 'text-muted' : 'text-warn'}`}>{triggers.length ? `Buying on: ${triggers.join(', ')}. Patterns and combinations are checked first, then the score.` : 'Nothing will be bought: switch on at least one trigger.'}</p>
+        <p className={`text-[11px] leading-snug ${triggers.length ? 'text-muted' : 'text-warn'}`}>{triggers.length ? `Buying on: ${triggers.join(', ')}.` : 'Nothing will be bought: switch on at least one trigger.'}</p>
+        <Fold id="opt-score" title="Score entries (advanced)" summary={s.scoreEntries ? `On, minimum ${s.minScore}. In the studies so far it lost money.` : 'Off. In the studies so far it lost money.'} plain>
+          <div className="space-y-2 pt-1">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] leading-snug text-muted">The original rule: every chart check agrees and the score reaches the minimum. In the studies so far it lost money, so it is kept off.</p>
+              <Switch on={s.scoreEntries} disabled={busy} label="Score entries" onClick={() => save({ scoreEntries: !s.scoreEntries })} />
+            </div>
+            <label className="flex items-center justify-between gap-3 text-xs text-muted">
+              <span>Minimum score</span>
+              <input type="number" inputMode="numeric" defaultValue={s.minScore} step={5} min={60} max={100} onBlur={(e) => e.target.value !== '' && Number(e.target.value) !== s.minScore && save({ minScore: Number(e.target.value) })} className="field num !w-24 !px-2 !py-1.5 text-right !text-sm" aria-label="Minimum score" />
+            </label>
+          </div>
+        </Fold>
       </div>
 
       <div className="space-y-1.5">

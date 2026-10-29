@@ -5,7 +5,7 @@ import { setup, teardown, closeDb, registerUser, settle } from './helpers.js';
 import { createApp } from '../src/app.js';
 import { OptionTrader } from '../src/options/optionTrader.js';
 import { AutoTrader } from '../src/auto/autoTrader.js';
-import { AutoLog, Order, Position, Trade, OptionSettings } from '../src/models/index.js';
+import { AutoLog, Order, Position, Trade, OptionSettings, TradeDefaults } from '../src/models/index.js';
 import { optionSymbol, parseOptionSymbol, isOptionSymbol, weeklyExpiries, chooseExpiry, atmStrike, optionLabel } from '../src/options/symbols.js';
 import { bsPrice, bsDelta, impliedVol } from '../src/options/pricing.js';
 import { calculateCharges, roundTripCharges } from '../src/services/charges.js';
@@ -550,6 +550,17 @@ test('combinations are saved, cleaned and shown with the list of checks they can
   assert.equal((await api().put('/api/options').set(u.auth).send({ combos: [] }).expect(200)).body.settings.combos.length, 0);
 });
 
+test('the trailing stop is saved with the options settings, off by default, and bad numbers are refused', async () => {
+  const u = await registerUser(app);
+  const first = (await api().get('/api/options').set(u.auth).expect(200)).body.settings;
+  assert.equal(first.trailMode, 'off');
+  assert.equal(first.trailPoints, 25);
+  const saved = (await api().put('/api/options').set(u.auth).send({ trailMode: 'points', trailPoints: 30, trailStart: 20 }).expect(200)).body.settings;
+  assert.deepEqual([saved.trailMode, saved.trailPoints, saved.trailStart], ['points', 30, 20]);
+  await api().put('/api/options').set(u.auth).send({ trailPoints: 1 }).expect(400);
+  await api().put('/api/options').set(u.auth).send({ trailMode: 'dollars' }).expect(400);
+});
+
 test('when a 1-minute candle of the index closes beyond the chart stop the trade is closed, and the log says STOP', async () => {
   const fresh = await registerUser(app);
   const uid = fresh.user.id || fresh.user._id;
@@ -594,6 +605,52 @@ test('when a 1-minute candle of the index closes beyond the chart stop the trade
     // After a loss it cools off before the next trade.
     const next = await optionTrader.consider(s, callRead(25000));
     assert.match(next.skipped, /cooling off/);
+  } finally {
+    optionTrader.stop();
+    optionTrader.now = realNow;
+    ctx.provider.setPrice('NIFTY 50', 25000);
+  }
+});
+
+test('a trailing stop follows the best index price by the points you set and sells on a candle that closes under it, and the log says TRAIL', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  ctx.provider.setPrice('NIFTY 50', 25000);
+  await settle();
+  await TradeDefaults.create({ user: uid, options: { stopLoss: 1500, lockStart: 0, lockGap: 1, steps: [] } }); // no profit lock, so only the trailing stop can sell
+  const s = (await OptionSettings.create({ user: uid, enabled: true, maxLots: 1, trailMode: 'points', trailPoints: 10, trailStart: 10 })).toObject();
+  const realNow = optionTrader.now;
+  let clock = Date.now();
+  optionTrader.now = () => new Date(clock);
+  optionTrader.start();
+  const minuteLater = async (price) => {
+    clock += 60_000;
+    ctx.provider.setPrice('NIFTY 50', price);
+    await settle();
+  };
+  try {
+    const r = await optionTrader.consider(s, callRead(25000, 40));
+    assert.ok(r.order, r.skipped);
+    assert.equal(r.plan.stopSpot, 24960);
+    ctx.provider.setPrice('NIFTY 50', 25005); // not yet 10 points: the chart stop stays
+    await settle();
+    ctx.provider.setPrice('NIFTY 50', 25040); // 40 points up: the stop moves to 25030
+    await settle();
+    ctx.provider.setPrice('NIFTY 50', 25032); // falling back never lowers it
+    await settle();
+    await minuteLater(25032);
+    await sleep(50);
+    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'OPEN', 'that candle closed above the trailed stop');
+    await minuteLater(25025); // the next candle ends under 25030
+    await sleep(100);
+    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'OPEN', 'not closed until the candle closes');
+    await minuteLater(25025);
+    await sleep(100);
+    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'CLOSED');
+    const row = await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'PLACED' }).lean();
+    assert.equal(row.outcome.exitReason, 'TRAIL');
+    assert.ok(row.outcome.grossPnl > 0, 'sold above the entry, so the trail locked a profit');
+    assert.equal(row.detail.trail.points, 10);
   } finally {
     optionTrader.stop();
     optionTrader.now = realNow;

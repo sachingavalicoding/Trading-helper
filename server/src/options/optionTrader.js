@@ -2,6 +2,7 @@ import { AutoLog, OptionSettings, Order, Position, Trade } from '../models/index
 import { getFunds } from '../services/walletService.js';
 import { UNDERLYING, isOptionSymbol, optionLabel } from './symbols.js';
 import { readNifty } from './signal.js';
+import { trailOf } from '../study/simulate.js';
 import { TECHNIQUES, prepare, findSignals, turnoverSeries, ruleStop, stopRuleOf, MIN_STOP_ATR, MAX_STOP_ATR } from '../study/patterns.js';
 import { breadthSeries } from '../study/optionsStudy.js';
 import { buildChart } from '../combos/conditions.js';
@@ -70,6 +71,10 @@ export class OptionTrader {
         risk: Math.abs((log.fillPrice ?? log.entry) - log.stopLoss),
         openedAt: log.decidedAt,
         manual: Boolean(log.detail?.manual),
+        entrySpot: log.detail?.entrySpot ?? null,
+        trail: log.detail?.trail ?? null,
+        bestSpot: log.detail?.bestSpot ?? log.detail?.entrySpot ?? null,
+        trailed: Boolean(log.detail?.trailed),
         bestR: log.detail?.bestR ?? 0,
         worstR: log.detail?.worstR ?? 0,
       });
@@ -340,7 +345,7 @@ export class OptionTrader {
     if (order.status !== 'FILLED') return stop(order.rejectReason || `order was ${String(order.status).toLowerCase()}`);
     const position = await Position.findOne({ user: userId, symbol: plan.symbol, status: 'OPEN' }, '_id').lean();
     const fill = order.avgFillPrice ?? plan.premium;
-    this.#watch(userId, plan.symbol, { type: plan.type, stopSpot: plan.stopSpot, entry: fill, risk: Math.max(fill - (plan.stopLoss ?? 0), 0.05), openedAt: this.now(), manual, bestR: 0, worstR: 0 });
+    this.#watch(userId, plan.symbol, { type: plan.type, stopSpot: plan.stopSpot, entry: fill, risk: Math.max(fill - (plan.stopLoss ?? 0), 0.05), openedAt: this.now(), manual, entrySpot: read.spot ?? null, trail: trailOf(settings), bestSpot: read.spot ?? null, trailed: false, bestR: 0, worstR: 0 });
     await this.#record(settings, {
       symbol: plan.symbol,
       side: 'BUY',
@@ -356,7 +361,7 @@ export class OptionTrader {
       order: order._id,
       position: position?._id,
       card: { checks: side.checks, gates: side.gates },
-      detail: { ...plan, label: optionLabel(plan.symbol), manual, trigger: side.trigger, contract: { symbol: plan.symbol, strike: plan.strike, type: plan.type, expiry: plan.expiry, lotSize: plan.lotSize }, snapshot: read.snapshot },
+      detail: { ...plan, label: optionLabel(plan.symbol), manual, entrySpot: read.spot ?? null, trail: trailOf(settings), trigger: side.trigger, contract: { symbol: plan.symbol, strike: plan.strike, type: plan.type, expiry: plan.expiry, lotSize: plan.lotSize }, snapshot: read.snapshot },
     });
     return { order, plan };
   }
@@ -399,13 +404,36 @@ export class OptionTrader {
   }
 
   #onTick({ symbol, ltp }) {
-    if (symbol === UNDERLYING) this.#indexMinute(ltp);
+    if (symbol === UNDERLYING) {
+      this.#trail(ltp);
+      this.#indexMinute(ltp);
+    }
     if (!this.open.size) return;
     for (const w of this.open.values()) {
       if (symbol === w.symbol && w.risk) {
         const r = (ltp - w.entry) / w.risk;
         w.bestR = Math.max(w.bestR, r);
         w.worstR = Math.min(w.worstR, r);
+      }
+    }
+  }
+
+  /**
+   * The trailing stop (Account > Limits): once the index has moved `start` points your way the chart stop sits `points` behind the best
+   * index price, and it never moves back. The sale is still decided on a closed 1-minute candle beyond the (moved) level.
+   */
+  #trail(ltp) {
+    for (const w of this.open.values()) {
+      if (!w.trail || w.entrySpot == null || w.stopSpot == null) continue;
+      const long = w.type === 'CE';
+      w.bestSpot = long ? Math.max(w.bestSpot ?? ltp, ltp) : Math.min(w.bestSpot ?? ltp, ltp);
+      const moved = long ? w.bestSpot - w.entrySpot : w.entrySpot - w.bestSpot;
+      if (moved < w.trail.start) continue;
+      const level = roundToTick(long ? w.bestSpot - w.trail.points : w.bestSpot + w.trail.points);
+      if (long ? level > w.stopSpot : level < w.stopSpot) {
+        w.stopSpot = level;
+        w.trailed = true;
+        w.moved = true;
       }
     }
   }
@@ -420,7 +448,12 @@ export class OptionTrader {
     if (this.bar && this.bar.minute !== minute) {
       const close = this.bar.last;
       for (const w of this.open.values()) {
-        if (w.stopSpot != null && (w.type === 'CE' ? close <= w.stopSpot : close >= w.stopSpot)) this.#exit(w.user, w.symbol, 'STOP').catch(() => {});
+        if (w.stopSpot != null && (w.type === 'CE' ? close <= w.stopSpot : close >= w.stopSpot)) this.#exit(w.user, w.symbol, w.trailed ? 'TRAIL' : 'STOP').catch(() => {});
+        else if (w.moved) {
+          // the trailed level is written to the log once a minute, so a restart keeps it
+          w.moved = false;
+          AutoLog.updateOne({ user: w.user, segment: 'OPT', symbol: w.symbol, status: 'OPEN' }, { $set: { 'detail.stopSpot': w.stopSpot, 'detail.bestSpot': w.bestSpot, 'detail.trailed': true } }).catch(() => {});
+        }
       }
     }
     this.bar = { minute, last: ltp };
