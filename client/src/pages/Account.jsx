@@ -12,7 +12,7 @@ import { useStartingBalance } from '../lib/useStartingBalance.js';
 import { formatINR, formatPnl, pnlClass } from '../lib/format.js';
 import { Card, Skeleton, Disclaimer, PopupTile, Sheet, useFold } from '../components/ui.jsx';
 import { AutoLimits } from '../components/AutoCard.jsx';
-import { OptionsLimits } from '../components/options/OptionsAutoCard.jsx';
+import { OptionsLimits, StopPlacement, Switch } from '../components/options/OptionsAutoCard.jsx';
 import { TrailStop } from '../components/options/TrailStop.jsx';
 import { EntryChoices, ReportsAndStudies } from '../components/study/ReportsStudies.jsx';
 
@@ -28,7 +28,7 @@ function Row({ label, value, className = '' }) {
 const NUM = 'field num mt-1 !py-2';
 
 /** One segment's stop and its profit ladder: a stop in rupees, then rows of "profit reaches X, the stop keeps Y" that you type. */
-function RulesForm({ title, rules, onSave, saved, stopLabel = 'Stop loss (₹ a trade)', stopNote }) {
+function RulesForm({ title, rules, onSave, onLock, saved, stopLabel = 'Stop loss (₹ a trade)', stopNote }) {
   const [draft, setDraft] = useState(null);
   const v = draft ?? { stopLoss: String(rules.stopLoss), rows: rowsFromRules(rules), exitTime: timeText(rules.exitMin ?? DEFAULT_EXIT_MIN) };
   const edit = (next) => setDraft({ ...v, ...next });
@@ -48,7 +48,12 @@ function RulesForm({ title, rules, onSave, saved, stopLabel = 'Stop loss (₹ a 
         Close the auto trader's trades at (IST, 09:30 to 15:15)
         <input type="time" min="09:30" max="15:15" className={NUM} value={v.exitTime} onChange={(e) => edit({ exitTime: e.target.value })} />
       </label>
-      <div className="pt-1 text-xs font-semibold">Profit ladder</div>
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <div className="text-xs font-semibold">Profit lock (book profit)</div>
+        <Switch on={rules.lockOn !== false} label={`${title} profit lock`} onClick={() => onLock(rules.lockOn === false)} />
+      </div>
+      {rules.lockOn === false && <p className="text-xs text-warn">Off: new trades have no profit lock, so a gain is not protected by the ladder. Your rows below are kept; switch it back on to use them.</p>}
+      <div className={rules.lockOn === false ? 'space-y-2 opacity-50' : 'space-y-2'}>
       {v.rows.length === 0 ? (
         <p className="text-xs text-muted">No rows: no profit lock.</p>
       ) : (
@@ -74,13 +79,14 @@ function RulesForm({ title, rules, onSave, saved, stopLabel = 'Stop loss (₹ a 
           <Plus className="h-4 w-4" /> Add a row
         </button>
       )}
+      </div>
       {problem && <p className="text-xs text-down">{problem}</p>}
       <button type="button" disabled={bad || draft == null} onClick={async () => { if (await onSave({ stopLoss: Number(v.stopLoss), steps, exitMin })) setDraft(null); }} className="btn btn-primary w-full">
         {saved && draft == null ? 'Saved' : `Save ${title.toLowerCase()}`}
       </button>
       <div className="space-y-1 text-[11px] leading-snug text-muted">
-        {steps.length > 0 && !problem ? ladderLines(steps).map((l) => <p key={l.at}>{l.text}</p>) : null}
-        {steps.length > 0 && !problem && <p>The stop never moves back. When the profit reaches the next row, that row takes over.</p>}
+        {rules.lockOn !== false && steps.length > 0 && !problem ? ladderLines(steps).map((l) => <p key={l.at}>{l.text}</p>) : null}
+        {rules.lockOn !== false && steps.length > 0 && !problem && <p>The stop never moves back. When the profit reaches the next row, that row takes over.</p>}
         <p>{exitMin == null ? 'Enter a time from 09:30 to 15:15.' : `The auto trader closes its trades at ${v.exitTime} and takes no new one after it. The studies use this time too. A trade you place by hand is only closed by the 15:15 square-off.`}</p>
         <p>{stopNote ?? (Number(v.stopLoss) > 0 ? `Every trade starts with a stop that loses at most ₹${Number(v.stopLoss)}.` : 'No automatic stop.')}</p>
       </div>
@@ -112,7 +118,18 @@ function TradingRules() {
     }
   };
 
-  const line = (r, stopWord) => `${r.stopLoss > 0 ? `${stopWord} ${rs(r.stopLoss)}` : 'no stop'} · ${ladderSummary(r.steps)} · close ${timeText(r.exitMin ?? DEFAULT_EXIT_MIN)}`;
+  const lock = (key) => async (on) => {
+    try {
+      await api('/trade-defaults', { method: 'PUT', body: { [key]: { lockOn: on } } });
+      toast.success(on ? 'Profit lock on for new trades.' : 'Profit lock off for new trades.');
+      reload();
+      options.reload();
+    } catch (e) {
+      toast.error(e.message || 'Could not save');
+    }
+  };
+
+  const line = (r, stopWord) => `${r.stopLoss > 0 ? `${stopWord} ${rs(r.stopLoss)}` : 'no stop'} · ${r.lockOn === false ? 'profit lock off' : ladderSummary(r.steps)} · close ${timeText(r.exitMin ?? DEFAULT_EXIT_MIN)}`;
 
   return (
     <>
@@ -121,8 +138,9 @@ function TradingRules() {
         <Sheet title="Limits" subtitle={`Shares: ${line(data.shares, 'stop')}. Options: ${line(data.options, 'loss limit')}`} onClose={() => setOpen(false)}>
       <div className="space-y-5">
         <p className="text-xs text-muted">One set of rules for auto and manual trades, for new trades from the moment you save. A trade placed with its own stop keeps that stop. Type the ladder you want, change it any time.</p>
-        <RulesForm key={`s${JSON.stringify(data.shares)}`} title="Shares" rules={data.shares} onSave={save('shares')} saved={saved === 'shares'} />
-        <RulesForm key={`o${JSON.stringify(data.options)}`} title="Options" rules={data.options} onSave={save('options')} saved={saved === 'options'} stopLabel="Most one trade may lose (₹)" stopNote={Number(data.options.stopLoss) > 0 ? `The bot sells when the Nifty chart level breaks, and buys only as many lots as keep that loss within ₹${data.options.stopLoss}. A hard stop sits behind it for a fast fall.` : 'No loss limit.'} />
+        <RulesForm key={`s${JSON.stringify(data.shares)}`} title="Shares" rules={data.shares} onSave={save('shares')} onLock={lock('shares')} saved={saved === 'shares'} />
+        <RulesForm key={`o${JSON.stringify(data.options)}`} title="Options" rules={data.options} onSave={save('options')} onLock={lock('options')} saved={saved === 'options'} stopLabel="Most one trade may lose (₹)" stopNote={Number(data.options.stopLoss) > 0 ? `The bot sells when the Nifty chart level breaks, and buys only as many lots as keep that loss within ₹${data.options.stopLoss}. A hard stop sits behind it for a fast fall.` : 'No loss limit.'} />
+        {options.data && <StopPlacement data={options.data} reload={options.reload} />}
         {options.data && <TrailStop data={options.data} reload={options.reload} />}
         <div className="space-y-2 border-t border-line pt-3">
           <div className="text-sm font-semibold">Auto shares: limits</div>

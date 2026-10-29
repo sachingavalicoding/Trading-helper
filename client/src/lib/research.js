@@ -5,7 +5,7 @@ const rs = (v) => `₹${Number(v).toLocaleString('en-IN')}`;
 export const GROUPS = [
   { value: 'stop', label: 'Stop amount' },
   { value: 'ladder', label: 'Profit ladder' },
-  { value: 'trail', label: 'Trailing' },
+  { value: 'trail', label: 'Trail / break-even' },
 ];
 
 /** What a tap on Apply would save, in words: "most loss ₹2,000, 6-step profit ladder, trailing stop 20 points". */
@@ -14,6 +14,7 @@ export function applyText(apply) {
   const parts = [];
   if (apply.lossLimit != null) parts.push(`most one trade may lose ${rs(apply.lossLimit)}`);
   if (apply.steps) parts.push(`${apply.steps.length}-step profit ladder (${apply.steps.map((s) => `+${s.at} keeps ${s.keep}`).join(', ')})`);
+  if (apply.breakEven) parts.push(`stop moves to your entry price after ${apply.breakEven} points`);
   if (apply.trail) parts.push(`trailing stop: ${apply.trail.points} points behind the best price, starting after ${apply.trail.start}`);
   return parts.join('; ');
 }
@@ -25,7 +26,10 @@ export function applyRequests(apply) {
   if (apply?.lossLimit != null) options.stopLoss = apply.lossLimit;
   if (apply?.steps) options.steps = apply.steps;
   if (Object.keys(options).length) out.push({ path: '/trade-defaults', body: { options } });
-  if (apply?.trail) out.push({ path: '/options', body: { trailMode: 'points', trailPoints: apply.trail.points, trailStart: apply.trail.start } });
+  const opt = {};
+  if (apply?.trail) Object.assign(opt, { trailMode: 'points', trailPoints: apply.trail.points, trailStart: apply.trail.start });
+  if (apply?.breakEven) opt.breakEvenPoints = apply.breakEven;
+  if (Object.keys(opt).length) out.push({ path: '/options', body: opt });
   return out;
 }
 

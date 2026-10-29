@@ -1,7 +1,7 @@
 import { StudyRun, OptionSettings, AutoSettings } from '../models/index.js';
 import { normalizeCombos } from '../combos/combos.js';
 import { stopRuleOf } from './patterns.js';
-import { trailOf } from './simulate.js';
+import { breakEvenOf, trailOf } from './simulate.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { NIFTY50 } from '../market/instruments.js';
 import { UNDERLYING } from '../options/symbols.js';
@@ -88,6 +88,7 @@ export class StudyService {
       combos: normalizeCombos(settings?.combos),
       stopRule: stopRuleOf(settings),
       trail: trailOf(settings),
+      breakEven: breakEvenOf(settings),
       autoFind,
       research,
       lossLimit: rules.stopLoss ?? 0,

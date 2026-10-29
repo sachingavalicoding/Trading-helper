@@ -34,8 +34,14 @@ export function whatIfText(w) {
 }
 
 export const TRAIL_POINTS = [10, 15, 20, 25, 30, 40, 50, 75, 100];
+export const BREAK_EVEN_POINTS = [10, 15, 20, 25, 30, 40, 50];
 
 /** The trailing stop a study or the settings used, in words. */
 export function trailText(trail) {
   return trail ? `trailing stop: ${trail.points} points behind the best price once Nifty has moved ${trail.start} points your way` : 'no trailing stop';
+}
+
+/** The break-even rule in words. */
+export function breakEvenText(points) {
+  return points > 0 ? `break-even: the stop moves to your entry price after Nifty has moved ${points} points your way` : 'no break-even stop';
 }

@@ -19,6 +19,7 @@ const optionSettingsSchema = new mongoose.Schema(
     trailMode: { type: String, enum: ['off', 'points'], default: 'off' }, // 'points': once the index has moved trailStart points your way, the chart stop follows the best price trailPoints behind it and never moves back
     trailPoints: { type: Number, default: 25, min: 5, max: 200 }, // Nifty points between the best price and the stop
     trailStart: { type: Number, default: 25, min: 0, max: 200 }, // Nifty points in your favour before the trail starts
+    breakEvenPoints: { type: Number, default: 0, min: 0, max: 200 }, // 0 = off; otherwise once the index has moved this many points your way the stop moves to the entry price
     scoreEntries: { type: Boolean, default: true }, // buy when the all-checks score reaches the minimum (the original entry)
     dailyLossPct: { type: Number, default: 10, min: 2, max: 30 }, // stop opening trades after losing this % of the budget today
     comboEntries: { type: Boolean, default: true }, // buy when one of the user's own combinations (below) turns true

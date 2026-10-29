@@ -7,6 +7,7 @@ import { halvesOf, verdictOf } from '../combos/verdict.js';
 export const LOSS_LIMITS = [1000, 1500, 2000, 2500, 3000];
 export const TARGETS = [600, 800, 1000, 1500, 2000]; // rupees per lot
 export const TRAIL_POINTS = [15, 20, 25, 30, 40, 50];
+export const BREAK_EVEN_POINTS = [10, 15, 20, 30];
 const ladder = (rows) => rows.map(([at, keep]) => ({ at, keep }));
 export const LADDERS = [
   { key: 'early', label: 'Early lock, 6 steps', text: 'Locks from +₹500 and follows close behind: +500 keeps 300, +800 keeps 550, +1,100 keeps 850, +1,400 keeps 1,150, +1,800 keeps 1,500, +2,200 keeps 1,950.', steps: ladder([[500, 300], [800, 550], [1100, 850], [1400, 1150], [1800, 1500], [2200, 1950]]) },
@@ -34,6 +35,9 @@ export function variants(params) {
   }
   for (const points of [20, 30, 40]) {
     out.push({ key: `trailonly${points}`, group: 'trail', label: `Trail ${points} points, no profit lock`, text: `The trailing stop alone: ${points} points behind the best price once Nifty has moved ${points} points your way, and no profit ladder.`, set: { trail: { points, start: points }, steps: [] }, apply: null });
+  }
+  for (const points of BREAK_EVEN_POINTS) {
+    out.push({ key: `be${points}`, group: 'trail', label: `Break-even after ${points} points`, text: `Once Nifty has moved ${points} points your way the stop moves to your entry price, so the trade can no longer lose on the chart stop. Your ladder stays.`, set: { breakEven: points }, apply: { breakEven: points }, current: params.breakEven === points });
   }
   return out;
 }

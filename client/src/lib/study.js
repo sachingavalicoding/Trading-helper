@@ -1,11 +1,11 @@
 import { formatPnl } from './format.js';
 import { DEFAULT_EXIT_MIN, timeText } from './ladder.js';
 import { indicatorsText } from './combos.js';
-import { stopRuleText, trailText } from './stops.js';
+import { breakEvenText, stopRuleText, trailText } from './stops.js';
 import { autoFindText } from './autoFind.js';
 import { researchText } from './research.js';
 
-export const EXIT_WORD = { STOP: 'Stop hit', LOCK: 'Profit lock', EOD: 'Closed on time', TARGET: 'Target hit', TRAIL: 'Trailing stop' };
+export const EXIT_WORD = { STOP: 'Stop hit', LOCK: 'Profit lock', EOD: 'Closed on time', TARGET: 'Target hit', TRAIL: 'Trailing stop', BREAKEVEN: 'Break-even stop' };
 export const FEW_TRADES = 10; // under this many trades a result is mostly luck
 
 /** "13 Oct 10:35" in IST, from epoch seconds. */
@@ -40,7 +40,7 @@ export function studyText(r) {
   if (!r) return '';
   const lines = [
     `Options study ${r.period.from} to ${r.period.to} (${r.period.days} trading days), ${sizingText(r.params)}, charges and slippage included, premiums estimated at ${Math.round(r.params.iv * 100)}% volatility.`,
-    `${exitText(r.params)}; ${stopRuleText(r.params.stopRule)}${r.params.trail ? `; ${trailText(r.params.trail)}` : ''}; closed at ${timeText(r.params.exitMin ?? DEFAULT_EXIT_MIN)}; at most ${r.params.maxPerDay} trades a day; stops wider than ${r.params.maxStopAtr} ATR skipped.`,
+    `${exitText(r.params)}; ${stopRuleText(r.params.stopRule)}${r.params.trail ? `; ${trailText(r.params.trail)}` : ''}${r.params.breakEven ? `; ${breakEvenText(r.params.breakEven)}` : ''}; closed at ${timeText(r.params.exitMin ?? DEFAULT_EXIT_MIN)}; at most ${r.params.maxPerDay} trades a day; stops wider than ${r.params.maxStopAtr} ATR skipped.`,
     '',
   ];
   for (const t of r.techniques) {

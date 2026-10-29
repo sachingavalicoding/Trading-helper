@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
-import { TRAIL_POINTS, trailText } from '../../lib/stops.js';
+import { BREAK_EVEN_POINTS, TRAIL_POINTS, breakEvenText, trailText } from '../../lib/stops.js';
 import { Segmented } from '../ui.jsx';
 
-const choices = (now) => (TRAIL_POINTS.includes(now) ? TRAIL_POINTS : [...TRAIL_POINTS, now].sort((a, b) => a - b));
+const choices = (now, list = TRAIL_POINTS) => (list.includes(now) ? list : [...list, now].sort((a, b) => a - b));
 
 /**
  * Account > Limits > Options: the trailing stop in Nifty points. Once the index has moved the start distance your way, the chart stop
@@ -43,7 +43,7 @@ export function TrailStop({ data, reload }) {
 
   return (
     <div className="space-y-2 border-t border-line pt-3">
-      <div className="text-sm font-semibold">Options: trailing stop</div>
+      <div className="text-sm font-semibold">Options: trailing stop and break-even</div>
       <Segmented className="w-full" size="sm" value={s.trailMode} onChange={(v) => save({ trailMode: v })} options={[{ value: 'off', label: 'Off' }, { value: 'points', label: 'Follow in points' }]} />
       {on && (
         <>
@@ -56,6 +56,18 @@ export function TrailStop({ data, reload }) {
           ? `A call: once Nifty is ${s.trailStart} points above your entry, the stop sits ${s.trailPoints} points under the highest price and rises with it. A put is the same upside down. It never moves back, and it works together with your profit ladder (whichever sells first). The trade is sold when a 1-minute candle closes beyond the stop.`
           : 'Off: the stop stays at the chart level until your profit ladder takes over. Switch it on to make the stop follow the price.'}
       </p>
+      <label className="flex items-center justify-between gap-3 pt-1 text-xs text-muted">
+        <span>Break-even: move the stop to the entry after</span>
+        <select className="field num !w-28 !px-2 !py-1.5 !text-sm" value={s.breakEvenPoints ?? 0} disabled={busy} onChange={(e) => save({ breakEvenPoints: Number(e.target.value) })} aria-label="Break-even after points">
+          <option value={0}>Off</option>
+          {choices(s.breakEvenPoints ?? 0, BREAK_EVEN_POINTS).filter((p) => p > 0).map((p) => (
+            <option key={p} value={p}>
+              {p} pts
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="text-[11px] leading-snug text-muted">{s.breakEvenPoints > 0 ? `${breakEvenText(s.breakEvenPoints)}. After that the trade cannot lose on the chart stop (the premium can still lose a little to time decay and the spread).` : 'Break-even off: the stop stays at the chart level until the trailing stop or profit ladder takes over.'}</p>
       {on && <p className="text-[11px] leading-snug text-muted">Now: {trailText({ points: s.trailPoints, start: s.trailStart })}. A trade already open keeps the setting it started with.</p>}
     </div>
   );

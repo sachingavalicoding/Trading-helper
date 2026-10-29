@@ -5,7 +5,7 @@ export const MAX_ROWS = 8;
 const rs = (v) => `₹${Number(v).toLocaleString('en-IN')}`;
 
 /** Rows for the form, as text so a half-typed number is kept. */
-export const rowsFromRules = (rules) => (rules?.steps ?? []).map((s) => ({ at: String(s.at), keep: String(s.keep) }));
+export const rowsFromRules = (rules) => (rules?.savedSteps ?? rules?.steps ?? []).map((s) => ({ at: String(s.at), keep: String(s.keep) }));
 
 /** The rows as numbers, ready to save. Blank rows are dropped. */
 export const stepsOf = (rows) => rows.filter((r) => r.at !== '' || r.keep !== '').map((r) => ({ at: Number(r.at), keep: Number(r.keep) }));

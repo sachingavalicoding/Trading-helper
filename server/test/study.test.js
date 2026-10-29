@@ -491,6 +491,7 @@ test('research tries other stop amounts, ladders and trailing stops on the same 
   assert.equal(row('ladder-none').apply, null, 'a ladder of nothing cannot be saved as a setting');
   assert.equal(row('target800').apply, null, 'the live options trader has no fixed target');
   assert.deepEqual(row('trail25').apply.trail, { points: 25, start: 25 });
+  assert.deepEqual(row('be15').apply, { breakEven: 15 });
   assert.ok(row('trail25').net < r.base.net);
   assert.equal(r.mix.apply.lossLimit, 3000);
   assert.equal(r.mix.apply.steps[0].at, 1200, 'the wide ladder won on the older days');
@@ -499,4 +500,17 @@ test('research tries other stop amounts, ladders and trailing stops on the same 
   assert.ok(variants({ ...params, steps: [] }).every((v) => v.key !== 'ladder-yours6'), 'no cut ladder when yours is short');
   const short = await runResearch({ signals: [{}], tradesFor, midTime: 115, trainEnd: null, params });
   assert.equal(short.mix, null);
+});
+
+test('break-even moves the stop to the entry once the index has gone far enough, so a trade that reverses is sold near the entry instead of at the chart stop', () => {
+  const start = Date.UTC(2026, 9, 12, 4, 30) / 1000;
+  const up = minutes(24000, [...Array.from({ length: 60 }, () => 0.5), ...Array.from({ length: 200 }, () => -0.5)]);
+  const run = (breakEven) => simulateTrade({ c1: up, byTime: index(up), signal: { technique: 'x', note: '', side: 'CE', time: start, stop: 23960 }, params: { ...PARAMS, steps: [], breakEven } });
+  const plain = run(0);
+  assert.equal(plain.reason, 'STOP');
+  const be = run(15);
+  assert.equal(be.reason, 'BREAKEVEN');
+  assert.ok(be.exitSpot >= 23998 && be.exitSpot < 24010, `sold at ${be.exitSpot}`);
+  assert.ok(be.net > plain.net, 'less lost than at the chart stop');
+  assert.equal(run(500).reason, 'STOP', 'a break-even that never starts changes nothing');
 });
