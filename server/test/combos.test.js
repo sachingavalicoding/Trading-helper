@@ -288,3 +288,28 @@ test('the shares study trades combinations and ranks every check on the 50 stock
   assert.ok(r.indicators.every((x) => ['Keep', 'Unsteady', 'Drop', 'Too few'].includes(x.verdict)));
   assert.ok(r.overall && r.bySetup, 'the scanner study is unchanged');
 });
+
+// ---------- stop from the entry ----------
+
+test('a stop can be the chart level, the chart level pulled in to k ATR, or always k ATR from the entry, for calls and for puts', async () => {
+  const { ruleStop } = await import('../src/study/patterns.js');
+  const call = { side: 'CE', stop: 24900, atr: 10 };
+  const put = { side: 'PE', stop: 25100, atr: 10 };
+  assert.equal(ruleStop(call, 25000, null), 24900);
+  assert.equal(ruleStop(call, 25000, { mode: 'chart', k: 1 }), 24900);
+  assert.equal(ruleStop(call, 25000, { mode: 'cap', k: 2 }), 24980, 'a stop 10 ATR away is pulled in to 2 ATR');
+  assert.equal(ruleStop({ ...call, stop: 24990 }, 25000, { mode: 'cap', k: 2 }), 24990, 'a nearer chart stop stays');
+  assert.equal(ruleStop(call, 25000, { mode: 'atr', k: 1.5 }), 24985);
+  assert.equal(ruleStop(put, 25000, { mode: 'cap', k: 2 }), 25020);
+  assert.equal(ruleStop(put, 25000, { mode: 'atr', k: 1 }), 25010);
+});
+
+test('the options study adds Breakout + Engulfing rows with the stop worked out from the entry, and a pulled-in stop never skips a trade for being far', async () => {
+  const r = await runOptionsStudy({ nifty1: minutes(14), params: { ...PARAMS, days: 10, lossLimit: 1500, maxLots: 2, rank: false } });
+  const rows = Object.fromEntries(r.techniques.map((t) => [t.key, t]));
+  for (const k of ['beCap20', 'beAtr10', 'beAtr15', 'beAtr20']) assert.ok(rows[k], k);
+  assert.match(rows.beAtr15.label, /stop 1\.5 ATR from entry/);
+  assert.equal(rows.beCap20.skippedWide, 0, 'far stops are pulled in, not skipped');
+  assert.equal(rows.beAtr10.signals, rows.breakoutEngulf.signals, 'the same signals, a different stop');
+  assert.ok(rows.beAtr10.skippedWide <= rows.breakoutEngulf.skippedWide);
+});

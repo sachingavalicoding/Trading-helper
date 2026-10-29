@@ -508,6 +508,31 @@ async function comboOnce() {
   await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
 }
 
+test('the stop mode of pattern entries is saved, validated, and a fixed ATR stop replaces a far chart level', async () => {
+  const u = await registerUser(app);
+  const first = (await api().get('/api/options').set(u.auth).expect(200)).body.settings;
+  assert.deepEqual([first.patternStopMode, first.patternStopAtr], ['chart', 2]);
+  const saved = (await api().put('/api/options').set(u.auth).send({ patternStopMode: 'atr', patternStopAtr: 1.5 }).expect(200)).body.settings;
+  assert.deepEqual([saved.patternStopMode, saved.patternStopAtr], ['atr', 1.5]);
+  await api().put('/api/options').set(u.auth).send({ patternStopMode: 'tight' }).expect(400);
+  await api().put('/api/options').set(u.auth).send({ patternStopAtr: 5 }).expect(400);
+
+  const realNow = optionTrader.now;
+  optionTrader.now = () => new Date(MIDMORNING());
+  try {
+    const uid = u.user.id || u.user._id;
+    await api().put('/api/options').set(u.auth).send({ enabled: true, patterns: ['breakout'] }).expect(200);
+    const s = await OptionSettings.findOne({ user: uid }).lean();
+    const r = await optionTrader.considerPatterns(s, breakoutRead());
+    assert.ok(r.order, r.skipped);
+    const atr = 25018 - r.plan.stopSpot;
+    assert.ok(atr > 5 && atr < 60, `a stop ${atr} points under the entry`);
+    await api().post('/api/positions/exit-all').set(u.auth).expect(200);
+  } finally {
+    optionTrader.now = realNow;
+  }
+});
+
 test('combinations are saved, cleaned and shown with the list of checks they can be built from', async () => {
   const u = await registerUser(app);
   const cat = (await api().get('/api/combos/catalog').set(u.auth).expect(200)).body;
