@@ -4,12 +4,11 @@ import { toast } from 'sonner';
 import { api } from '../lib/api.js';
 import { useApi } from '../lib/useApi.js';
 import { formatPrice, pnlClass } from '../lib/format.js';
-import { Badge, Card, Skeleton } from './ui.jsx';
+import { Badge, Card, Fold, Skeleton } from './ui.jsx';
 
 const FIELDS = [
   { key: 'maxShares', label: 'Max shares per trade (0 = auto)', step: 1, min: 0, max: 100000 },
   { key: 'maxTradeAmount', label: 'Max ₹ per trade', step: 1000, min: 1000, max: 100000000 },
-  { key: 'minScore', label: 'Minimum score', step: 5, min: 60, max: 100 },
   { key: 'maxOpen', label: 'Max open trades', step: 1, min: 1, max: 10 },
   { key: 'dailyLossPct', label: 'Stop for the day after losing (%)', step: 0.5, min: 0.5, max: 10 },
 ];
@@ -100,6 +99,14 @@ export function AutoLimits() {
           />
         </label>
       ))}
+      <div className="col-span-2">
+        <Fold id="shares-score" title="Score (advanced)" summary={`Scanner ideas below ${s.minScore} are skipped.`} plain>
+          <label className="flex items-center justify-between gap-3 text-xs text-muted">
+            <span>Minimum score for an idea</span>
+            <input type="number" inputMode="numeric" defaultValue={s.minScore} step={5} min={60} max={100} onBlur={(e) => e.target.value !== '' && Number(e.target.value) !== s.minScore && save({ minScore: Number(e.target.value) })} className="field num !w-24 !px-2 !py-1.5 text-right !text-sm" aria-label="Minimum score" />
+          </label>
+        </Fold>
+      </div>
       <label className="col-span-2 flex items-center justify-between gap-2 rounded-lg border border-line px-2 py-1.5 text-[11px] text-muted">
         Also take news-gap trades from 09:20
         <input type="checkbox" checked={s.earlyNews !== false} disabled={busy} onChange={(e) => save({ earlyNews: e.target.checked })} className="h-4 w-4 accent-[var(--color-accent)]" />
@@ -108,7 +115,7 @@ export function AutoLimits() {
   );
 }
 
-const EXIT_LABEL = { STOP: 'Stopped', LOCK: 'Locked profit', TARGET: 'Target', MANUAL: 'Manual exit', SQUARE_OFF: 'Square-off', TIME: 'Time exit' };
+const EXIT_LABEL = { STOP: 'Stopped', LOCK: 'Locked profit', TARGET: 'Target', MANUAL: 'Manual exit', SQUARE_OFF: 'Square-off', TIME: 'Time exit', TRAIL: 'Trailing stop' };
 
 /** Every decision the auto-trader made today with its reason and result, to review in the evening. */
 function AutoLog() {

@@ -15,6 +15,7 @@ const runSchema = z.object({
   target: z.coerce.number().min(100).max(100000).default(1000),
   fixedLots: z.coerce.number().int().min(0).max(20).default(0),
   autoFind: z.boolean().default(false), // options only: also search for combinations that hold on days they were not picked on
+  research: z.boolean().default(false), // options only: also try other stop amounts, profit ladders and trailing stops on Breakout + Engulfing
   exitMin: z.coerce.number().int().min(9 * 60 + 30).max(15 * 60 + 15).optional(), // the time everything is closed; left out = the one in Account Limits
 });
 const MAX_DAYS = { options: 65, shares: 15 }; // a share replay runs the whole scanner on 50 stocks, so it is kept short; options can use the saved three months

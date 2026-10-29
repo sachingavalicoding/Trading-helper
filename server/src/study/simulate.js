@@ -13,6 +13,13 @@ import { round2 } from '../utils/money.js';
 
 export const EXIT_MIN = 15 * 60 + 15; // the 15:15 square-off, as live
 export const HARD_STOP_MULT = 1.3; // the live trader's premium stop behind the chart stop, for a fast gap
+/** The trailing stop a user's settings ask for, as the simulation and the live trader read it, or null when it is off. */
+export function trailOf(settings) {
+  if (settings?.trailMode !== 'points') return null;
+  const points = settings.trailPoints ?? 25;
+  return { points, start: settings.trailStart ?? points };
+}
+
 export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread you cross buying and selling at the market
 
 /**
@@ -20,12 +27,13 @@ export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread 
  * @param byTime  Map of bar time -> index in c1
  * @param signal  { side: 'CE'|'PE', time (entry minute, epoch s), stop (Nifty level) }
  * @param params  { exitMin (minutes after midnight IST when everything is closed, default 15:15), iv, lockStart, lockGap, steps (the typed ladder: [{ at, keep }], overrides lockStart and lockGap), lotSize, holidays, expiryWeekday, lossLimit, maxLots }
+ *                `trail` ({ points, start }) adds a trailing stop: once the index has moved `start` points your way the chart stop sits `points` behind the best price and never moves back (exit reason TRAIL).
  *                `target` (rupees per lot, 0 = use the profit lock) and `fixedLots` (0 = size the lots to the loss limit) are for studying other exits.
  *                With a `lossLimit` (the Account stop) the lots are sized like the live trader: as many as keep the loss at the chart stop within
  *                the limit, up to `maxLots`, none when even one lot loses more. A hard stop sits at HARD_STOP_MULT times the limit. Without one, 1 lot.
  */
 export function simulateTrade({ c1, byTime, signal, params }) {
-  const { iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN } = params;
+  const { trail = null, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN } = params;
   const start = byTime.get(signal.time);
   if (start == null) return null;
   if (istParts(new Date(signal.time * 1000)).minutes >= exitMin) return null; // no new trade at or after the time you close
@@ -57,6 +65,8 @@ export function simulateTrade({ c1, byTime, signal, params }) {
 
   let best = 0;
   let worst = 0;
+  let stopNow = signal.stop; // the chart level; a trailing stop moves it up (down for a put) and never back
+  let trailed = false;
   let lockLevel = null; // a profit in rupees; the trade is sold when it falls to it
   let exit = null;
   for (let j = start; j < c1.length; j++) {
@@ -102,11 +112,21 @@ export function simulateTrade({ c1, byTime, signal, params }) {
       }
     }
     worst = Math.min(worst, profitAt(premiumAt(against, bar.time)));
-    if (long ? bar.close < signal.stop : bar.close > signal.stop) {
-      exit = { time: bar.time + 60, spot: bar.close, profit: closeProfit, reason: 'STOP' };
+    if (long ? bar.close < stopNow : bar.close > stopNow) {
+      exit = { time: bar.time + 60, spot: bar.close, profit: closeProfit, reason: trailed ? 'TRAIL' : 'STOP' };
       break;
     }
     best = Math.max(best, profitAt(premiumAt(favour, bar.time)));
+    if (trail) {
+      const moved = long ? favour - entryBar.open : entryBar.open - favour;
+      if (moved >= trail.start) {
+        const level = long ? favour - trail.points : favour + trail.points;
+        if (long ? level > stopNow : level < stopNow) {
+          stopNow = level;
+          trailed = true;
+        }
+      }
+    }
     if (targetProfit > 0) {
       if (best >= targetProfit) {
         // the bar reached the target: find the index level where it was crossed (a stop in the same bar was checked first, the cautious order)

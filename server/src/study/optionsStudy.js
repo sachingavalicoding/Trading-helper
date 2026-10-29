@@ -7,6 +7,7 @@ import { simulateTrade, summarize } from './simulate.js';
 import { CONDITIONS, CONDITION_BY_KEY, buildChart, usable } from '../combos/conditions.js';
 import { comboSignals, singleCombo, missingData, describeCombo } from '../combos/combos.js';
 import { verdictOf, halvesOf } from '../combos/verdict.js';
+import { runResearch } from './research.js';
 
 // The options study: what each way of reading the Nifty chart would have earned on the last few weeks, as paper trades of one lot.
 // It reads history and changes nothing: the live trading rules are not touched by it.
@@ -313,17 +314,19 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   const indicators = params.rank === false ? [] : await rankIndicators({ chart, inStudy, midTime, complete, byTime, params, onProgress });
   const trainEnd = complete.find((b) => DAY(b.time) === studyDays[Math.floor((studyDays.length * 2) / 3)])?.time ?? null;
   const autoFound = params.autoFind ? await autoFind({ chart, inStudy, trainEnd, studyDays: studyDays.length, complete, byTime, params, onProgress }) : null;
+  const research = params.research && groups.breakoutEngulf.length ? await runResearch({ signals: groups.breakoutEngulf, tradesFor: (sigs, { params: p }) => tradesFor(sigs, { c1: complete, byTime, params: p }), midTime, trainEnd: studyDays.length >= FIND_MIN_DAYS ? trainEnd : null, params, onProgress, yieldTurn }) : params.research ? { skipped: 'Breakout and Engulfing gave no signal in this period' } : null;
   const botTrades = botRun ? botRun.trades : [];
   return {
     generatedAt: new Date().toISOString(),
     period: { from: dayKey(fromTime), to: dayKey(complete.at(-1).time), days: studyDays.length },
-    params: { days: params.days, iv: params.iv, lossLimit: params.lossLimit ?? 0, maxLots: params.maxLots ?? 1, lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? null, lotSize: params.lotSize, exit: params.target > 0 ? 'target' : 'lock', target: params.target ?? 0, fixedLots: params.fixedLots ?? 0, exitMin: params.exitMin ?? 15 * 60 + 15, minScore: params.minScore ?? 80, maxStopAtr: MAX_STOP_ATR, maxPerDay: MAX_PER_DAY, stopRule: params.stopRule ?? null },
+    params: { days: params.days, iv: params.iv, lossLimit: params.lossLimit ?? 0, maxLots: params.maxLots ?? 1, lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? null, lotSize: params.lotSize, exit: params.target > 0 ? 'target' : 'lock', target: params.target ?? 0, fixedLots: params.fixedLots ?? 0, exitMin: params.exitMin ?? 15 * 60 + 15, minScore: params.minScore ?? 80, maxStopAtr: MAX_STOP_ATR, maxPerDay: MAX_PER_DAY, stopRule: params.stopRule ?? null, trail: params.trail ?? null },
     haveBreadth: Boolean(breadth),
     haveFlow: Boolean(flow),
     botBreakdown: botBreakdown(botTrades),
     techniques,
     indicators,
     autoFound,
+    research,
     combosSkipped,
     breadth: breadthStudy(bars5, breadth, fromTime),
   };

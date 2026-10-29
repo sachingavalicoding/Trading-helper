@@ -13,6 +13,7 @@ import { formatINR, formatPnl, pnlClass } from '../lib/format.js';
 import { Card, Skeleton, Disclaimer, PopupTile, Sheet, useFold } from '../components/ui.jsx';
 import { AutoLimits } from '../components/AutoCard.jsx';
 import { OptionsLimits } from '../components/options/OptionsAutoCard.jsx';
+import { TrailStop } from '../components/options/TrailStop.jsx';
 import { EntryChoices, ReportsAndStudies } from '../components/study/ReportsStudies.jsx';
 
 function Row({ label, value, className = '' }) {
@@ -122,6 +123,7 @@ function TradingRules() {
         <p className="text-xs text-muted">One set of rules for auto and manual trades, for new trades from the moment you save. A trade placed with its own stop keeps that stop. Type the ladder you want, change it any time.</p>
         <RulesForm key={`s${JSON.stringify(data.shares)}`} title="Shares" rules={data.shares} onSave={save('shares')} saved={saved === 'shares'} />
         <RulesForm key={`o${JSON.stringify(data.options)}`} title="Options" rules={data.options} onSave={save('options')} saved={saved === 'options'} stopLabel="Most one trade may lose (₹)" stopNote={Number(data.options.stopLoss) > 0 ? `The bot sells when the Nifty chart level breaks, and buys only as many lots as keep that loss within ₹${data.options.stopLoss}. A hard stop sits behind it for a fast fall.` : 'No loss limit.'} />
+        {options.data && <TrailStop data={options.data} reload={options.reload} />}
         <div className="space-y-2 border-t border-line pt-3">
           <div className="text-sm font-semibold">Auto shares: limits</div>
           <AutoLimits />

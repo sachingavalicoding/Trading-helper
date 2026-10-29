@@ -6,10 +6,11 @@ import { copyText } from '../../lib/copyText.js';
 import { formatPnl, formatPrice, pnlClass } from '../../lib/format.js';
 import { useStudy } from '../../lib/useStudy.js';
 import { EXIT_WORD, exitText, hourRows, istStamp, sizingText, studyText, verdict } from '../../lib/study.js';
-import { stopRuleText } from '../../lib/stops.js';
+import { stopRuleText, trailText } from '../../lib/stops.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 import { IndicatorRanking } from '../study/IndicatorRanking.jsx';
 import { AutoFound } from '../study/AutoFound.jsx';
+import { Research } from '../study/Research.jsx';
 import { Switch } from './OptionsAutoCard.jsx';
 
 const DAYS = [
@@ -178,6 +179,7 @@ export function OptionsStudy() {
   const [target, setTarget] = useState('1000');
   const [lots, setLots] = useState(0);
   const [find, setFind] = useState(false);
+  const [research, setResearch] = useState(false);
   const { state, error, running, run } = useStudy('options');
   const time = useExitTime('options');
   const targetValue = Number(target);
@@ -215,11 +217,17 @@ export function OptionsStudy() {
           </p>
           <Switch on={find} label="Look for new combinations" onClick={() => setFind((v) => !v)} />
         </div>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] leading-snug text-muted">
+            <b className="text-fg">Also research the stop and profit ladder.</b> Trades Breakout + Engulfing again with other stop amounts, profit ladders and trailing stops, and shows which pay. Needs 15 days or more for the older and newer split.
+          </p>
+          <Switch on={research} label="Research the stop and profit ladder" onClick={() => setResearch((v) => !v)} />
+        </div>
         {targetBad && <p className="text-xs text-down">The target must be between ₹100 and ₹1,00,000.</p>}
         <Segmented className="w-full" size="sm" value={days} onChange={setDays} options={DAYS} />
         {days > 30 && <p className="text-[11px] leading-snug text-muted">Longer than 30 days reads the saved candles (Account, Studies, Data tab), so download them first.</p>}
         <div className="flex justify-end">
-          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin, autoFind: find })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
+          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin, autoFind: find, research })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Run study'}
           </button>
         </div>
@@ -236,7 +244,7 @@ export function OptionsStudy() {
           {r.simulated && <Card className="border-warn p-3 text-xs text-warn">This was made on the sample feed, whose history is random, so the numbers mean nothing. Log in to Upstox and run it again.</Card>}
           <Card className="flex items-center justify-between gap-2 p-3 text-xs">
             <p className="text-muted">
-              {r.period.from} to {r.period.to} · {r.period.days} trading days · {sizingText(r.params)} · {exitText(r.params)} · {stopRuleText(r.params.stopRule)} · premiums estimated at {Math.round(r.params.iv * 100)}% volatility
+              {r.period.from} to {r.period.to} · {r.period.days} trading days · {sizingText(r.params)} · {exitText(r.params)} · {stopRuleText(r.params.stopRule)}{r.params.trail ? ` · ${trailText(r.params.trail)}` : ''} · premiums estimated at {Math.round(r.params.iv * 100)}% volatility
             </p>
             <button type="button" onClick={copy} className="btn btn-sm shrink-0">
               <ClipboardCopy className="h-3.5 w-3.5" /> Copy
@@ -245,6 +253,7 @@ export function OptionsStudy() {
           {r.techniques.map((t) => (
             <Technique key={t.key} t={t} bot={bot} />
           ))}
+          <Research r={r.research} onApplied={() => {}} />
           <AutoFound af={r.autoFound} />
           <IndicatorRanking rows={r.indicators} skipped={r.combosSkipped} />
           <BotBreakdown cut={r.botBreakdown} />

@@ -449,3 +449,54 @@ test('review patterns route: needs a login, rejects a bad day and answers for a 
   assert.deepEqual(r.signals, []);
   assert.ok(r.disclaimer);
 });
+
+test('a trailing stop follows the best price up by the points set and sells a retreat in profit; one that never starts changes nothing', () => {
+  const start = Date.UTC(2026, 9, 12, 4, 30) / 1000;
+  const up = minutes(24000, [...Array.from({ length: 100 }, () => 0.8), ...Array.from({ length: 200 }, () => -0.8)]);
+  const run = (trail) => simulateTrade({ c1: up, byTime: index(up), signal: { technique: 'x', note: '', side: 'CE', time: start, stop: 23960 }, params: { ...PARAMS, steps: [], trail } });
+  const plain = run(null);
+  assert.equal(plain.reason, 'STOP', 'without a trail the whole rise is given back to the chart stop');
+  assert.ok(plain.gross < 0, JSON.stringify(plain));
+  const trailed = run({ points: 20, start: 20 });
+  assert.equal(trailed.reason, 'TRAIL');
+  assert.ok(trailed.gross > 0 && trailed.exitSpot > 24040, `sold at ${trailed.exitSpot}`);
+  const never = run({ points: 20, start: 500 });
+  assert.equal(never.reason, 'STOP');
+  assert.equal(never.gross, plain.gross);
+  const wide = run({ points: 60, start: 20 });
+  assert.equal(wide.reason, 'TRAIL');
+  assert.ok(wide.exitSpot < trailed.exitSpot, 'a wider trail sells lower');
+
+  const down = minutes(24000, [...Array.from({ length: 100 }, () => -0.8), ...Array.from({ length: 200 }, () => 0.8)]);
+  const put = simulateTrade({ c1: down, byTime: index(down), signal: { technique: 'x', note: '', side: 'PE', time: start, stop: 24040 }, params: { ...PARAMS, steps: [], trail: { points: 20, start: 20 } } });
+  assert.equal(put.reason, 'TRAIL');
+  assert.ok(put.gross > 0, JSON.stringify(put));
+});
+
+test('research tries other stop amounts, ladders and trailing stops on the same entries, and picks the best of each on the older days', async () => {
+  const { runResearch, variants } = await import('../src/study/research.js');
+  const trade = (i, net) => ({ entryTime: 100 + i, exitTime: 200 + i, side: 'CE', net, minutes: 5, reason: 'STOP' });
+  // a fake trader: a bigger loss limit earns more, a trail costs a little, a wide ladder earns more than the early one
+  const tradesFor = (_sigs, { params }) => {
+    const per = params.lossLimit / 100 - (params.trail ? 2 : 0) + (params.steps?.[0]?.at === 1200 ? 5 : 0) + (params.target ? -1 : 0);
+    return { trades: Array.from({ length: 30 }, (_, i) => trade(i, per)), skippedWide: 0 };
+  };
+  const params = { lossLimit: 1500, maxLots: 2, steps: [{ at: 1000, keep: 750 }, { at: 1200, keep: 950 }, { at: 1400, keep: 1150 }, { at: 1600, keep: 1250 }, { at: 1800, keep: 1550 }, { at: 2000, keep: 1850 }, { at: 2300, keep: 2150 }, { at: 2600, keep: 2500 }], trail: null, target: 600 };
+  const r = await runResearch({ signals: [{}], tradesFor, midTime: 115, trainEnd: 120, params });
+  const row = (key) => r.rows.find((x) => x.key === key);
+  assert.equal(r.base.net, 15 * 30, 'the base is your settings with the profit ladder, not the study screen target');
+  assert.ok(row('loss3000').net > row('loss1000').net);
+  assert.equal(row('loss1500').current, true);
+  assert.equal(row('ladder-yours6').apply.steps.length, 6, 'your 8-step ladder cut to 6');
+  assert.equal(row('ladder-none').apply, null, 'a ladder of nothing cannot be saved as a setting');
+  assert.equal(row('target800').apply, null, 'the live options trader has no fixed target');
+  assert.deepEqual(row('trail25').apply.trail, { points: 25, start: 25 });
+  assert.ok(row('trail25').net < r.base.net);
+  assert.equal(r.mix.apply.lossLimit, 3000);
+  assert.equal(r.mix.apply.steps[0].at, 1200, 'the wide ladder won on the older days');
+  assert.equal(r.mix.apply.trail, undefined, 'a trail that lost on the older days is not part of the mix');
+  assert.ok(r.mix.train || r.mix.test, 'the mix is shown on the older and the newer days');
+  assert.ok(variants({ ...params, steps: [] }).every((v) => v.key !== 'ladder-yours6'), 'no cut ladder when yours is short');
+  const short = await runResearch({ signals: [{}], tradesFor, midTime: 115, trainEnd: null, params });
+  assert.equal(short.mix, null);
+});

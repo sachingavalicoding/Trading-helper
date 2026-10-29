@@ -32,3 +32,10 @@ export function whatIfText(w) {
   const dist = `${Math.round(w.pts)} points`;
   return w.hitAfter == null ? `${dist}, held for the hour` : `${dist}, hit after ${w.hitAfter} min`;
 }
+
+export const TRAIL_POINTS = [10, 15, 20, 25, 30, 40, 50, 75, 100];
+
+/** The trailing stop a study or the settings used, in words. */
+export function trailText(trail) {
+  return trail ? `trailing stop: ${trail.points} points behind the best price once Nifty has moved ${trail.start} points your way` : 'no trailing stop';
+}

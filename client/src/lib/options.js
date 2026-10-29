@@ -1,5 +1,5 @@
 // Small helpers for the options screens.
-export const EXIT_LABEL = { STOP: 'Stopped', LOCK: 'Locked profit', TARGET: 'Target', MANUAL: 'Manual exit', SQUARE_OFF: 'Square-off', TIME: 'Time exit' };
+export const EXIT_LABEL = { STOP: 'Stopped', LOCK: 'Locked profit', TARGET: 'Target', MANUAL: 'Manual exit', SQUARE_OFF: 'Square-off', TIME: 'Time exit', TRAIL: 'Trailing stop' };
 
 /** How strong a 0-100 reading is: drives the colour of the score bar. */
 export function scoreTone(score, minScore = 70) {

@@ -7,7 +7,7 @@ import { useMarket } from '../../context/MarketContext.jsx';
 import { useOrderBlock } from '../../lib/orderGate.js';
 import { formatPrice, formatINR, formatInt } from '../../lib/format.js';
 import { scoreTone, shortExpiry } from '../../lib/options.js';
-import { Badge, Card, Skeleton } from '../ui.jsx';
+import { Card, Skeleton } from '../ui.jsx';
 
 const SIDE = {
   CE: { title: 'Call (CE)', hint: 'pays if Nifty rises', icon: TrendingUp, tone: 'up' },
@@ -60,7 +60,7 @@ function PlanPreview({ preview, type }) {
 }
 
 function SideCard({ side, contract, preview, best, minScore, busy, gate, onBuy }) {
-  const [why, setWhy] = useState(false);
+  const [adv, setAdv] = useState(false);
   const meta = SIDE[side.type];
   const Icon = meta.icon;
   const blocked = side.blocked || [];
@@ -70,7 +70,6 @@ function SideCard({ side, contract, preview, best, minScore, busy, gate, onBuy }
         <div>
           <h3 className="flex items-center gap-1.5 text-sm font-semibold">
             <Icon className={`h-4 w-4 ${meta.tone === 'up' ? 'text-up' : 'text-down'}`} /> {meta.title}
-            {best && <Badge tone="up">Best now</Badge>}
           </h3>
           <p className="text-[11px] text-muted">{meta.hint}</p>
         </div>
@@ -85,16 +84,6 @@ function SideCard({ side, contract, preview, best, minScore, busy, gate, onBuy }
           </div>
         )}
       </div>
-      <ScoreBar score={side.score} minScore={minScore} />
-      {blocked.length > 0 ? (
-        <ul className="space-y-1 text-xs text-down">
-          {blocked.map((t) => (
-            <li key={t}>✕ {t}</li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-xs text-up">✓ Every hard check passes.</p>
-      )}
       {side.trigger && (
         <p className="text-xs text-muted">
           <b className="text-fg">{side.trigger.kind}:</b> {side.trigger.note}.
@@ -105,22 +94,35 @@ function SideCard({ side, contract, preview, best, minScore, busy, gate, onBuy }
         {side.levels.length > 0 && <> Next levels: {side.levels.map((l) => `${formatPrice(l.price)} ${l.kind}`).join(', ')}.</>}
       </p>
       <PlanPreview preview={preview} type={side.type} />
-      <button type="button" onClick={() => setWhy((v) => !v)} className="flex items-center gap-1 text-xs text-accent">
-        {why ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />} Why this score
+      <button type="button" onClick={() => setAdv((v) => !v)} aria-expanded={adv} className="flex items-center gap-1 text-xs text-accent">
+        {adv ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />} Score and checks (advanced)
       </button>
-      {why && (
-        <ul className="divide-y divide-line text-xs">
-          {side.checks.map((c) => (
-            <li key={c.id} className="flex items-start justify-between gap-2 py-1">
-              <span className="min-w-0 text-muted">
-                <b className="text-fg">{c.label}:</b> {c.text}
-              </span>
-              <span className={`num shrink-0 ${c.points >= c.max ? 'text-up' : c.points > 0 ? 'text-warn' : 'text-muted'}`}>
-                {c.points}/{c.max}
-              </span>
-            </li>
-          ))}
-        </ul>
+      {adv && (
+        <div className="space-y-2">
+          <p className="text-[11px] leading-snug text-muted">The original all-checks score. In the studies so far score entries lost money, so treat this as reading only.{best ? ' This side scores best right now.' : ''}</p>
+          <ScoreBar score={side.score} minScore={minScore} />
+          {blocked.length > 0 ? (
+            <ul className="space-y-1 text-xs text-down">
+              {blocked.map((t) => (
+                <li key={t}>✕ {t}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-up">✓ Every hard check passes.</p>
+          )}
+          <ul className="divide-y divide-line text-xs">
+            {side.checks.map((c) => (
+              <li key={c.id} className="flex items-start justify-between gap-2 py-1">
+                <span className="min-w-0 text-muted">
+                  <b className="text-fg">{c.label}:</b> {c.text}
+                </span>
+                <span className={`num shrink-0 ${c.points >= c.max ? 'text-up' : c.points > 0 ? 'text-warn' : 'text-muted'}`}>
+                  {c.points}/{c.max}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       <button type="button" disabled={busy || !contract?.ltp || Boolean(gate)} onClick={() => onBuy(side.type, contract, preview)} className={`btn btn-lg w-full ${meta.tone === 'up' ? 'btn-buy' : 'btn-sell'}`}>
         {gate || `Buy ${preview?.plan?.lots ?? 1} lot${(preview?.plan?.lots ?? 1) > 1 ? 's' : ''} ${side.type} (paper)`}
@@ -160,7 +162,6 @@ export function OptionsSignal({ minScore, onBought }) {
 
   if (!data) return <Skeleton className="h-64 w-full" />;
   if (!data.ready) return <Card className="p-4 text-sm text-muted">The Nifty chart is still loading. Give it a minute after the server starts.</Card>;
-  const lead = data.best ? SIDE[data.best].title : null;
   return (
     <div className="space-y-3">
       <Card className="p-3">
@@ -168,9 +169,6 @@ export function OptionsSignal({ minScore, onBought }) {
           <div className="text-xs text-muted">Nifty 50 now</div>
           <div className="num text-lg font-bold">{formatPrice(data.spot)}</div>
         </div>
-        <p className={`mt-1 text-sm font-medium ${lead ? 'text-up' : 'text-muted'}`}>
-          {lead ? `${lead} has a clean setup.` : 'No clean setup right now. Waiting is a position too.'}
-        </p>
         <p className="num mt-1 text-[11px] text-muted">
           ATR(5m) {data.atr5} · ADX {data.snapshot.adx ?? '–'} · RSI {data.snapshot.rsi ?? '–'} · choppiness {data.snapshot.chop ?? '–'} · breadth {data.snapshot.breadthUp == null ? '–' : `${Math.round(data.snapshot.breadthUp * 100)}% up`} · range today {data.snapshot.dayRangePct}%
           {data.snapshot.avgRangePct ? ` of ${data.snapshot.avgRangePct}%` : ''}

@@ -5,7 +5,7 @@ import mongoose from 'mongoose';
 // how the trade ended, so a day can be reviewed: was it the rules, the entry, or just the market?
 const outcomeSchema = new mongoose.Schema(
   {
-    exitReason: { type: String, enum: ['STOP', 'LOCK', 'TARGET', 'MANUAL', 'SQUARE_OFF', 'TIME'] },
+    exitReason: { type: String, enum: ['STOP', 'LOCK', 'TARGET', 'MANUAL', 'SQUARE_OFF', 'TIME', 'TRAIL'] },
     exitPrice: Number,
     grossPnl: Number,
     charges: Number,

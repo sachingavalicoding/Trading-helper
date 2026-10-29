@@ -1,6 +1,7 @@
 import { StudyRun, OptionSettings, AutoSettings } from '../models/index.js';
 import { normalizeCombos } from '../combos/combos.js';
 import { stopRuleOf } from './patterns.js';
+import { trailOf } from './simulate.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { NIFTY50 } from '../market/instruments.js';
 import { UNDERLYING } from '../options/symbols.js';
@@ -29,11 +30,11 @@ export class StudyService {
   }
 
   /** Starts a run and returns at once; poll status(). Only one run per user and kind at a time. */
-  start(userId, kind, { days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0, exitMin, autoFind = false } = {}) {
+  start(userId, kind, { days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0, exitMin, autoFind = false, research = false } = {}) {
     if (this.status(userId, kind).state === 'running') throw conflict('A study is already running');
     const job = { state: 'running', step: 'Starting', startedAt: Date.now() };
     this.jobs.set(`${userId}|${kind}`, job);
-    const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind });
+    const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind, research });
     run.catch((e) => {
       logger.warn(`${kind} study failed: ${e.message}`);
       Object.assign(job, { state: 'failed', error: e.message });
@@ -60,7 +61,7 @@ export class StudyService {
     return { nifty1, calendar };
   }
 
-  async #runOptions(userId, job, { days, iv, target = 0, fixedLots = 0, exitMin, autoFind = false }) {
+  async #runOptions(userId, job, { days, iv, target = 0, fixedLots = 0, exitMin, autoFind = false, research = false }) {
     const { nifty1, calendar } = await this.#nifty(job, days);
     const stocks5 = {};
     let failed = 0;
@@ -86,7 +87,9 @@ export class StudyService {
       minScore: settings?.minScore ?? 80,
       combos: normalizeCombos(settings?.combos),
       stopRule: stopRuleOf(settings),
+      trail: trailOf(settings),
       autoFind,
+      research,
       lossLimit: rules.stopLoss ?? 0,
       maxLots: settings?.maxLots ?? 2,
       target,
