@@ -544,3 +544,14 @@ test('break-even moves the stop to the entry once the index has gone far enough,
   assert.ok(be.net > plain.net, 'less lost than at the chart stop');
   assert.equal(run(500).reason, 'STOP', 'a break-even that never starts changes nothing');
 });
+
+test('the research also tries ladders with the live start and more room behind the best profit, and fixed targets up to 4,000', async () => {
+  const { variants } = await import('../src/study/research.js');
+  const params = { lossLimit: 3000, maxLots: 2, steps: [{ at: 3000, keep: 2750 }, { at: 3500, keep: 3250 }] };
+  const rows = variants(params);
+  const room = rows.find((v) => v.key === 'ladder-room750');
+  assert.deepEqual(room.apply.steps.slice(0, 2), [{ at: 3000, keep: 2250 }, { at: 3500, keep: 2750 }], 'starts where the live ladder does, 750 behind');
+  assert.equal(room.apply.steps.length, 8);
+  assert.equal(rows.find((v) => v.key === 'ladder-late4000').apply.steps[0].at, 4000);
+  assert.equal(rows.find((v) => v.key === 'target4000').apply, null, 'still a study choice only');
+});

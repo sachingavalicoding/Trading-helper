@@ -12,3 +12,4 @@ export { AutoLog } from './AutoLog.js';
 export { OptionSettings } from './OptionSettings.js';
 export { StudyRun } from './StudyRun.js';
 export { CandleDay, CandleCoverage } from './CandleDay.js';
+export { OptionCandleDay, OptionHistoryDay } from './OptionCandleDay.js';

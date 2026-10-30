@@ -5,14 +5,24 @@ import { halvesOf, verdictOf } from '../combos/verdict.js';
 // the live trader uses can be picked from data. Only one thing changes in each row; everything else stays as set in Account.
 
 export const LOSS_LIMITS = [1000, 1500, 2000, 2500, 3000];
-export const TARGETS = [600, 800, 1000, 1500, 2000]; // rupees per lot
+export const TARGETS = [600, 800, 1000, 1500, 2000, 2500, 3000, 4000]; // rupees per lot
 export const TRAIL_POINTS = [15, 20, 25, 30, 40, 50];
 export const BREAK_EVEN_POINTS = [10, 15, 20, 30];
 const ladder = (rows) => rows.map(([at, keep]) => ({ at, keep }));
+// Ladders shaped like the live one (a row every ₹500), with more or less room behind the best profit, so the lock can be loosened without moving where it starts
+const roomLadder = (key, start, gap) => {
+  const rows = Array.from({ length: 8 }, (_, i) => [start + i * 500, start + i * 500 - gap]);
+  const n = (v) => v.toLocaleString('en-IN');
+  return { key, label: `Start +₹${n(start)}, ₹${n(gap)} behind`, text: `Locks from +₹${n(start)} and stays ₹${n(gap)} behind the best profit: ${rows.slice(0, 4).map(([at, keep]) => `+${n(at)} keeps ${n(keep)}`).join(', ')} and on in steps of 500.`, steps: ladder(rows) };
+};
 export const LADDERS = [
   { key: 'early', label: 'Early lock, 6 steps', text: 'Locks from +₹500 and follows close behind: +500 keeps 300, +800 keeps 550, +1,100 keeps 850, +1,400 keeps 1,150, +1,800 keeps 1,500, +2,200 keeps 1,950.', steps: ladder([[500, 300], [800, 550], [1100, 850], [1400, 1150], [1800, 1500], [2200, 1950]]) },
   { key: 'tight', label: 'Tight follow, 6 steps', text: 'Starts at +₹1,000 and stays 150 behind: +1,000 keeps 850, +1,300 keeps 1,150, +1,600 keeps 1,450, +2,000 keeps 1,850, +2,500 keeps 2,350, +3,000 keeps 2,850.', steps: ladder([[1000, 850], [1300, 1150], [1600, 1450], [2000, 1850], [2500, 2350], [3000, 2850]]) },
   { key: 'wide', label: 'Wide room, 6 steps', text: 'Lets the trade breathe, about 400 behind: +1,200 keeps 800, +1,600 keeps 1,200, +2,000 keeps 1,600, +2,500 keeps 2,100, +3,000 keeps 2,600, +3,500 keeps 3,100.', steps: ladder([[1200, 800], [1600, 1200], [2000, 1600], [2500, 2100], [3000, 2600], [3500, 3100]]) },
+  roomLadder('room500', 3000, 500),
+  roomLadder('room750', 3000, 750),
+  roomLadder('room1000', 3000, 1000),
+  roomLadder('late4000', 4000, 750),
 ];
 export const STOP_TRIES = [
   { key: 'chart', label: 'the chart level', rule: { mode: 'chart' } },

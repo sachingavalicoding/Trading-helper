@@ -6,7 +6,7 @@ import { INDEX_KEYS } from '../options/symbols.js';
 
 export const SHARES_NOTE = 'This replays the scanner on past 1-minute candles of the Nifty 50, sized to your Account stop. There is no order book in the replay, and it exits with your profit ladder or a fixed rupee target, as you choose, so read it for which setups, hours and sides pay more than for exact rupees. Past results do not promise future ones.';
 
-export const STUDY_NOTE = 'This is a replay of past Nifty candles as paper trades of one lot. Option prices are estimated, not recorded, so the rupee amounts are a guide. Past results do not promise future ones.';
+export const STUDY_NOTE = 'This is a replay of past Nifty candles as paper trades of one lot. Option prices are estimated unless the real prices switch is on (it uses the premiums saved each evening, so far fewer days), so the rupee amounts are a guide. Past results do not promise future ones.';
 
 const KINDS = ['options', 'shares'];
 const runSchema = z.object({
@@ -27,6 +27,7 @@ const runSchema = z.object({
   pairGoal: z.enum(['profit', 'winrate']).optional(), // finder: order the results by newer-days profit or by win rate
   pairResearch: z.boolean().optional(), // finder, options: research stop and profit for each result (default on)
   research: z.boolean().default(false), // options only: also try other stop amounts, profit ladders and trailing stops on Breakout + Engulfing
+  realPrices: z.boolean().default(false), // options only: price the trades from the real option candles saved each evening (only the days and contracts saved), not from the model
   exitMin: z.coerce.number().int().min(9 * 60 + 30).max(15 * 60 + 15).optional(), // the time everything is closed; left out = the one in Account Limits
 });
 const MAX_DAYS = { options: 65, shares: 15 }; // a share replay runs the whole scanner on 50 stocks, so it is kept short; options can use the saved three months

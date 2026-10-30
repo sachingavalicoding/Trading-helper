@@ -21,12 +21,13 @@ import { ReviewService } from './review/service.js';
 import { StudyService } from './study/service.js';
 import { HistorySync } from './market/historySync.js';
 import { historyRoutes } from './routes/history.js';
+import { optionHistoryRoutes } from './routes/optionHistory.js';
 import { requireAuth } from './middleware/auth.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 export const DISCLAIMER = 'Paper trading for learning. Not investment advice.';
 
-export function createApp({ market, engine, config, tracker, scanner, news, autoTrader, optionTrader, review = new ReviewService({ market, config }), study = new StudyService({ market, config }), history = new HistorySync({ market }) }) {
+export function createApp({ market, engine, config, tracker, scanner, news, autoTrader, optionTrader, review = new ReviewService({ market, config }), study = new StudyService({ market, config }), history = new HistorySync({ market }), optionHistory = null }) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
@@ -54,6 +55,7 @@ export function createApp({ market, engine, config, tracker, scanner, news, auto
   app.use('/api/study', auth, studyRoutes({ study }));
   app.use('/api/combos', auth, comboRoutes());
   app.use('/api/history', auth, historyRoutes({ history }));
+  if (optionHistory) app.use('/api/option-history', auth, optionHistoryRoutes({ optionHistory }));
   app.use('/api/report', auth, reportRoutes({ engine, market, review }));
   app.use('/api', auth, tradingRoutes({ engine, market, config }));
 

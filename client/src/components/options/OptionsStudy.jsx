@@ -13,6 +13,7 @@ import { AutoFound } from '../study/AutoFound.jsx';
 import { PairFinder, PairFinderControl } from '../study/PairFinder.jsx';
 import { Research } from '../study/Research.jsx';
 import { Switch } from './OptionsAutoCard.jsx';
+import { RealPricesSwitch } from '../study/RealPricesSwitch.jsx';
 import { INDEXES, indexOf, loadIndex, saveIndex } from '../../lib/indexes.js';
 
 const DAYS = [
@@ -186,6 +187,7 @@ export function OptionsStudy() {
   const [pairFirst, setPairFirst] = useState('');
   const [finder, setFinder] = useState(false);
   const [research, setResearch] = useState(false);
+  const [realPrices, setRealPrices] = useState(false);
   const { state, error, running, run } = useStudy('options');
   const time = useExitTime('options');
   const targetValue = Number(target);
@@ -233,11 +235,12 @@ export function OptionsStudy() {
           </p>
           <Switch on={research && !finderOn} disabled={finderOn} label="Research the stop and profit ladder" onClick={() => setResearch((v) => !v)} />
         </div>
+        <RealPricesSwitch on={realPrices} setOn={setRealPrices} />
         {targetBad && <p className="text-xs text-down">The target must be between ₹100 and ₹1,00,000.</p>}
         <Segmented className="w-full" size="sm" value={days} onChange={setDays} options={DAYS} />
         {days > 30 && <p className="text-[11px] leading-snug text-muted">Longer than 30 days reads the saved candles (Account, Studies, Data tab), so download them first.</p>}
         <div className="flex justify-end">
-          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin, autoFind: find, pairFind: pair, pairFirst: pairFirst || undefined, comboFind: finder, research, index })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
+          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin, autoFind: find, pairFind: pair, pairFirst: pairFirst || undefined, comboFind: finder, research, index, realPrices })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : finderOn ? 'Run finder' : 'Run study'}
           </button>
         </div>
@@ -255,7 +258,7 @@ export function OptionsStudy() {
           {r.simulated && <Card className="border-warn p-3 text-xs text-warn">This was made on the sample feed, whose history is random, so the numbers mean nothing. Log in to Upstox and run it again.</Card>}
           <Card className="flex items-center justify-between gap-2 p-3 text-xs">
             <p className="text-muted">
-              {r.params.index === 'SENSEX' ? 'Sensex · ' : ''}{r.period.from} to {r.period.to} · {r.period.days} trading days · {sizingText(r.params)} · {exitText(r.params)} · {stopRuleText(r.params.stopRule)}{r.params.trail ? ` · ${trailText(r.params.trail)}` : ''}{r.params.breakEven ? ` · ${breakEvenText(r.params.breakEven)}` : ''} · premiums estimated at {Math.round(r.params.iv * 100)}% volatility
+              {r.params.index === 'SENSEX' ? 'Sensex · ' : ''}{r.period.from} to {r.period.to} · {r.period.days} trading days{r.pricing?.mode === 'real' ? ` · real prices: ${r.pricing.priced} priced, ${r.pricing.skipped} skipped` : ''} · {sizingText(r.params)} · {exitText(r.params)} · {stopRuleText(r.params.stopRule)}{r.params.trail ? ` · ${trailText(r.params.trail)}` : ''}{r.params.breakEven ? ` · ${breakEvenText(r.params.breakEven)}` : ''} · premiums estimated at {Math.round(r.params.iv * 100)}% volatility
             </p>
             <button type="button" onClick={copy} className="btn btn-sm shrink-0">
               <ClipboardCopy className="h-3.5 w-3.5" /> Copy

@@ -1,4 +1,4 @@
-import { bsPrice } from '../options/pricing.js';
+import { bsPrice, impliedVol } from '../options/pricing.js';
 import { atmStrike, chooseExpiry, weeklyExpiries, yearsToExpiry, DEFAULT_LOT_SIZE, DEFAULT_EXPIRY_WEEKDAY, STRIKE_STEP } from '../options/symbols.js';
 import { calculateCharges } from '../services/charges.js';
 import { istParts } from '../market/marketHours.js';
@@ -37,7 +37,7 @@ export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread 
  *                the limit, up to `maxLots`, none when even one lot loses more. A hard stop sits at HARD_STOP_MULT times the limit. Without one, 1 lot.
  */
 export function simulateTrade({ c1, byTime, signal, params }) {
-  const { trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN } = params;
+  const { prices = null, trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN } = params;
   const start = byTime.get(signal.time);
   if (start == null) return null;
   if (istParts(new Date(signal.time * 1000)).minutes >= exitMin) return null; // no new trade at or after the time you close
@@ -45,10 +45,25 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   const entryBar = c1[start];
   const entryAt = new Date(entryBar.time * 1000);
   const strike = atmStrike(entryBar.open, strikeStep);
-  const expiry = chooseExpiry(weeklyExpiries(entryAt, { holidays, weekday: expiryWeekday }), entryAt, { minDays: 1 });
+  // With saved real premiums (`prices`) the trade is priced from its contract's own candles, and only a trade whose contract was saved that day is taken.
+  // Otherwise every premium is estimated with Black-Scholes at the fixed volatility.
+  const entryDay = istParts(entryAt).dateKey;
+  const expiry = prices ? chooseExpiry(prices.expiries(entryDay), entryAt, { minDays: 1 }) : chooseExpiry(weeklyExpiries(entryAt, { holidays, weekday: expiryWeekday }), entryAt, { minDays: 1 });
+  const real = prices && expiry ? prices.contract(entryDay, expiry, strike, signal.side) : null;
+  if (prices && !real?.has(entryBar.time)) {
+    prices.stats.noPrice += 1;
+    return null;
+  }
   if (!expiry) return null;
-  const premiumAt = (spot, time) => bsPrice({ type: signal.side, spot, strike, t: yearsToExpiry(expiry, new Date(time * 1000)), iv });
-  const paid = premiumAt(entryBar.open, entryBar.time) * (1 + SLIPPAGE);
+  const yearsAt = (time) => yearsToExpiry(expiry, new Date(time * 1000));
+  // a level the contract never traded at (the stop, a target) is priced by the model, set to the volatility the real entry premium implies
+  const modelIv = real ? Math.min(Math.max(impliedVol({ type: signal.side, spot: entryBar.open, strike, t: yearsAt(entryBar.time), premium: real.get(entryBar.time).open }) ?? iv, 0.05), 0.8) : iv;
+  // `kind` names which of the minute's four real prices the call means (the open, the close, the worst or the best for the buyer); without one, or without a candle, the model prices it
+  const premiumAt = (spot, time, kind) => {
+    const c = real && kind ? real.get(time) : null;
+    return c && c[kind] > 0 ? c[kind] : bsPrice({ type: signal.side, spot, strike, t: yearsAt(time), iv: modelIv });
+  };
+  const paid = premiumAt(entryBar.open, entryBar.time, 'open') * (1 + SLIPPAGE);
   if (paid < 1) return null;
   let lots = 1;
   if (lossLimit > 0) {
@@ -78,25 +93,25 @@ export function simulateTrade({ c1, byTime, signal, params }) {
     const at = istParts(new Date(bar.time * 1000));
     if (at.dateKey !== day) {
       const prev = c1[j - 1];
-      exit = { time: prev.time + 60, spot: prev.close, profit: profitAt(premiumAt(prev.close, prev.time)), reason: 'EOD' };
+      exit = { time: prev.time + 60, spot: prev.close, profit: profitAt(premiumAt(prev.close, prev.time, 'close')), reason: 'EOD' };
       break;
     }
     if (at.minutes >= exitMin) {
-      exit = { time: bar.time, spot: bar.open, profit: profitAt(premiumAt(bar.open, bar.time)), reason: 'EOD' };
+      exit = { time: bar.time, spot: bar.open, profit: profitAt(premiumAt(bar.open, bar.time, 'open')), reason: 'EOD' };
       break;
     }
     const against = long ? bar.low : bar.high;
     const favour = long ? bar.high : bar.low;
     if (targetProfit > 0) {
-      const gap = profitAt(premiumAt(bar.open, bar.time));
+      const gap = profitAt(premiumAt(bar.open, bar.time, 'open'));
       if (gap >= targetProfit) {
         exit = { time: bar.time, spot: bar.open, profit: gap, reason: 'TARGET' };
         break;
       }
     }
     if (lockLevel != null) {
-      const open = profitAt(premiumAt(bar.open, bar.time));
-      const low = profitAt(premiumAt(against, bar.time));
+      const open = profitAt(premiumAt(bar.open, bar.time, 'open'));
+      const low = profitAt(premiumAt(against, bar.time, 'low'));
       if (open <= lockLevel) {
         exit = { time: bar.time, spot: bar.open, profit: open, reason: 'LOCK' };
         break;
@@ -106,21 +121,21 @@ export function simulateTrade({ c1, byTime, signal, params }) {
         break;
       }
     }
-    const closeProfit = profitAt(premiumAt(bar.close, bar.time));
+    const closeProfit = profitAt(premiumAt(bar.close, bar.time, 'close'));
     if (hardLoss > -Infinity) {
-      const open = profitAt(premiumAt(bar.open, bar.time));
-      const low = profitAt(premiumAt(against, bar.time));
+      const open = profitAt(premiumAt(bar.open, bar.time, 'open'));
+      const low = profitAt(premiumAt(against, bar.time, 'low'));
       if (open <= hardLoss || low <= hardLoss) {
         exit = { time: bar.time, spot: open <= hardLoss ? bar.open : against, profit: Math.min(open <= hardLoss ? open : hardLoss, hardLoss), reason: 'HARD' };
         break;
       }
     }
-    worst = Math.min(worst, profitAt(premiumAt(against, bar.time)));
+    worst = Math.min(worst, profitAt(premiumAt(against, bar.time, 'low')));
     if (long ? bar.close < stopNow : bar.close > stopNow) {
       exit = { time: bar.time + 60, spot: bar.close, profit: closeProfit, reason: stopWhy };
       break;
     }
-    best = Math.max(best, profitAt(premiumAt(favour, bar.time)));
+    best = Math.max(best, profitAt(premiumAt(favour, bar.time, 'high')));
     const gained = long ? favour - entryBar.open : entryBar.open - favour;
     if (breakEven > 0 && gained >= breakEven && (long ? entryBar.open > stopNow : entryBar.open < stopNow)) {
       stopNow = entryBar.open;
@@ -156,10 +171,11 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   }
   if (!exit) {
     const last = c1.at(-1);
-    exit = { time: last.time + 60, spot: last.close, profit: profitAt(premiumAt(last.close, last.time)), reason: 'EOD' };
+    exit = { time: last.time + 60, spot: last.close, profit: profitAt(premiumAt(last.close, last.time, 'close')), reason: 'EOD' };
   }
   const sellPremium = (exit.profit / qty + paid) / (1 - SLIPPAGE);
   const charges = round2(buyCharges + calculateCharges({ side: 'SELL', qty, price: Math.max(sellPremium, 0.05), segment: 'OPT' }).total);
+  if (prices) prices.stats.used += 1;
   return {
     technique: signal.technique,
     side: signal.side,
@@ -174,6 +190,7 @@ export function simulateTrade({ c1, byTime, signal, params }) {
     stop: round2(signal.stop),
     strike,
     expiry,
+    priced: real ? 'real' : 'estimated',
     entryPremium: round2(paid),
     gross: round2(exit.profit),
     charges,

@@ -70,6 +70,16 @@ export class BaseProvider extends EventEmitter {
     throw new Error('This feed has no candle history to save');
   }
 
+  /** `unit`-minute candles of an option contract between two days (a month at most) with the open interest, oldest first. */
+  async getOptionCandlesBetween(_symbol, _unit, _fromDay, _toDay) {
+    throw new Error('This feed has no candle history to save');
+  }
+
+  /** Today's `unit`-minute candles of an option contract with the open interest ({ time, open, high, low, close, volume, oi }), oldest first. */
+  async getTodayOptionCandles(_symbol, _unit = 1) {
+    throw new Error('This feed has no candle history to save');
+  }
+
   /** Daily candles for roughly the last `days` calendar days, oldest first; [] when the feed has none. */
   async getDailyHistory(_symbol, _days) {
     return [];

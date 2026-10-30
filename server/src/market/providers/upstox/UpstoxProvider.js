@@ -179,6 +179,32 @@ export class UpstoxProvider extends BaseProvider {
     return [...seen.values()].sort((a, b) => a.time - b.time);
   }
 
+  /** One window of `unit`-minute candles of an option contract between two days (the API allows a month at most) with the open interest, oldest first. Throws on a refused or failed call. */
+  async getOptionCandlesBetween(symbol, unit, fromDay, toDay) {
+    const key = this.keyBySymbol.get(symbol);
+    if (!key) return [];
+    const hist = await this.#get(`/v3/historical-candle/${encodeURIComponent(key)}/minutes/${unit}/${toDay}/${fromDay}`);
+    const seen = new Map();
+    for (const [ts, open, high, low, close, volume, oi] of hist?.data?.candles || []) {
+      const time = Math.floor(new Date(ts).getTime() / 1000);
+      seen.set(time, { time, open, high, low, close, volume: volume || 0, oi: oi || 0 });
+    }
+    return [...seen.values()].sort((a, b) => a.time - b.time);
+  }
+
+  /** Today's `unit`-minute candles of an option contract, with the open interest as the seventh column. Throws on a refused or failed call. */
+  async getTodayOptionCandles(symbol, unit = 1) {
+    const key = this.keyBySymbol.get(symbol);
+    if (!key) return [];
+    const res = await this.#get(`/v3/historical-candle/intraday/${encodeURIComponent(key)}/minutes/${unit}`);
+    const seen = new Map();
+    for (const [ts, open, high, low, close, volume, oi] of res?.data?.candles || []) {
+      const time = Math.floor(new Date(ts).getTime() / 1000);
+      seen.set(time, { time, open, high, low, close, volume: volume || 0, oi: oi || 0 });
+    }
+    return [...seen.values()].sort((a, b) => a.time - b.time);
+  }
+
   async getDailyHistory(symbol, days = 45) {
     const key = this.keyBySymbol.get(symbol);
     if (!key) return [];

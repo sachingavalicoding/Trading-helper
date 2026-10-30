@@ -11,6 +11,7 @@ import { AutoTrader } from './auto/autoTrader.js';
 import { OptionTrader } from './options/optionTrader.js';
 import { NewsService } from './news/service.js';
 import { HistorySync } from './market/historySync.js';
+import { OptionHistorySync } from './market/optionHistory.js';
 import { attachSocket } from './socket/index.js';
 import { logger } from './utils/logger.js';
 
@@ -46,7 +47,9 @@ async function main() {
 
   const history = new HistorySync({ market });
   history.schedule();
-  const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history });
+  const optionHistory = new OptionHistorySync({ market });
+  optionHistory.schedule();
+  const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history, optionHistory });
   const server = http.createServer(app);
   const io = attachSocket(server, { market, engine, config: env, scanner });
 
@@ -62,6 +65,7 @@ async function main() {
     autoTrader.stop();
     optionTrader.stop();
     history.stop();
+    optionHistory.stop();
     scanner.stop();
     news.stop();
     io.closeAll();

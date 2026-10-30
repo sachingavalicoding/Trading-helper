@@ -11,6 +11,7 @@ import { useApi } from '../../lib/useApi.js';
 import { useStudy } from '../../lib/useStudy.js';
 import { Card, Segmented, Skeleton } from '../ui.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
+import { RealPricesSwitch } from './RealPricesSwitch.jsx';
 import { AutoFound } from './AutoFound.jsx';
 import { PairFinder, StartFromSelect } from './PairFinder.jsx';
 
@@ -79,6 +80,7 @@ export function FinderStudy() {
   const [show, setShow] = useState(10);
   const [goal, setGoal] = useState('profit');
   const [research, setResearch] = useState(true);
+  const [realPrices, setRealPrices] = useState(false);
   const { state, error, running, run } = useStudy(kind);
   const options = kind === 'options';
   const dates = options && range === 'dates';
@@ -97,6 +99,7 @@ export function FinderStudy() {
       pairShow: show,
       pairGoal: goal,
       pairResearch: options ? research : undefined,
+      realPrices: options ? realPrices : undefined,
     });
   }
 
@@ -141,6 +144,7 @@ export function FinderStudy() {
             <Switch on={research} label="Research the stop and profit" onClick={() => setResearch((v) => !v)} />
           </div>
         )}
+        {options && <RealPricesSwitch on={realPrices} setOn={setRealPrices} />}
         <div className="space-y-1">
           <div className="text-[11px] text-muted">Days to read</div>
           {options && <Segmented className="w-full" size="sm" value={range} onChange={setRange} options={[{ value: 'days', label: 'Last days' }, { value: 'dates', label: 'Between dates' }]} />}
@@ -182,6 +186,7 @@ export function FinderStudy() {
               {r.params?.index === 'SENSEX' ? 'Sensex · ' : ''}
               {r.period.from} to {r.period.to} · {r.period.days} trading days
               {r.pairs?.tried ? ` · ${r.pairs.tried} tried` : ''}
+              {r.pricing?.mode === 'real' ? ` · real prices: ${r.pricing.priced} priced, ${r.pricing.skipped} skipped` : ''}
             </p>
             <button type="button" onClick={copy} className="btn btn-sm shrink-0">
               <ClipboardCopy className="h-3.5 w-3.5" /> Copy

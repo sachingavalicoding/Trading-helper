@@ -37,10 +37,17 @@ export const sizingText = (p) => {
 export const exitText = (p) => (p.exit === 'target' ? `No profit lock: sold when the profit reaches +₹${p.target} a lot, or at the stop` : (p.steps?.length > 1 ? `Profit lock ladder: ${p.steps.map((r) => `+${r.at} keeps ${r.keep}`).join(', ')}` : p.steps?.length === 0 ? 'No profit lock' : `Profit lock +${p.lockStart} keeps ${p.lockStart - p.lockGap}`));
 
 /** The whole study as plain text, to paste into the chat. */
+/** How the premiums of an options study were priced, in words. */
+export function pricingText(r) {
+  const p = r?.pricing;
+  if (p?.mode === 'real') return `premiums are the real saved option prices (${p.days} saved days, ${p.from} to ${p.to}): ${p.priced} trades priced from them, ${p.skipped} entries skipped because their contract was not saved`;
+  return `premiums estimated at ${Math.round((r?.params?.iv ?? 0.14) * 100)}% volatility`;
+}
+
 export function studyText(r) {
   if (!r) return '';
   const lines = [
-    `${r.params.index === 'SENSEX' ? 'Sensex options' : 'Options'} study ${r.period.from} to ${r.period.to} (${r.period.days} trading days), ${sizingText(r.params)}, charges and slippage included, premiums estimated at ${Math.round(r.params.iv * 100)}% volatility.`,
+    `${r.params.index === 'SENSEX' ? 'Sensex options' : 'Options'} study ${r.period.from} to ${r.period.to} (${r.period.days} trading days), ${sizingText(r.params)}, charges and slippage included, ${pricingText(r)}.`,
     `${exitText(r.params)}; ${stopRuleText(r.params.stopRule)}${r.params.trail ? `; ${trailText(r.params.trail)}` : ''}${r.params.breakEven ? `; ${breakEvenText(r.params.breakEven)}` : ''}; closed at ${timeText(r.params.exitMin ?? DEFAULT_EXIT_MIN)}; at most ${r.params.maxPerDay} trades a day; stops wider than ${r.params.maxStopAtr} ATR skipped.`,
     '',
   ];
