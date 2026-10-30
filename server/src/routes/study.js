@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { badRequest, notFound } from '../utils/errors.js';
+import { INDEX_KEYS } from '../options/symbols.js';
 
 export const SHARES_NOTE = 'This replays the scanner on past 1-minute candles of the Nifty 50, sized to your Account stop. There is no order book in the replay, and it exits with your profit ladder or a fixed rupee target, as you choose, so read it for which setups, hours and sides pay more than for exact rupees. Past results do not promise future ones.';
 
@@ -14,6 +15,7 @@ const runSchema = z.object({
   exit: z.enum(['lock', 'target']).default('lock'),
   target: z.coerce.number().min(100).max(100000).default(1000),
   fixedLots: z.coerce.number().int().min(0).max(20).default(0),
+  index: z.enum(INDEX_KEYS).default('NIFTY'), // options only: which index's options are replayed
   autoFind: z.boolean().default(false), // options only: also search for combinations that hold on days they were not picked on
   research: z.boolean().default(false), // options only: also try other stop amounts, profit ladders and trailing stops on Breakout + Engulfing
   exitMin: z.coerce.number().int().min(9 * 60 + 30).max(15 * 60 + 15).optional(), // the time everything is closed; left out = the one in Account Limits

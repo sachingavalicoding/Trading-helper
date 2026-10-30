@@ -3,9 +3,8 @@ import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { AutoLog, OptionSettings } from '../models/index.js';
 import { summarizeLog } from '../auto/logSummary.js';
-import { UNDERLYING, optionLabel } from '../options/symbols.js';
-import { OPTION_WEIGHTS } from '../options/signal.js';
-import { LIVE_PATTERNS, DEFAULT_PATTERNS } from '../options/optionTrader.js';
+import { INDEXES, INDEX_KEYS, DEFAULT_INDEX, optionLabel } from '../options/symbols.js';
+import { LIVE_PATTERNS, DEFAULT_PATTERNS, activeIndexes } from '../options/optionTrader.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { badRequest } from '../utils/errors.js';
 import { comboInput, normalizeCombos } from '../combos/combos.js';
@@ -15,14 +14,14 @@ export const OPTIONS_DISCLAIMER = 'Options are paper (virtual) trades only. Abou
 const patch = z
   .object({
     enabled: z.boolean(),
-    minScore: z.coerce.number().min(60).max(100),
     maxLots: z.coerce.number().int().min(1).max(20),
     maxOpen: z.coerce.number().int().min(1).max(3),
     maxTrades: z.coerce.number().int().min(1).max(10),
     budget: z.coerce.number().min(5000).max(100_000_000),
     dailyLossPct: z.coerce.number().min(2).max(30),
     patternEntries: z.boolean(),
-    scoreEntries: z.boolean(),
+    indexes: z.array(z.enum(INDEX_KEYS)).min(1),
+    mirror: z.boolean(),
     patternStopMode: z.enum(['chart', 'cap', 'atr', 'fixed']),
     patternStopAtr: z.coerce.number().min(0.8).max(2.5),
     patternStopPoints: z.coerce.number().min(10).max(150),
@@ -36,7 +35,8 @@ const patch = z
   })
   .partial();
 
-const buySchema = z.object({ type: z.enum(['CE', 'PE']), lots: z.coerce.number().int().min(1).max(20).default(1) });
+const buySchema = z.object({ type: z.enum(['CE', 'PE']), lots: z.coerce.number().int().min(1).max(20).default(1), index: z.enum(INDEX_KEYS).default(DEFAULT_INDEX) });
+const indexQuery = z.enum(INDEX_KEYS).default(DEFAULT_INDEX);
 const dayOf = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 // What a screen needs from a chart read: the scores and reasons, not the raw indicator arrays.
@@ -46,9 +46,9 @@ export function optionRoutes({ optionTrader }) {
   const router = Router();
   const view = async (userId, doc) => {
     const s = doc || new OptionSettings({ user: userId });
-    const { enabled, minScore, maxLots, maxOpen, maxTrades, budget, dailyLossPct } = s;
-    const entries = { patternEntries: s.patternEntries !== false, scoreEntries: s.scoreEntries !== false, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []), patternStopMode: s.patternStopMode ?? 'chart', patternStopAtr: s.patternStopAtr ?? 2, patternStopPoints: s.patternStopPoints ?? 30, comboEntries: s.comboEntries !== false, trailMode: s.trailMode ?? 'off', trailPoints: s.trailPoints ?? 25, trailStart: s.trailStart ?? 25, breakEvenPoints: s.breakEvenPoints ?? 0 };
-    return { settings: { enabled, minScore, maxLots, maxOpen, maxTrades, budget, dailyLossPct, ...entries }, patternChoices: LIVE_PATTERNS, rules: await loadRules(userId, 'OPT'), today: await optionTrader.todaySummary(userId), weights: OPTION_WEIGHTS, disclaimer: OPTIONS_DISCLAIMER };
+    const { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct } = s;
+    const entries = { patternEntries: s.patternEntries !== false, indexes: activeIndexes(s), mirror: s.mirror === true, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []), patternStopMode: s.patternStopMode ?? 'chart', patternStopAtr: s.patternStopAtr ?? 2, patternStopPoints: s.patternStopPoints ?? 30, comboEntries: s.comboEntries !== false, trailMode: s.trailMode ?? 'off', trailPoints: s.trailPoints ?? 25, trailStart: s.trailStart ?? 25, breakEvenPoints: s.breakEvenPoints ?? 0 };
+    return { settings: { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct, ...entries }, indexChoices: INDEX_KEYS.map((k) => ({ key: k, name: INDEXES[k].name, short: INDEXES[k].short })), patternChoices: LIVE_PATTERNS, rules: await loadRules(userId, 'OPT'), today: await optionTrader.todaySummary(userId), disclaimer: OPTIONS_DISCLAIMER };
   };
 
   router.get('/', async (req, res) => {
@@ -61,19 +61,22 @@ export function optionRoutes({ optionTrader }) {
     res.json(await view(req.userId, doc));
   });
 
-  // The Nifty chart read for both sides, and the at-the-money contracts the trader would buy.
+  // The chart read of one index (?index=NIFTY|SENSEX) for both sides, and the at-the-money contracts the trader would buy.
   router.get('/read', async (req, res) => {
-    const read = await optionTrader.read();
+    const parsed = indexQuery.safeParse(req.query.index ?? undefined);
+    if (!parsed.success) return res.status(400).json({ error: { message: 'index must be NIFTY or SENSEX' } });
+    const index = parsed.data;
+    const read = await optionTrader.read(index);
     if (!read.ready) return res.json({ ready: false });
-    const [ce, pe] = await Promise.all(['CE', 'PE'].map((type) => optionTrader.market.pickOption({ type, now: optionTrader.now() }).catch(() => null)));
+    const [ce, pe] = await Promise.all(['CE', 'PE'].map((type) => optionTrader.market.pickOption({ type, now: optionTrader.now(), index }).catch(() => null)));
     const quote = (c) => c && { symbol: c.symbol, label: optionLabel(c.symbol), strike: c.strike, expiry: c.expiry, lotSize: c.lotSize, ltp: c.ltp, lotCost: c.ltp ? Math.round(c.ltp * c.lotSize) : null };
     const preview = await optionTrader.preview(req.userId, read, { CE: ce, PE: pe });
-    res.json({ ready: true, preview, underlying: UNDERLYING, spot: read.spot, atr5: read.atr5, snapshot: read.snapshot, best: read.best?.type ?? null, ce: slim(read.ce), pe: slim(read.pe), contracts: { CE: quote(ce), PE: quote(pe) }, at: new Date().toISOString() });
+    res.json({ ready: true, preview, index, underlying: INDEXES[index].symbol, spot: read.spot, atr5: read.atr5, snapshot: read.snapshot, best: read.best?.type ?? null, ce: slim(read.ce), pe: slim(read.pe), contracts: { CE: quote(ce), PE: quote(pe) }, at: new Date().toISOString() });
   });
 
   // Buy one now by hand, with the stop and profit lock from the Account tab.
   router.post('/buy', validate(buySchema), async (req, res) => {
-    const r = await optionTrader.enterManually(req.userId, req.body.type, req.body.lots);
+    const r = await optionTrader.enterManually(req.userId, req.body.type, req.body.lots, req.body.index);
     if (r.skipped) throw badRequest(`Not bought: ${r.skipped}`, 'NOT_BOUGHT');
     res.status(201).json({ order: r.order, plan: r.plan });
   });

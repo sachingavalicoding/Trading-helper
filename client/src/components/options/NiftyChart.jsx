@@ -5,6 +5,7 @@ import { useApi } from '../../lib/useApi.js';
 import { useTick } from '../../lib/tickStore.js';
 import { formatPct, formatPrice, pnlClass } from '../../lib/format.js';
 import { Card, Flash } from '../ui.jsx';
+import { indexOf } from '../../lib/indexes.js';
 
 const SHOWN_KEY = 'npt_nifty_chart';
 const readShown = () => {
@@ -16,13 +17,14 @@ const readShown = () => {
 };
 
 /**
- * The Nifty 50 chart that every option trade is read from. Dashed lines mark the chart stop a Call (CE)
+ * The chart of the chosen index (Nifty 50 or Sensex) that every option trade on it is read from. Dashed lines mark the chart stop a Call (CE)
  * or a Put (PE) would use, so you can see where the trade is wrong before you buy it.
  */
-export function NiftyChart() {
-  const tick = useTick('NIFTY 50');
+export function NiftyChart({ index = 'NIFTY' }) {
+  const idx = indexOf(index);
+  const tick = useTick(idx.symbol);
   const [shown, setShown] = useState(readShown);
-  const { data, reload } = useApi('/options/read', []);
+  const { data, reload } = useApi(`/options/read?index=${index}`, [index]);
 
   useEffect(() => {
     const t = setInterval(reload, 30000);
@@ -53,7 +55,7 @@ export function NiftyChart() {
     <Card className="overflow-hidden p-3">
       <button type="button" onClick={toggle} aria-expanded={shown} className="flex w-full items-center justify-between gap-2 text-left">
         <div>
-          <div className="text-[11px] font-medium uppercase tracking-wider text-accent2">Nifty 50 chart</div>
+          <div className="text-[11px] font-medium uppercase tracking-wider text-accent2">{idx.name} chart</div>
           <Flash value={tick?.ltp} dir={tick?.dir} className="num text-xl font-bold">
             {formatPrice(tick?.ltp)}
           </Flash>
@@ -71,7 +73,7 @@ export function NiftyChart() {
       </button>
       {shown && (
         <div className="mt-2">
-          <CandleChart symbol="NIFTY 50" isIndex lines={lines} />
+          <CandleChart key={idx.symbol} symbol={idx.symbol} isIndex lines={lines} />
         </div>
       )}
     </Card>

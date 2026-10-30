@@ -6,6 +6,7 @@ import { formatPnl, formatPrice, pnlClass } from '../lib/format.js';
 import { VERDICT, pctText, shiftDay, takeaways } from '../lib/review.js';
 import { afterText, dayTotals, exitLine, loadSeen, loadWatch, moveLines, offerCombos, saveSeen, saveWatch, shortLabel, sideWord, skipText, watched, whyText } from '../lib/patternReview.js';
 import { dayType, legCount, storyLines } from '../lib/dayStory.js';
+import { INDEXES, indexOf, loadIndex, saveIndex } from '../lib/indexes.js';
 import { stopRuleText, whatIfText } from '../lib/stops.js';
 import { ReviewChart } from '../components/ReviewChart.jsx';
 import { PatternChart } from '../components/PatternChart.jsx';
@@ -239,7 +240,7 @@ function Money({ label, value }) {
 }
 
 /** The detail of one pattern on the chart: what it was, what the index did next, and what a one-lot option buy would have made. */
-function SignalDetail({ s, pattern, exits }) {
+function SignalDetail({ s, pattern, exits, name = 'Nifty' }) {
   return (
     <Card className="space-y-2 border-accent/40 p-3">
       <div className="flex items-center justify-between gap-2">
@@ -250,7 +251,7 @@ function SignalDetail({ s, pattern, exits }) {
       </div>
       {pattern && <p className="text-[11px] leading-snug text-muted">{pattern.text}</p>}
       <p className="text-xs">
-        Nifty <b className="num">{formatPrice(s.entry)}</b> at entry. Stop at <b className="num text-down">{formatPrice(s.stop)}</b> ({Math.round(s.stopPts)} points away).
+        {name} <b className="num">{formatPrice(s.entry)}</b> at entry. Stop at <b className="num text-down">{formatPrice(s.stop)}</b> ({Math.round(s.stopPts)} points away).
       </p>
       {s.why && (
         <p className="rounded-xl bg-surface-2 p-2 text-[11px] leading-snug">
@@ -277,7 +278,7 @@ function SignalDetail({ s, pattern, exits }) {
       ) : (
         <>
           <p className="text-[11px] text-muted">
-            Option: Nifty {s.strike} {s.side}, about ₹{formatPrice(s.premium)} a share, {s.lock.lots} lot{s.lock.lots > 1 ? 's' : ''} sized to the ₹{exits.lossLimit} loss limit. The premium is an estimate.
+            Option: {name} {s.strike} {s.side}, about ₹{formatPrice(s.premium)} a share, {s.lock.lots} lot{s.lock.lots > 1 ? 's' : ''} sized to the ₹{exits.lossLimit} loss limit. The premium is an estimate.
           </p>
           <div className="space-y-1.5 text-xs">
             <div className="flex items-start justify-between gap-3 rounded-xl bg-surface-2 p-2.5">
@@ -302,9 +303,11 @@ function SignalDetail({ s, pattern, exits }) {
   );
 }
 
-/** Pick the patterns you want to watch, see where each formed on the Nifty chart, and what a one-lot option buy at that moment would have done. */
+/** Pick the patterns and combinations you want to watch, see where each formed on the Nifty or Sensex chart, and what a one-lot option buy at that moment would have done. */
 function PatternsTab({ day }) {
-  const { data, loading, error } = useApi(`/review/patterns?day=${day}`, []);
+  const [index, setIndex] = useState(loadIndex);
+  const idx = indexOf(index);
+  const { data, loading, error } = useApi(`/review/patterns?day=${day}&index=${index}`, []);
   const [watch, setWatch] = useState(loadWatch);
   const [selected, setSelected] = useState(null);
   useEffect(() => setSelected(null), [day]);
@@ -317,9 +320,29 @@ function PatternsTab({ day }) {
   }, [data, watch]);
   const chosen = useMemo(() => watched(data?.signals ?? [], watch), [data, watch]);
   const totals = useMemo(() => dayTotals(chosen), [chosen]);
-  if (loading && !data) return <Skeleton className="h-72 w-full" />;
+  const indexPicker = (
+    <Segmented
+      className="w-full"
+      size="sm"
+      value={index}
+      onChange={(k) => {
+        setIndex(k);
+        saveIndex(k);
+        setSelected(null);
+      }}
+      options={INDEXES.map((i) => ({ value: i.key, label: i.short }))}
+    />
+  );
+  if ((loading && !data) || (data && data.index && data.index !== index)) return <div className="space-y-3">{indexPicker}<Skeleton className="h-72 w-full" /></div>;
   if (error && !data) return <EmptyState title="Could not load this day">{error.message}</EmptyState>;
-  if (!data.candles.length) return <EmptyState title="No Nifty minute chart for this day">It may be a holiday, or older than the broker keeps minute candles.</EmptyState>;
+  if (!data.candles.length) {
+    return (
+      <div className="space-y-3">
+        {indexPicker}
+        <EmptyState title={`No ${idx.short} minute chart for this day`}>It may be a holiday, or older than the broker keeps minute candles{index === 'SENSEX' ? '. For the Sensex, press Download once in Account, Studies, Data so its candles are saved' : ''}.</EmptyState>
+      </div>
+    );
+  }
 
   const toggle = (key) => {
     const next = watch.includes(key) ? watch.filter((k) => k !== key) : [...watch, key];
@@ -330,11 +353,16 @@ function PatternsTab({ day }) {
   const count = (key) => data.signals.filter((s) => s.technique === key).length;
   const picked = chosen.find((s) => s.id === selected) ?? null;
   const patternOf = (key) => data.patterns.find((p) => p.key === key);
+  // the same switches as the chips below, listed in the chart's indicator picker so patterns and combinations work like indicators
+  const overlays = data.patterns
+    .filter((p) => p.key !== 'doubleBottomMid')
+    .map((p) => ({ id: p.key, label: shortLabel(p.label), group: p.combo ? 'My combinations' : 'Patterns', count: count(p.key), on: watch.includes(p.key) }));
 
   return (
     <div className="space-y-3">
+      {indexPicker}
       <Card className="space-y-2 p-3">
-        <div className="text-xs font-semibold">Patterns to watch</div>
+        <div className="text-xs font-semibold">Patterns and combinations to watch</div>
         <div className="flex flex-wrap gap-1.5">
           {data.patterns
             .filter((p) => p.key !== 'doubleBottomMid')
@@ -369,8 +397,8 @@ function PatternsTab({ day }) {
       <DayStory story={data.story} />
 
       <Card className="space-y-2 p-3">
-        <PatternChart candles={data.candles} warm={data.warm} minutes={data.minutes} signals={chosen} selected={selected} onPick={(id) => setSelected((cur) => (cur === id ? null : id))} />
-        <p className="text-center text-[11px] text-muted">Tap an arrow or a row below to see how that entry played out.</p>
+        <PatternChart candles={data.candles} warm={data.warm} minutes={data.minutes} signals={chosen} selected={selected} overlays={overlays} onOverlay={toggle} onPick={(id) => setSelected((cur) => (cur === id ? null : id))} />
+        <p className="text-center text-[11px] text-muted">Tap an arrow or a row below to see how that entry played out. The sliders button on the chart lists the indicators, patterns and your combinations; switch any of them on or off there.</p>
       </Card>
 
       {chosen.length > 0 && (
@@ -381,7 +409,7 @@ function PatternsTab({ day }) {
       )}
       {chosen.length > 0 && <p className="text-center text-[11px] text-muted">If each one had been taken on its own. Several can overlap in time, so the bot would not take them all. One day proves nothing: check the Studies for 30 days.</p>}
 
-      {picked && <SignalDetail s={picked} pattern={patternOf(picked.technique)} exits={data.exits} />}
+      {picked && <SignalDetail s={picked} pattern={patternOf(picked.technique)} exits={data.exits} name={idx.short} />}
 
       <Card className="overflow-hidden">
         {chosen.length === 0 ? (

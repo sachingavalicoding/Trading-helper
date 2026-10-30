@@ -1,5 +1,5 @@
 import { bsPrice } from '../options/pricing.js';
-import { atmStrike, chooseExpiry, weeklyExpiries, yearsToExpiry, DEFAULT_LOT_SIZE, DEFAULT_EXPIRY_WEEKDAY } from '../options/symbols.js';
+import { atmStrike, chooseExpiry, weeklyExpiries, yearsToExpiry, DEFAULT_LOT_SIZE, DEFAULT_EXPIRY_WEEKDAY, STRIKE_STEP } from '../options/symbols.js';
 import { calculateCharges } from '../services/charges.js';
 import { istParts } from '../market/marketHours.js';
 import { round2 } from '../utils/money.js';
@@ -29,7 +29,7 @@ export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread 
  * @param c1      Nifty 1-minute bars, oldest first
  * @param byTime  Map of bar time -> index in c1
  * @param signal  { side: 'CE'|'PE', time (entry minute, epoch s), stop (Nifty level) }
- * @param params  { exitMin (minutes after midnight IST when everything is closed, default 15:15), iv, lockStart, lockGap, steps (the typed ladder: [{ at, keep }], overrides lockStart and lockGap), lotSize, holidays, expiryWeekday, lossLimit, maxLots }
+ * @param params  { exitMin (minutes after midnight IST when everything is closed, default 15:15), iv, lockStart, lockGap, steps (the typed ladder: [{ at, keep }], overrides lockStart and lockGap), lotSize, holidays, expiryWeekday, strikeStep, lossLimit, maxLots }
  *                `breakEven` (points, 0 = off) moves the stop to the entry price once the index has gone that far your way (exit reason BREAKEVEN).
  *                `trail` ({ points, start }) adds a trailing stop: once the index has moved `start` points your way the chart stop sits `points` behind the best price and never moves back (exit reason TRAIL).
  *                `target` (rupees per lot, 0 = use the profit lock) and `fixedLots` (0 = size the lots to the loss limit) are for studying other exits.
@@ -37,14 +37,14 @@ export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread 
  *                the limit, up to `maxLots`, none when even one lot loses more. A hard stop sits at HARD_STOP_MULT times the limit. Without one, 1 lot.
  */
 export function simulateTrade({ c1, byTime, signal, params }) {
-  const { trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN } = params;
+  const { trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN } = params;
   const start = byTime.get(signal.time);
   if (start == null) return null;
   if (istParts(new Date(signal.time * 1000)).minutes >= exitMin) return null; // no new trade at or after the time you close
   const long = signal.side === 'CE';
   const entryBar = c1[start];
   const entryAt = new Date(entryBar.time * 1000);
-  const strike = atmStrike(entryBar.open);
+  const strike = atmStrike(entryBar.open, strikeStep);
   const expiry = chooseExpiry(weeklyExpiries(entryAt, { holidays, weekday: expiryWeekday }), entryAt, { minDays: 1 });
   if (!expiry) return null;
   const premiumAt = (spot, time) => bsPrice({ type: signal.side, spot, strike, t: yearsToExpiry(expiry, new Date(time * 1000)), iv });

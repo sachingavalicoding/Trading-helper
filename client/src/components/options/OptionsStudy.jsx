@@ -12,6 +12,7 @@ import { IndicatorRanking } from '../study/IndicatorRanking.jsx';
 import { AutoFound } from '../study/AutoFound.jsx';
 import { Research } from '../study/Research.jsx';
 import { Switch } from './OptionsAutoCard.jsx';
+import { INDEXES, indexOf, loadIndex, saveIndex } from '../../lib/indexes.js';
 
 const DAYS = [
   { value: 1, label: 'Today' },
@@ -75,7 +76,7 @@ function Technique({ t, bot }) {
                 {t.recent.map((r) => (
                   <li key={`${r.entryTime}`} className="flex items-center justify-between gap-2 py-1.5">
                     <span className="min-w-0 text-muted">
-                      <b className="text-fg">{istStamp(r.entryTime)}</b> {r.side} · Nifty {formatPrice(r.entrySpot)} → {formatPrice(r.exitSpot)} · {EXIT_WORD[r.reason] || r.reason}
+                      <b className="text-fg">{istStamp(r.entryTime)}</b> {r.side} · index {formatPrice(r.entrySpot)} → {formatPrice(r.exitSpot)} · {EXIT_WORD[r.reason] || r.reason}
                     </span>
                     <span className={`num shrink-0 font-semibold ${pnlClass(r.net)}`}>{formatPnl(r.net)}</span>
                   </li>
@@ -172,9 +173,10 @@ function Breadth({ rows }) {
   );
 }
 
-/** Replays past Nifty candles through each way of reading the chart and shows what each would have made as one-lot option trades. Analysis only. */
+/** Replays past Nifty or Sensex candles through each way of reading the chart and shows what each would have made as one-lot option trades. Analysis only. */
 export function OptionsStudy() {
   const [days, setDays] = useState(20);
+  const [index, setIndex] = useState(loadIndex);
   const [exit, setExit] = useState('lock');
   const [target, setTarget] = useState('1000');
   const [lots, setLots] = useState(0);
@@ -199,9 +201,11 @@ export function OptionsStudy() {
           <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
           <div>
             <h3 className="text-sm font-semibold">Which way of reading the chart pays?</h3>
-            <p className="text-[11px] leading-snug text-muted">Replays past Nifty candles. Each technique buys a call or put when its pattern shows, with the chart stop, closed at the time you choose below. Choose how a winning trade is sold below. This does not change the live trading.</p>
+            <p className="text-[11px] leading-snug text-muted">Replays past {indexOf(index).short} candles. Each technique buys a call or put when its pattern shows, with the chart stop, closed at the time you choose below. Choose how a winning trade is sold below. This does not change the live trading.</p>
           </div>
         </div>
+        <Segmented className="w-full" size="sm" value={index} onChange={(k) => { setIndex(k); saveIndex(k); }} options={INDEXES.map((i) => ({ value: i.key, label: i.short }))} />
+        {index === 'SENSEX' && <p className="text-[11px] leading-snug text-muted">The Sensex candles are downloaded with the rest in Account, Studies, Data (press Download once after this update). Lot size and expiry day are the Sensex's own.</p>}
         <Segmented className="w-full" size="sm" value={exit} onChange={setExit} options={[{ value: 'lock', label: 'Profit lock (your Account rule)' }, { value: 'target', label: 'Fixed target' }]} />
         {exit === 'target' && (
           <label className="flex items-center justify-between gap-3 text-xs text-muted">
@@ -227,7 +231,7 @@ export function OptionsStudy() {
         <Segmented className="w-full" size="sm" value={days} onChange={setDays} options={DAYS} />
         {days > 30 && <p className="text-[11px] leading-snug text-muted">Longer than 30 days reads the saved candles (Account, Studies, Data tab), so download them first.</p>}
         <div className="flex justify-end">
-          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin, autoFind: find, research })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
+          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin, autoFind: find, research, index })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Run study'}
           </button>
         </div>
@@ -244,7 +248,7 @@ export function OptionsStudy() {
           {r.simulated && <Card className="border-warn p-3 text-xs text-warn">This was made on the sample feed, whose history is random, so the numbers mean nothing. Log in to Upstox and run it again.</Card>}
           <Card className="flex items-center justify-between gap-2 p-3 text-xs">
             <p className="text-muted">
-              {r.period.from} to {r.period.to} · {r.period.days} trading days · {sizingText(r.params)} · {exitText(r.params)} · {stopRuleText(r.params.stopRule)}{r.params.trail ? ` · ${trailText(r.params.trail)}` : ''}{r.params.breakEven ? ` · ${breakEvenText(r.params.breakEven)}` : ''} · premiums estimated at {Math.round(r.params.iv * 100)}% volatility
+              {r.params.index === 'SENSEX' ? 'Sensex · ' : ''}{r.period.from} to {r.period.to} · {r.period.days} trading days · {sizingText(r.params)} · {exitText(r.params)} · {stopRuleText(r.params.stopRule)}{r.params.trail ? ` · ${trailText(r.params.trail)}` : ''}{r.params.breakEven ? ` · ${breakEvenText(r.params.breakEven)}` : ''} · premiums estimated at {Math.round(r.params.iv * 100)}% volatility
             </p>
             <button type="button" onClick={copy} className="btn btn-sm shrink-0">
               <ClipboardCopy className="h-3.5 w-3.5" /> Copy

@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { Order, Position, Trade, TradeDefaults } from '../models/index.js';
 import { rulesFor } from '../models/TradeDefaults.js';
 import { isTradable } from '../market/instruments.js';
-import { isOptionSymbol, DEFAULT_LOT_SIZE } from '../options/symbols.js';
+import { isOptionSymbol, parseOptionSymbol, lotSizeOf } from '../options/symbols.js';
 import { getMarketStatus } from '../market/marketHours.js';
 import { LOCK_CHARGES_MULT, calculateCharges, roundTripCharges, splitCharges } from './charges.js';
 import { getFunds, adjustBalance, resetAccount } from './walletService.js';
@@ -364,7 +364,7 @@ export class OrderEngine extends EventEmitter {
     const qty = Number(input.qty);
 
     const option = isOptionSymbol(symbol);
-    if (!isTradable(symbol) && !option) throw badRequest('Only Nifty 50 stocks and Nifty index options can be traded', 'INVALID_SYMBOL');
+    if (!isTradable(symbol) && !option) throw badRequest('Only Nifty 50 stocks and Nifty or Sensex index options can be traded', 'INVALID_SYMBOL');
     if (!['BUY', 'SELL'].includes(side)) throw badRequest('side must be BUY or SELL');
     if (!['MARKET', 'LIMIT'].includes(orderType)) throw badRequest('orderType must be MARKET or LIMIT');
     if (!Number.isInteger(qty) || qty < 1) throw badRequest('Quantity must be a whole number of at least 1', 'INVALID_QTY');
@@ -680,7 +680,7 @@ export class OrderEngine extends EventEmitter {
   }
 
   #lotSize(symbol) {
-    return this.market.lotSize?.(symbol) ?? this.config.niftyLotSize ?? DEFAULT_LOT_SIZE;
+    return this.market.lotSize?.(symbol) ?? lotSizeOf(parseOptionSymbol(symbol)?.index, this.config);
   }
 
   #addToBook(order) {

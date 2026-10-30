@@ -319,7 +319,7 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   return {
     generatedAt: new Date().toISOString(),
     period: { from: dayKey(fromTime), to: dayKey(complete.at(-1).time), days: studyDays.length },
-    params: { days: params.days, iv: params.iv, lossLimit: params.lossLimit ?? 0, maxLots: params.maxLots ?? 1, lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? null, lotSize: params.lotSize, exit: params.target > 0 ? 'target' : 'lock', target: params.target ?? 0, fixedLots: params.fixedLots ?? 0, exitMin: params.exitMin ?? 15 * 60 + 15, minScore: params.minScore ?? 80, maxStopAtr: MAX_STOP_ATR, maxPerDay: MAX_PER_DAY, stopRule: params.stopRule ?? null, trail: params.trail ?? null, breakEven: params.breakEven ?? 0 },
+    params: { index: params.index ?? 'NIFTY', days: params.days, iv: params.iv, lossLimit: params.lossLimit ?? 0, maxLots: params.maxLots ?? 1, lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? null, lotSize: params.lotSize, exit: params.target > 0 ? 'target' : 'lock', target: params.target ?? 0, fixedLots: params.fixedLots ?? 0, exitMin: params.exitMin ?? 15 * 60 + 15, minScore: params.minScore ?? 80, maxStopAtr: MAX_STOP_ATR, maxPerDay: MAX_PER_DAY, stopRule: params.stopRule ?? null, trail: params.trail ?? null, breakEven: params.breakEven ?? 0 },
     haveBreadth: Boolean(breadth),
     haveFlow: Boolean(flow),
     botBreakdown: botBreakdown(botTrades),

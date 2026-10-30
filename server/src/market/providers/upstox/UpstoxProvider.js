@@ -8,7 +8,7 @@ import WebSocket from 'ws';
 import { BaseProvider } from '../BaseProvider.js';
 import { NIFTY50, INDICES, isIndex } from '../../instruments.js';
 import { round2 } from '../../../utils/money.js';
-import { UNDERLYING, DEFAULT_LOT_SIZE, optionSymbol } from '../../../options/symbols.js';
+import { INDEXES, optionSymbol } from '../../../options/symbols.js';
 import { logger } from '../../../utils/logger.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -37,7 +37,7 @@ export class UpstoxProvider extends BaseProvider {
     this.keyBySymbol = new Map();
     this.symbolByKey = new Map();
     this.subscribed = new Set();
-    this.optionContracts = null; // { at, rows } of the Nifty option contract list, refreshed every half hour
+    this.optionContracts = new Map(); // index key ('NIFTY' | 'SENSEX') -> { at, rows } of its option contract list, refreshed every half hour
     this.ws = null;
     this.FeedResponse = null;
     this.retry = 0;
@@ -198,40 +198,42 @@ export class UpstoxProvider extends BaseProvider {
   }
 
   /**
-   * Nifty option contracts from GET /v2/option/contract (every listed expiry), normalised to the app's names.
+   * Index option contracts (Nifty or Sensex) from GET /v2/option/contract (every listed expiry), normalised to the app's names.
    * The field names follow Upstox's documented response (expiry, strike_price, instrument_type, lot_size, instrument_key);
    * anything unexpected is skipped rather than guessed. Not yet exercised against the live API, so check the first run.
    */
-  async #optionRows() {
-    if (this.optionContracts && Date.now() - this.optionContracts.at < 30 * 60000) return this.optionContracts.rows;
-    const res = await this.#get(`/v2/option/contract?instrument_key=${encodeURIComponent(this.keyBySymbol.get(UNDERLYING) || 'NSE_INDEX|Nifty 50')}`);
+  async #optionRows(index = 'NIFTY') {
+    const idx = INDEXES[index] ?? INDEXES.NIFTY;
+    const hit = this.optionContracts.get(idx.key);
+    if (hit && Date.now() - hit.at < 30 * 60000) return hit.rows;
+    const res = await this.#get(`/v2/option/contract?instrument_key=${encodeURIComponent(this.keyBySymbol.get(idx.symbol) || idx.upstoxKey)}`);
     const rows = [];
     for (const r of res?.data || []) {
       const type = r.instrument_type;
       const expiry = typeof r.expiry === 'number' ? new Date(r.expiry + IST_OFFSET_MS).toISOString().slice(0, 10) : String(r.expiry || '').slice(0, 10);
       const strike = Number(r.strike_price);
       if (!['CE', 'PE'].includes(type) || !/^\d{4}-\d{2}-\d{2}$/.test(expiry) || !Number.isFinite(strike) || !r.instrument_key) continue;
-      const symbol = optionSymbol({ expiry, strike: Math.round(strike), type });
+      const symbol = optionSymbol({ expiry, strike: Math.round(strike), type, index: idx.key });
       this.#map(symbol, r.instrument_key);
-      rows.push({ symbol, strike: Math.round(strike), type, expiry, lotSize: Number(r.lot_size || r.minimum_lot) || DEFAULT_LOT_SIZE });
+      rows.push({ symbol, strike: Math.round(strike), type, expiry, lotSize: Number(r.lot_size || r.minimum_lot) || idx.lot });
     }
-    this.optionContracts = { at: Date.now(), rows };
+    this.optionContracts.set(idx.key, { at: Date.now(), rows });
     return rows;
   }
 
-  async getOptionExpiries() {
+  async getOptionExpiries(index = 'NIFTY') {
     try {
       const today = new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
-      return [...new Set((await this.#optionRows()).map((r) => r.expiry))].filter((e) => e >= today).sort();
+      return [...new Set((await this.#optionRows(index)).map((r) => r.expiry))].filter((e) => e >= today).sort();
     } catch (err) {
       logger.warn(`Upstox option contracts failed: ${err.message}`);
       return [];
     }
   }
 
-  async getOptionContracts(expiry) {
+  async getOptionContracts(expiry, index = 'NIFTY') {
     try {
-      return (await this.#optionRows()).filter((r) => r.expiry === expiry);
+      return (await this.#optionRows(index)).filter((r) => r.expiry === expiry);
     } catch (err) {
       logger.warn(`Upstox option contracts failed: ${err.message}`);
       return [];

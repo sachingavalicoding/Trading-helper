@@ -6,7 +6,7 @@ import { AutoLog, NewsItem, OptionSettings, Position, ScanIdea } from '../models
 import { summarise, MARKET } from '../news/service.js';
 import { summarizeIdeas, resultR } from '../scanner/stats.js';
 import { summarizeLog } from '../auto/logSummary.js';
-import { DEFAULT_LOT_SIZE, UNDERLYING, optionLabel } from '../options/symbols.js';
+import { INDEXES, DEFAULT_INDEX, UNDERLYING, lotSizeOf, optionLabel } from '../options/symbols.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { dayStory, reviewPatterns, warmBars } from './patterns.js';
 import { normalizeCombos } from '../combos/combos.js';
@@ -172,29 +172,31 @@ export class ReviewService {
   }
 
   /** The Nifty chart of one day with every pattern that formed on it, and what a one-lot option buy at each would have done. */
-  async patterns(userId, day) {
-    const [c1, rules, settings] = await Promise.all([this.market.getMinutes(UNDERLYING, day), loadRules(userId, 'OPT'), OptionSettings.findOne({ user: userId }).lean()]);
+  async patterns(userId, day, index = DEFAULT_INDEX) {
+    const idx = INDEXES[index];
+    const [c1, rules, settings] = await Promise.all([this.market.getMinutes(idx.symbol, day), loadRules(userId, 'OPT'), OptionSettings.findOne({ user: userId }).lean()]);
     const params = {
       iv: 0.14,
       lockStart: rules.lockStart || 1000,
       lockGap: rules.lockGap || 250,
       steps: rules.steps,
-      lotSize: this.config?.niftyLotSize ?? DEFAULT_LOT_SIZE,
+      lotSize: lotSizeOf(index, this.config),
       holidays: this.config?.nseHolidays ?? [],
-      expiryWeekday: this.market.expiryWeekday,
+      expiryWeekday: this.market.weekdayOf?.(index) ?? this.market.expiryWeekday,
+      strikeStep: idx.strikeStep,
       lossLimit: rules.stopLoss ?? 0,
       maxLots: settings?.maxLots ?? 2,
       exitMin: rules.exitMin,
       trail: trailOf(settings),
       breakEven: breakEvenOf(settings),
     };
-    if (!c1.length) return { day, candles: [], signals: [], patterns: [] };
-    return reviewPatterns({ c1, day, params, stocks5: await this.#savedStocks5(day), combos: normalizeCombos(settings?.combos), stopRule: stopRuleOf(settings) });
+    if (!c1.length) return { day, index, candles: [], signals: [], patterns: [] };
+    return { index, ...reviewPatterns({ c1, day, params, stocks5: await this.#savedStocks5(day), combos: normalizeCombos(settings?.combos), stopRule: stopRuleOf(settings) }) };
   }
 
   /** One stock on one day: its 5-minute chart, the news with what the price did after each headline, the ideas and the user's trades. */
   async stock(userId, symbol, day) {
-    const inst = NIFTY50.find((s) => s.symbol === symbol) || (symbol === UNDERLYING ? { symbol, name: 'Nifty 50', sector: 'Index' } : null);
+    const inst = NIFTY50.find((s) => s.symbol === symbol) || Object.values(INDEXES).map((i) => (i.symbol === symbol ? { symbol, name: i.name, sector: 'Index' } : null)).find(Boolean) || null;
     if (!inst) return null;
     const [daily, c1] = await Promise.all([this.#daily(symbol), this.market.getMinutes(symbol, day)]);
     const candles = aggregateCandles(c1, '5m').filter((c) => istParts(new Date(c.time * 1000)).dateKey === day);

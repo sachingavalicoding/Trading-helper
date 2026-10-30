@@ -31,11 +31,12 @@ const TIMEFRAMES = ['1m', '5m', '15m'];
 const MIN_BAR_SPACING = 3;
 const MAX_BAR_SPACING = 22;
 
-export function IndicatorSheet({ active, available, onToggle, onClose }) {
+export function IndicatorSheet({ active, available, onToggle, onClose, overlays = [], onOverlay }) {
+  const groups = [...new Set(overlays.map((o) => o.group))];
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Indicators">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="sheet-in pb-safe relative w-full rounded-t-2xl border border-line bg-surface sm:max-w-sm sm:rounded-2xl">
+      <div className="sheet-in pb-safe relative max-h-[85vh] w-full overflow-y-auto rounded-t-2xl border border-line bg-surface sm:max-w-sm sm:rounded-2xl">
         <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-line sm:hidden" />
         <div className="flex items-center justify-between px-4 pt-3 pb-1">
           <h3 className="font-semibold">Indicators</h3>
@@ -57,6 +58,24 @@ export function IndicatorSheet({ active, available, onToggle, onClose }) {
             );
           })}
         </ul>
+        {groups.map((group) => (
+          <div key={group} className="border-t border-line px-2 pt-2 pb-3">
+            <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">{group}</div>
+            <ul>
+              {overlays
+                .filter((o) => o.group === group)
+                .map((o) => (
+                  <li key={o.id}>
+                    <button type="button" role="menuitemcheckbox" aria-checked={o.on} onClick={() => onOverlay?.(o.id)} className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm active:bg-surface-2">
+                      <span className="flex-1">{o.label}</span>
+                      {o.count != null && <span className="num text-xs text-muted">{o.count}</span>}
+                      <span className={`flex h-5 w-5 items-center justify-center rounded-md border ${o.on ? 'border-accent bg-accent text-on-accent' : 'border-line'}`}>{o.on && <Check className="h-3.5 w-3.5" />}</span>
+                    </button>
+                  </li>
+                ))}
+            </ul>
+          </div>
+        ))}
       </div>
     </div>
   );

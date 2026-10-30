@@ -17,7 +17,7 @@ const lockText = (r, stopLabel = 'stop') => `${r.stopLoss > 0 ? `${stopLabel} �
 function rules({ auto, options, rules: lock = TRADE_DEFAULTS }) {
   const lines = [];
   if (auto) lines.push(`- Auto shares: ${auto.enabled ? 'ON' : 'off'}, min score ${auto.minScore}, max ${auto.maxOpen} open, stop for the day after -${auto.dailyLossPct}%, max ₹${auto.maxTradeAmount} a trade, no sale target; ${lockText(lock.shares)}.`);
-  if (options) lines.push(`- Auto options: ${options.enabled ? 'ON' : 'off'}, min score ${options.minScore}, budget ₹${options.budget}, max ${options.maxLots} lots, ${options.maxTrades} trades a day, chart stop (closed 1-minute candle), no target and no trailing; ${lockText(lock.options, 'loss limit')}.`);
+  if (options) lines.push(`- Auto options: ${options.enabled ? 'ON' : 'off'}, ${(options.indexes ?? ['NIFTY']).join(' + ')}, patterns and combinations (no score), budget ₹${options.budget}, max ${options.maxLots} lots, ${options.maxTrades} trades a day, chart stop (closed 1-minute candle), no target and no trailing; ${lockText(lock.options, 'loss limit')}.`);
   return lines;
 }
 

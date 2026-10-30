@@ -1,6 +1,6 @@
 import { AutoLog, OptionSettings, Order, Position, Trade } from '../models/index.js';
 import { getFunds } from '../services/walletService.js';
-import { UNDERLYING, isOptionSymbol, optionLabel } from './symbols.js';
+import { INDEXES, DEFAULT_INDEX, INDEX_KEYS, indexKeyOf, isOptionSymbol, optionLabel, parseOptionSymbol } from './symbols.js';
 import { readNifty } from './signal.js';
 import { breakEvenOf, trailOf } from '../study/simulate.js';
 import { TECHNIQUES, prepare, findSignals, turnoverSeries, ruleStop, stopRuleOf, MIN_STOP_ATR, MAX_STOP_ATR } from '../study/patterns.js';
@@ -26,16 +26,22 @@ const PATTERN_FRESH_MS = 4 * 60000; // a pattern is acted on only while the 5-mi
 export const LIVE_PATTERNS = TECHNIQUES.filter((t) => t.key !== 'breadth' && !t.needs).map((t) => ({ key: t.key, label: t.label }));
 export const DEFAULT_PATTERNS = ['breakout', 'insideBar', 'emaCross'];
 
-/** Which entry sources are on for a user. Settings saved before these switches existed have neither field: patterns on with the defaults, score entries on. */
+/** Which entry sources are on for a user: the chosen chart patterns and the user's own combinations. (The all-checks score no longer buys.) */
 export function entryModes(settings) {
   const known = new Set(LIVE_PATTERNS.map((p) => p.key));
   const chosen = (settings.patterns ?? DEFAULT_PATTERNS).filter((k) => known.has(k));
-  return { patterns: settings.patternEntries === false ? [] : chosen, score: settings.scoreEntries !== false, combos: settings.comboEntries !== false && normalizeCombos(settings.combos).some((c) => c.on) };
+  return { patterns: settings.patternEntries === false ? [] : chosen, combos: settings.comboEntries !== false && normalizeCombos(settings.combos).some((c) => c.on) };
+}
+
+/** The indexes a user trades: those ticked in the settings (Nifty only when nothing was ever saved). */
+export function activeIndexes(settings) {
+  const chosen = (settings.indexes ?? []).filter((k) => INDEX_KEYS.includes(k));
+  return chosen.length ? INDEX_KEYS.filter((k) => chosen.includes(k)) : [DEFAULT_INDEX];
 }
 
 /**
- * Paper options trader for Nifty 50 index options. Every 15 seconds it reads the Nifty chart; when one side (call or put)
- * has a strong, unblocked case it buys one at-the-money contract, sized so a stop at the chart level loses no more than the user's limit.
+ * Paper options trader for Nifty 50 and Sensex index options. Every 15 seconds it reads the chart of each index the user trades; when a chart
+ * pattern or one of the user's combinations turns true it buys one at-the-money contract, sized so a stop at the chart level loses no more than the user's limit.
  * It sells when a 1-minute candle closes beyond that level; the profit lock is the user's rule from the Account tab, which the order
  * engine puts on every new position. It closes everything at the 15:15 square-off.
  * It only ever calls the paper order engine.
@@ -54,7 +60,9 @@ export class OptionTrader {
     this.reasons = new Map(); // `${userId}|${symbol}` -> why we exited at market (STOP, TIME)
     this.logged = new Map(); // dedupe key -> time of the last log row
     this.patternSeen = new Set(); // `${userId}|${technique}|${bar time}`: each pattern is acted on once
-    this.lastRead = null;
+    this.lastReads = new Map(); // index key -> the last chart read
+    this.bars = new Map(); // index key -> the 1-minute bar being built from its ticks
+    this.comboCharts = new Map(); // index key -> { time, chart }
     this.onTick = (t) => this.#onTick(t);
     this.onUpdate = (u) => {
       if (u.kind === 'fill' && u.order && isOptionSymbol(u.order.symbol) && u.order.role !== 'ENTRY') this.#finish(u).catch((e) => logger.warn(`options log update failed: ${e.message}`));
@@ -66,6 +74,7 @@ export class OptionTrader {
     for (const log of await AutoLog.find({ segment: 'OPT', status: 'OPEN' }).lean()) {
       this.#watch(log.user, log.symbol, {
         type: log.detail?.type,
+        index: log.detail?.index ?? parseOptionSymbol(log.symbol)?.index ?? DEFAULT_INDEX,
         stopSpot: log.detail?.stopSpot,
         entry: log.fillPrice ?? log.entry,
         risk: Math.abs((log.fillPrice ?? log.entry) - log.stopLoss),
@@ -121,14 +130,20 @@ export class OptionTrader {
     return out;
   }
 
-  /** The Nifty chart read, both sides, as of now. */
-  async read() {
-    const [c1, daily] = await Promise.all([this.market.getCandles(UNDERLYING, '1m'), this.market.getDaily(UNDERLYING).catch(() => [])]);
+  /** The chart read of one index ('NIFTY' or 'SENSEX'), both sides, as of now. */
+  async read(index = DEFAULT_INDEX) {
+    const symbol = INDEXES[index].symbol;
+    const [c1, daily] = await Promise.all([this.market.getCandles(symbol, '1m'), this.market.getDaily(symbol).catch(() => [])]);
     const read = readNifty(
-      { c1, daily, tick: this.market.getTick(UNDERLYING), breadthUp: this.scanner?.marketState?.breadthUp ?? null },
+      { c1, daily, tick: this.market.getTick(symbol), breadthUp: this.scanner?.marketState?.breadthUp ?? null },
       { now: this.now(), enforceWindows: this.config.enforceMarketHours },
     );
-    this.lastRead = { at: Date.now(), read };
+    if (read.ready) {
+      read.index = index;
+      read.ce.index = index;
+      read.pe.index = index;
+    }
+    this.lastReads.set(index, read);
     return read;
   }
 
@@ -142,23 +157,24 @@ export class OptionTrader {
       if (!all.length) return;
       const status = this.engine.marketStatus();
       if (this.config.enforceMarketHours && !status.isOpen) return;
-      const read = await this.read();
+      const reads = new Map(); // one chart read per index per scan, shared by every user
+      const readOf = async (index) => {
+        if (!reads.has(index)) reads.set(index, await this.read(index));
+        return reads.get(index);
+      };
       const nowMin = istParts(this.now()).minutes;
       for (const s of all) {
         try {
           if (this.config.enforceMarketHours && nowMin >= (await loadRules(s.user, 'OPT')).exitMin) continue; // past the time you close: no new trade
           const modes = entryModes(s);
-          if (modes.patterns.length) {
-            const p = await this.considerPatterns(s, read);
-            if (p.order) continue;
+          for (const index of activeIndexes(s)) {
+            const read = await readOf(index);
+            if (modes.patterns.length) {
+              const p = await this.considerPatterns(s, read);
+              if (p.order) continue;
+            }
+            if (modes.combos) await this.considerCombos(s, read);
           }
-          if (modes.combos) {
-            const p = await this.considerCombos(s, read);
-            if (p.order) continue;
-          }
-          if (!modes.score) continue;
-          const r = await this.consider(s, read);
-          if (r.skipped) logger.info(`options skip for ${s.user}: ${r.skipped}`);
         } catch (e) {
           logger.warn(`options order failed: ${e.message}`);
         }
@@ -204,7 +220,7 @@ export class OptionTrader {
     if (prev && Date.now() - prev < LOG_REPEAT_MS) return { skipped: reason };
     this.logged.set(key, Date.now());
     await this.#record(settings, {
-      symbol: `NIFTY ${side.type}`,
+      symbol: `${side.index ?? DEFAULT_INDEX} ${side.type}`,
       side: 'BUY',
       setup: side.trigger?.kind,
       score: side.score,
@@ -213,34 +229,9 @@ export class OptionTrader {
       reason,
       entry: undefined,
       card: { checks: side.checks, gates: side.gates },
-      detail: { type: side.type, spot: this.lastRead?.read?.spot, ...extra },
+      detail: { type: side.type, index: side.index ?? DEFAULT_INDEX, spot: this.lastReads.get(side.index ?? DEFAULT_INDEX)?.spot, ...extra },
     });
     return { skipped: reason };
-  }
-
-  /** Decide for one user, and write the decision to the log. */
-  async consider(settings, read) {
-    if (!read?.ready) return { skipped: 'the Nifty chart is not ready yet' };
-    const side = read.best;
-    if (!side) {
-      const lead = read.lead;
-      // Only a strong lead that something blocked is worth a log row; a quiet market is not a decision.
-      if (lead.score >= settings.minScore) return this.#skip(settings, lead, `${lead.type} scores ${lead.score} but is blocked: ${lead.blocked[0] || 'the other side scores nearly the same'}`);
-      return { skipped: 'no setup' };
-    }
-    if (side.score < settings.minScore) return side.score >= settings.minScore - 10 ? this.#skip(settings, side, `score ${side.score} is below ${settings.minScore}`) : { skipped: 'no setup' };
-    return this.#enter(settings, read, this.#ruled(settings, read, side));
-  }
-
-  /** The chosen stop rule applied to a score entry: unless it is the chart level, the stop is moved to where the rule puts it. */
-  #ruled(settings, read, side) {
-    const rule = stopRuleOf(settings);
-    const atr = read.atr5 ?? read.market?.atr5;
-    if (rule.mode === 'chart' || !(atr > 0) || !side.stop) return side;
-    const d = side.type === 'CE' ? 1 : -1;
-    let price = ruleStop({ side: side.type, stop: side.stop.price, atr }, read.spot, rule);
-    if (d * (read.spot - price) < MIN_STOP_ATR * atr) price = read.spot - d * MIN_STOP_ATR * atr;
-    return { ...side, stop: { ...side.stop, price: roundToTick(price), note: `${side.stop.note}; moved by your stop setting to Nifty ${roundToTick(price)}` } };
   }
 
   /**
@@ -251,7 +242,7 @@ export class OptionTrader {
   async considerPatterns(settings, read) {
     const keys = entryModes(settings).patterns;
     if (!keys.length) return { skipped: 'no chart pattern is switched on' };
-    if (!read?.ready) return { skipped: 'the Nifty chart is not ready yet' };
+    if (!read?.ready) return { skipped: 'the chart is not ready yet' };
     const bars = read.market.done5;
     const last = bars.at(-1);
     if (!last || this.now() - (last.time + 300) * 1000 > PATTERN_FRESH_MS) return { skipped: 'no fresh bar' };
@@ -266,20 +257,21 @@ export class OptionTrader {
   async considerCombos(settings, read) {
     const combos = normalizeCombos(settings.combos).filter((c) => c.on);
     if (!combos.length) return { skipped: 'no combination is switched on' };
-    if (!read?.ready) return { skipped: 'the Nifty chart is not ready yet' };
+    if (!read?.ready) return { skipped: 'the chart is not ready yet' };
     const bars = read.market.done5;
     const last = bars.at(-1);
     if (!last || this.now() - (last.time + 300) * 1000 > PATTERN_FRESH_MS) return { skipped: 'no fresh bar' };
-    const chart = this.#comboChart(bars);
+    const chart = this.#comboChart(read.index ?? DEFAULT_INDEX, bars);
     const hits = combos.flatMap((combo) => comboSignals(chart, combo, { from: bars.length - 1, windows: this.config.enforceMarketHours, label: `combo:${combo.id}` }));
     const names = new Map(combos.map((c) => [`combo:${c.id}`, c.name]));
     return this.#actOn(settings, read, hits, last, (hit) => `Combination: ${names.get(hit.technique)}`);
   }
 
-  /** The Nifty chart with the 50 stocks' breadth and traded value from the scanner's live candles, rebuilt once per 5-minute bar. */
-  #comboChart(bars) {
+  /** An index chart with the 50 stocks' breadth and traded value from the scanner's live candles, rebuilt once per 5-minute bar. */
+  #comboChart(index, bars) {
     const last = bars.at(-1).time;
-    if (this.comboChart?.time === last) return this.comboChart.chart;
+    const kept = this.comboCharts.get(index);
+    if (kept?.time === last) return kept.chart;
     const stocks5 = {};
     for (const symbol of this.scanner?.store?.symbols ?? []) {
       const c = this.scanner.store.get(symbol, '5m');
@@ -288,14 +280,14 @@ export class OptionTrader {
     const breadth = breadthSeries(bars, stocks5);
     const flow = turnoverSeries(bars, stocks5);
     const chart = buildChart(bars, { breadth, flow, from: Math.max(15, bars.length - 8) });
-    this.comboChart = { time: last, chart };
+    this.comboCharts.set(index, { time: last, chart });
     return chart;
   }
 
   async #actOn(settings, read, hits, last, labelOf) {
     let result = { skipped: 'no pattern' };
     for (const hit of hits) {
-      const seen = `${settings.user}|${hit.technique}|${last.time}`;
+      const seen = `${settings.user}|${read.index}|${hit.technique}|${last.time}`;
       if (this.patternSeen.has(seen)) continue;
       if (this.patternSeen.size > 500) this.patternSeen.clear();
       this.patternSeen.add(seen);
@@ -304,9 +296,9 @@ export class OptionTrader {
       const spot = read.spot;
       let stop = ruleStop(hit, spot, stopRuleOf(settings));
       if (d * (spot - stop) < MIN_STOP_ATR * hit.atr) stop = spot - d * MIN_STOP_ATR * hit.atr;
-      const side = { type: hit.side, d, score: undefined, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at Nifty ${roundToTick(stop)}`, ok: true }, pattern: hit.technique };
+      const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: undefined, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique };
       if (d * (spot - stop) > MAX_STOP_ATR * hit.atr) {
-        result = await this.#skip(settings, side, `${label} ${hit.side}: the stop (Nifty ${roundToTick(stop)}) is ${round2((d * (spot - stop)) / hit.atr)} ATR away, over the ${MAX_STOP_ATR} limit`);
+        result = await this.#skip(settings, side, `${label} ${hit.side}: the stop (${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}) is ${round2((d * (spot - stop)) / hit.atr)} ATR away, over the ${MAX_STOP_ATR} limit`);
         continue;
       }
       result = await this.#enter(settings, read, side);
@@ -328,9 +320,12 @@ export class OptionTrader {
       const wait = await this.#coolingDown(userId, side.type);
       if (wait) return stop(wait);
     }
-    if (await Position.findOne({ user: userId, segment: 'OPT', status: 'OPEN', symbol: new RegExp(`-${side.type}$`) })) return stop(`already holding a ${side.type}`);
+    const index = side.index ?? DEFAULT_INDEX;
+    // one call and one put at a time across both indexes (they move together); with "Take the signal on both indexes" each index may hold its own
+    const held = new RegExp(settings.mirror ? `^${index}-.*-${side.type}$` : `-${side.type}$`);
+    if (await Position.findOne({ user: userId, segment: 'OPT', status: 'OPEN', symbol: held })) return stop(`already holding a ${side.type}`);
 
-    const contract = await this.market.pickOption({ type: side.type, now: this.now() });
+    const contract = await this.market.pickOption({ type: side.type, now: this.now(), index });
     if (!contract?.ltp) return stop('no option contract with a live price');
     const funds = await getFunds(userId, this.config.startingBalance);
     const planned = planTrade({ read: side, market: read.market, contract, premium: contract.ltp, settings, rules: await loadRules(userId, 'OPT'), available: funds.available, spentBudget: today.spent, now: this.now(), lots });
@@ -346,7 +341,7 @@ export class OptionTrader {
     if (order.status !== 'FILLED') return stop(order.rejectReason || `order was ${String(order.status).toLowerCase()}`);
     const position = await Position.findOne({ user: userId, symbol: plan.symbol, status: 'OPEN' }, '_id').lean();
     const fill = order.avgFillPrice ?? plan.premium;
-    this.#watch(userId, plan.symbol, { type: plan.type, stopSpot: plan.stopSpot, entry: fill, risk: Math.max(fill - (plan.stopLoss ?? 0), 0.05), openedAt: this.now(), manual, entrySpot: read.spot ?? null, trail: trailOf(settings), breakEven: breakEvenOf(settings), breakEven: breakEvenOf(settings), stopWhy: 'STOP', bestSpot: read.spot ?? null, bestR: 0, worstR: 0 });
+    this.#watch(userId, plan.symbol, { type: plan.type, index, stopSpot: plan.stopSpot, entry: fill, risk: Math.max(fill - (plan.stopLoss ?? 0), 0.05), openedAt: this.now(), manual, entrySpot: read.spot ?? null, trail: trailOf(settings), breakEven: breakEvenOf(settings), stopWhy: 'STOP', bestSpot: read.spot ?? null, bestR: 0, worstR: 0 });
     await this.#record(settings, {
       symbol: plan.symbol,
       side: 'BUY',
@@ -362,15 +357,20 @@ export class OptionTrader {
       order: order._id,
       position: position?._id,
       card: { checks: side.checks, gates: side.gates },
-      detail: { ...plan, label: optionLabel(plan.symbol), manual, entrySpot: read.spot ?? null, trail: trailOf(settings), breakEven: breakEvenOf(settings), trigger: side.trigger, contract: { symbol: plan.symbol, strike: plan.strike, type: plan.type, expiry: plan.expiry, lotSize: plan.lotSize }, snapshot: read.snapshot },
+      detail: { ...plan, index, label: optionLabel(plan.symbol), manual, entrySpot: read.spot ?? null, trail: trailOf(settings), breakEven: breakEvenOf(settings), trigger: side.trigger, contract: { symbol: plan.symbol, strike: plan.strike, type: plan.type, expiry: plan.expiry, lotSize: plan.lotSize }, snapshot: read.snapshot },
     });
     return { order, plan };
   }
 
+  /** Buy `side` of a chart read now, sized, stopped and limited like every other entry (the manual buy and the tests use this). */
+  enterRead(settings, read, side, opts) {
+    return this.#enter(settings, read, side, opts);
+  }
+
   /** Buy now by hand, with the same stop and profit lock as the automatic trader. `type` is 'CE' or 'PE'. */
-  async enterManually(userId, type, lots = 1) {
-    const read = await this.read();
-    if (!read.ready) return { skipped: 'the Nifty chart is not ready yet' };
+  async enterManually(userId, type, lots = 1, index = DEFAULT_INDEX) {
+    const read = await this.read(index);
+    if (!read.ready) return { skipped: `the ${INDEXES[index].short} chart is not ready yet` };
     const side = type === 'CE' ? read.ce : read.pe;
     const settings = { ...((await OptionSettings.findOne({ user: userId }).lean()) ?? new OptionSettings({ user: userId }).toObject()), user: userId };
     return this.#enter(settings, read, side, { manual: true, lots });
@@ -405,9 +405,10 @@ export class OptionTrader {
   }
 
   #onTick({ symbol, ltp }) {
-    if (symbol === UNDERLYING) {
-      this.#trail(ltp);
-      this.#indexMinute(ltp);
+    const index = indexKeyOf(symbol);
+    if (index) {
+      this.#trail(index, ltp);
+      this.#indexMinute(index, ltp);
     }
     if (!this.open.size) return;
     for (const w of this.open.values()) {
@@ -423,8 +424,9 @@ export class OptionTrader {
    * The trailing stop (Account > Limits): once the index has moved `start` points your way the chart stop sits `points` behind the best
    * index price, and it never moves back. The sale is still decided on a closed 1-minute candle beyond the (moved) level.
    */
-  #trail(ltp) {
+  #trail(index, ltp) {
     for (const w of this.open.values()) {
+      if (w.index !== index) continue;
       if ((!w.trail && !(w.breakEven > 0)) || w.entrySpot == null || w.stopSpot == null) continue;
       const long = w.type === 'CE';
       w.bestSpot = long ? Math.max(w.bestSpot ?? ltp, ltp) : Math.min(w.bestSpot ?? ltp, ltp);
@@ -451,11 +453,13 @@ export class OptionTrader {
    * fallen that far yet. One tick through the level (a wick) does not count: that is how a good trade gets shaken out. The hard premium
    * stop in the order engine stays as the backup for a fast move.
    */
-  #indexMinute(ltp) {
+  #indexMinute(index, ltp) {
     const minute = Math.floor(this.now().getTime() / 60000);
-    if (this.bar && this.bar.minute !== minute) {
-      const close = this.bar.last;
+    const bar = this.bars.get(index);
+    if (bar && bar.minute !== minute) {
+      const close = bar.last;
       for (const w of this.open.values()) {
+        if (w.index !== index) continue;
         if (w.stopSpot != null && (w.type === 'CE' ? close <= w.stopSpot : close >= w.stopSpot)) this.#exit(w.user, w.symbol, w.stopWhy ?? 'STOP').catch(() => {});
         else if (w.moved) {
           // the trailed level is written to the log once a minute, so a restart keeps it
@@ -464,7 +468,7 @@ export class OptionTrader {
         }
       }
     }
-    this.bar = { minute, last: ltp };
+    this.bars.set(index, { minute, last: ltp });
   }
 
   /**

@@ -1,5 +1,5 @@
 import { NIFTY50 } from './instruments.js';
-import { UNDERLYING } from '../options/symbols.js';
+import { UNDERLYING, INDEXES } from '../options/symbols.js';
 import { addDays } from './days.js';
 import { HistoryStore, RETAIN_DAYS } from './historyStore.js';
 import { conflict, badRequest } from '../utils/errors.js';
@@ -26,7 +26,7 @@ export function windowsBack(fromDay, toDay) {
 
 /** Reads the 1-minute candles of the Nifty and the 50 stocks from the broker once, keeps them in the database, and tops them up each evening. */
 export class HistorySync {
-  constructor({ market, store = market.history ?? new HistoryStore(), now = () => new Date(), symbols = [UNDERLYING, ...NIFTY50.map((s) => s.symbol)] }) {
+  constructor({ market, store = market.history ?? new HistoryStore(), now = () => new Date(), symbols = [UNDERLYING, INDEXES.SENSEX.symbol, ...NIFTY50.map((s) => s.symbol)] }) {
     this.market = market;
     this.store = store;
     market.history = store; // the studies and Review read through the market service
