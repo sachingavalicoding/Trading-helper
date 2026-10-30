@@ -17,6 +17,8 @@ const runSchema = z.object({
   fixedLots: z.coerce.number().int().min(0).max(20).default(0),
   index: z.enum(INDEX_KEYS).default('NIFTY'), // options only: which index's options are replayed
   autoFind: z.boolean().default(false), // options only: also search for combinations that hold on days they were not picked on
+  pairFind: z.boolean().default(false), // pair finder: one check (or the best three) next to every other check, judged on older and newer days
+  pairFirst: z.string().max(60).optional(), // the check to start from; left out = the best three on their own
   research: z.boolean().default(false), // options only: also try other stop amounts, profit ladders and trailing stops on Breakout + Engulfing
   exitMin: z.coerce.number().int().min(9 * 60 + 30).max(15 * 60 + 15).optional(), // the time everything is closed; left out = the one in Account Limits
 });

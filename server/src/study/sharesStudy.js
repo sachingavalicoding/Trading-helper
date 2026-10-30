@@ -4,6 +4,7 @@ import { CONDITIONS, usable } from '../combos/conditions.js';
 import { describeCombo, missingData, singleCombo } from '../combos/combos.js';
 import { bars5Of, breadthByTime, shareChart, shareIdeas } from '../combos/shares.js';
 import { verdictOf } from '../combos/verdict.js';
+import { findPairs } from './pairFinder.js';
 import { evaluate, evaluateBy, netResult, targetTable } from '../scanner/backtest.js';
 import { istParts } from '../market/marketHours.js';
 
@@ -61,7 +62,8 @@ export async function runSharesStudy({ nifty1, history, params, onProgress = () 
 async function comboStudy({ nifty1, history, symbols, params, money, opts, onProgress }) {
   const wanted = (params.combos || []).filter((c) => c.on !== false);
   const rank = params.rank !== false;
-  if (!wanted.length && !rank) return { combos: [], indicators: [], combosSkipped: [] };
+  const pairWanted = Boolean(params.pairFind);
+  if (!wanted.length && !rank && !pairWanted) return { combos: [], indicators: [], combosSkipped: [], pairs: null };
   onProgress('Working out the 50-stock breadth');
   const stocks5 = Object.fromEntries(symbols.map((s) => [s, bars5Of(history[s])]));
   const timeline = aggregateCandles(nifty1, '5m');
@@ -74,24 +76,29 @@ async function comboStudy({ nifty1, history, symbols, params, money, opts, onPro
     ...wanted.map((combo) => ({ key: `combo:${combo.id}`, combo, label: `My combination: ${combo.name}`, text: describeCombo(combo), mine: true })),
     ...(rank ? CONDITIONS.map((cond) => ({ key: cond.key, combo: singleCombo(cond.key), cond })) : []),
   ];
-  const ideasBy = new Map(jobs.map((j) => [j.key, []]));
   let have = null;
-  for (const [n, symbol] of symbols.entries()) {
-    onProgress(`Trying the combinations and indicators on ${symbol} (${n + 1}/${symbols.length})`);
-    const c1 = history[symbol];
-    const chart = shareChart(stocks5[symbol], { breadth });
-    have ||= chart.have;
-    const at = new Map(c1.map((b, i) => [b.time, i]));
-    for (const job of jobs) {
-      if ((job.cond && !usable(job.cond, chart.have)) || missingData(job.combo, chart.have).length) continue;
-      for (const idea of shareIdeas(chart, job.combo, { symbol, exitMin: money.exitMin, days })) {
-        const from = at.get(idea.time - 60);
-        if (from == null) continue;
-        ideasBy.get(job.key).push({ ...idea, ...followLive(c1, from, idea, undefined, money) });
+  // Trades every job's idea on every stock: { job key: ideas }. One read of each stock's chart serves all the jobs.
+  const collect = async (list, what) => {
+    const ideasBy = new Map(list.map((j) => [j.key, []]));
+    for (const [n, symbol] of symbols.entries()) {
+      onProgress(`${what} on ${symbol} (${n + 1}/${symbols.length})`);
+      const c1 = history[symbol];
+      const chart = shareChart(stocks5[symbol], { breadth });
+      have ||= chart.have;
+      const at = new Map(c1.map((b, i) => [b.time, i]));
+      for (const job of list) {
+        if ((job.cond && !usable(job.cond, chart.have)) || missingData(job.combo, chart.have).length) continue;
+        for (const idea of shareIdeas(chart, job.combo, { symbol, exitMin: money.exitMin, days })) {
+          const from = at.get(idea.time - 60);
+          if (from == null) continue;
+          ideasBy.get(job.key).push({ ...idea, ...followLive(c1, from, idea, undefined, money) });
+        }
       }
+      await yieldTurn();
     }
-    await yieldTurn();
-  }
+    return ideasBy;
+  };
+  const ideasBy = await collect(jobs, 'Trying the combinations and indicators');
   const summarize = (ideas) => {
     const all = evaluate(ideas, opts);
     const half = (pick) => evaluate(ideas.filter((i) => pick(DAY(Date.parse(i.openedAt) / 1000))), opts).totalNet;
@@ -118,5 +125,24 @@ async function comboStudy({ nifty1, history, symbols, params, money, opts, onPro
       return { key: j.key, label: j.cond.label, group: j.cond.group, kind: j.cond.kind, text: j.cond.text, trades: m.trades, winRate: m.winRate, net: m.totalNet, avgNet: m.expectancy, calls: m.buys, puts: m.sells, halves: m.halves, verdict: verdictOf({ trades: m.trades, net: m.totalNet, halves: m.halves }) };
     })
     .sort((a, b) => b.net - a.net);
-  return { combos: combos.sort((a, b) => b.totalNet - a.totalNet), indicators, combosSkipped };
+  let pairs = null;
+  if (pairWanted) {
+    const trainDay = dayList[Math.floor((dayList.length * 2) / 3)];
+    const dayOfIdea = (i) => DAY(Date.parse(i.openedAt) / 1000);
+    const part = (ideas) => {
+      const r = evaluate(ideas, opts);
+      return { trades: r.trades, net: r.totalNet, winRate: r.winRate };
+    };
+    const evaluateMany = async (lists) => {
+      const pairJobs = lists.map((conds) => ({ key: conds.join('+'), combo: { id: conds.join('+'), name: conds.join('+'), conds, need: conds.length, window: 3 } }));
+      const by = await collect(pairJobs, `Pair finder (${pairJobs.length} pairs)`);
+      return lists.map((conds) => {
+        const ideas = by.get(conds.join('+'));
+        const all = summarize(ideas);
+        return { conds, train: part(ideas.filter((i) => dayOfIdea(i) < trainDay)), test: part(ideas.filter((i) => dayOfIdea(i) >= trainDay)), all: { trades: all.trades, net: all.totalNet, winRate: all.winRate, calls: all.buys, puts: all.sells } };
+      });
+    };
+    pairs = await findPairs({ indicators, have: have || {}, first: params.pairFirst || null, studyDays: dayList.length, trainEnd: trainDay, evaluateMany });
+  }
+  return { combos: combos.sort((a, b) => b.totalNet - a.totalNet), indicators, combosSkipped, pairs };
 }

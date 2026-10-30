@@ -10,6 +10,7 @@ import { breakEvenText, stopRuleText, trailText } from '../../lib/stops.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 import { IndicatorRanking } from '../study/IndicatorRanking.jsx';
 import { AutoFound } from '../study/AutoFound.jsx';
+import { PairFinder, PairFinderControl } from '../study/PairFinder.jsx';
 import { Research } from '../study/Research.jsx';
 import { Switch } from './OptionsAutoCard.jsx';
 import { INDEXES, indexOf, loadIndex, saveIndex } from '../../lib/indexes.js';
@@ -181,6 +182,8 @@ export function OptionsStudy() {
   const [target, setTarget] = useState('1000');
   const [lots, setLots] = useState(0);
   const [find, setFind] = useState(false);
+  const [pair, setPair] = useState(false);
+  const [pairFirst, setPairFirst] = useState('');
   const [research, setResearch] = useState(false);
   const { state, error, running, run } = useStudy('options');
   const time = useExitTime('options');
@@ -221,6 +224,7 @@ export function OptionsStudy() {
           </p>
           <Switch on={find} label="Look for new combinations" onClick={() => setFind((v) => !v)} />
         </div>
+        <PairFinderControl on={pair} setOn={setPair} first={pairFirst} setFirst={setPairFirst} kind="options" />
         <div className="flex items-center justify-between gap-3">
           <p className="text-[11px] leading-snug text-muted">
             <b className="text-fg">Also research the stop and profit ladder.</b> Trades Breakout + Engulfing again with other stop amounts, profit ladders and trailing stops, and shows which pay. Needs 15 days or more for the older and newer split.
@@ -231,7 +235,7 @@ export function OptionsStudy() {
         <Segmented className="w-full" size="sm" value={days} onChange={setDays} options={DAYS} />
         {days > 30 && <p className="text-[11px] leading-snug text-muted">Longer than 30 days reads the saved candles (Account, Studies, Data tab), so download them first.</p>}
         <div className="flex justify-end">
-          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin, autoFind: find, research, index })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
+          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin, autoFind: find, pairFind: pair, pairFirst: pairFirst || undefined, research, index })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Run study'}
           </button>
         </div>
@@ -259,6 +263,7 @@ export function OptionsStudy() {
           ))}
           <Research r={r.research} onApplied={() => {}} />
           <AutoFound af={r.autoFound} />
+          <PairFinder pf={r.pairs} />
           <IndicatorRanking rows={r.indicators} skipped={r.combosSkipped} />
           <BotBreakdown cut={r.botBreakdown} />
           <Breadth rows={r.breadth} />

@@ -401,6 +401,62 @@ test('auto-find tries a pattern with each check and the best pairs, judges them 
   assert.ok(a.found.every((f, i) => i === 0 || f.test.net <= a.found[i - 1].test.net), 'best on the unseen days first');
 });
 
+// ---------- pair finder ----------
+
+const checkPairs = (pf, { first }) => {
+  assert.ok(pf.tried > 50, `${pf.tried} pairs tried`);
+  assert.ok(pf.anchors.length >= 1 && pf.anchors.length <= (first ? 1 : 3));
+  for (const a of pf.anchors) {
+    assert.ok(a.train && a.test && a.found.length <= 5);
+    for (const f of a.found) {
+      assert.equal(f.conds.length, 2);
+      assert.ok(f.conds[0] === a.key && f.conds[1] !== a.key);
+      assert.ok(f.train.trades >= pf.minTrain && f.train.net > 0 && f.test.trades >= pf.minTest && f.test.net > 0, 'made money on the older and on the unseen newer days');
+      assert.equal(f.labels.length, 2);
+      assert.ok('trades' in f.calls && 'trades' in f.puts && Number.isFinite(f.lift));
+    }
+    assert.ok(a.found.every((f, i) => i === 0 || f.test.net <= a.found[i - 1].test.net), 'best on the unseen days first');
+  }
+};
+
+test('the pair finder pairs one chosen check with every other check on the index, judged on older and newer days, and is off unless asked for', async () => {
+  const base = { ...PARAMS, lossLimit: 1500, maxLots: 2 };
+  const off = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20 } });
+  assert.equal(off.pairs, null);
+  const short = await runOptionsStudy({ nifty1: minutes(12), params: { ...base, days: 8, pairFind: true, pairFirst: 'rsiAbove50' } });
+  assert.match(short.pairs.skipped, /at least 10 trading days/);
+  const seen = [];
+  const r = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, pairFind: true, pairFirst: 'rsiAbove50' }, onProgress: (x) => seen.push(x) });
+  assert.equal(r.pairs.auto, false);
+  assert.equal(r.pairs.anchors[0].key, 'rsiAbove50');
+  assert.equal(r.pairs.trainDays + r.pairs.testDays, 20);
+  assert.ok(seen.some((x) => /Pair finder/.test(x)));
+  checkPairs(r.pairs, { first: 'rsiAbove50' });
+  const bad = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, pairFind: true, pairFirst: 'nope' } });
+  assert.match(bad.pairs.skipped, /cannot be tested/);
+});
+
+test('without a chosen check the pair finder starts from the best single checks that made money, and says so when none did', async () => {
+  const base = { ...PARAMS, lossLimit: 1500, maxLots: 2 };
+  const r = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, pairFind: true } });
+  if (r.pairs.skipped) assert.match(r.pairs.skipped, /no single check made money/);
+  else {
+    assert.equal(r.pairs.auto, true);
+    checkPairs(r.pairs, { first: null });
+    for (const a of r.pairs.anchors) assert.ok(r.indicators.find((x) => x.key === a.key).net > 0);
+  }
+  const noRank = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, rank: false, pairFind: true } });
+  assert.match(noRank.pairs.skipped, /no single check made money/);
+});
+
+test('the pair finder also runs on the 50 stocks, with buys and sells in place of calls and puts', async () => {
+  const history = { AAA: minutes(14, 3), BBB: minutes(14, 5) };
+  const off = await runSharesStudy({ nifty1: minutes(14, 7), history, params: { days: 10, riskAmount: 200 } });
+  assert.equal(off.pairs, null);
+  const r = await runSharesStudy({ nifty1: minutes(14, 7), history, params: { days: 10, riskAmount: 200, rank: false, pairFind: true, pairFirst: 'rsiAbove50' } });
+  checkPairs(r.pairs, { first: 'rsiAbove50' });
+});
+
 // ---------- Review: day story, warm-up bars, minute bars ----------
 
 test('the day story finds the legs a day moved in, and Review sends warm-up bars, minute bars and the story with a day', async () => {
