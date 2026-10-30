@@ -14,16 +14,28 @@ export const LADDERS = [
   { key: 'tight', label: 'Tight follow, 6 steps', text: 'Starts at +₹1,000 and stays 150 behind: +1,000 keeps 850, +1,300 keeps 1,150, +1,600 keeps 1,450, +2,000 keeps 1,850, +2,500 keeps 2,350, +3,000 keeps 2,850.', steps: ladder([[1000, 850], [1300, 1150], [1600, 1450], [2000, 1850], [2500, 2350], [3000, 2850]]) },
   { key: 'wide', label: 'Wide room, 6 steps', text: 'Lets the trade breathe, about 400 behind: +1,200 keeps 800, +1,600 keeps 1,200, +2,000 keeps 1,600, +2,500 keeps 2,100, +3,000 keeps 2,600, +3,500 keeps 3,100.', steps: ladder([[1200, 800], [1600, 1200], [2000, 1600], [2500, 2100], [3000, 2600], [3500, 3100]]) },
 ];
+export const STOP_TRIES = [
+  { key: 'chart', label: 'the chart level', rule: { mode: 'chart' } },
+  ...[1, 1.5, 2, 2.5].map((k) => ({ key: `atr${k}`, label: `${k} ATR from the entry`, rule: { mode: 'atr', k } })),
+  { key: 'cap2', label: 'the chart level, pulled in to 2 ATR', rule: { mode: 'cap', k: 2 } },
+  ...[20, 30, 40, 50, 60, 80].map((points) => ({ key: `fix${points}`, label: `${points} points from the entry`, rule: { mode: 'fixed', points } })),
+];
+const sameRule = (a, b) => (a?.mode ?? 'chart') === (b?.mode ?? 'chart') && (a?.mode === 'atr' || a?.mode === 'cap' ? a.k === b?.k : a?.mode === 'fixed' ? a.points === b?.points : true);
 const MIN_TRAIN = 10;
 
 const rs = (v) => `₹${Number(v).toLocaleString('en-IN')}`;
 
 /** The rows to try, as `{ key, group, label, text, set (what changes in params), apply (what a tap on Apply would save, or null when the live trader has no such setting) }`. */
-export function variants(params) {
+export function variants(params, { combo = null } = {}) {
   const yours = Array.isArray(params.steps) ? params.steps : [];
   const out = [];
   for (const lossLimit of LOSS_LIMITS) {
     out.push({ key: `loss${lossLimit}`, group: 'stop', label: `Most one trade may lose: ${rs(lossLimit)}`, text: `The same entries and exits, but lots are sized so the loss at the stop stays within ${rs(lossLimit)} (up to ${params.maxLots} lots).`, set: { lossLimit }, apply: { lossLimit }, current: lossLimit === params.lossLimit });
+  }
+  for (const t of STOP_TRIES) {
+    const rule = { mode: t.rule.mode, k: t.rule.k ?? 2, points: t.rule.points ?? 30 };
+    const apply = combo ? { comboStop: { id: combo.id, name: combo.name, ...rule } } : { patternStop: rule };
+    out.push({ key: `stop-${t.key}`, group: 'stoprule', label: `Stop at ${t.label}`, text: `The same entries, but the first stop is ${t.label}${combo ? ' (the stop this combination would use)' : ''}. It still sits at least 0.8 ATR from the entry and a stop over 2.5 ATR away is skipped.`, set: { stopRule: t.rule }, apply, current: sameRule(t.rule, params.stopRule) });
   }
   out.push({ key: 'ladder-yours', group: 'ladder', label: 'Your ladder as it is', text: yours.length ? `${yours.length} steps from Account > Limits.` : 'Your current profit lock.', set: {}, apply: null, current: true });
   if (yours.length > 6) out.push({ key: 'ladder-yours6', group: 'ladder', label: `Your ladder, top ${yours.length - 6} steps dropped`, text: `Only the first 6 of your ${yours.length} steps.`, set: { steps: yours.slice(0, 6) }, apply: { steps: yours.slice(0, 6) } });
@@ -47,7 +59,7 @@ export function variants(params) {
  * @param tradesFor  (signals, { params }) -> { trades, skippedWide }, the study's own trader
  * @param trainEnd   the first moment of the newest third of the days (null when the run is too short to split)
  */
-export async function runResearch({ signals, tradesFor, midTime, trainEnd, params: given, onProgress = () => {}, yieldTurn = () => Promise.resolve() }) {
+export async function runResearch({ signals, tradesFor, midTime, trainEnd, params: given, combo = null, onProgress = () => {}, yieldTurn = () => Promise.resolve() }) {
   const params = { ...given, target: 0 }; // the research always starts from the profit ladder, whatever exit the study screen used
   const run = async (set) => {
     const p = { ...params, ...set };
@@ -77,7 +89,7 @@ export async function runResearch({ signals, tradesFor, midTime, trainEnd, param
 
   const base = describe((await run({})).trades);
   const rows = [];
-  const list = variants(params);
+  const list = variants(params, { combo });
   for (const [n, v] of list.entries()) {
     if (n % 6 === 0) onProgress(`Research: ${n + 1}/${list.length} exit settings tried`);
     const { trades } = await run(v.set);
@@ -89,9 +101,9 @@ export async function runResearch({ signals, tradesFor, midTime, trainEnd, param
   let mix = null;
   if (trainEnd != null) {
     const pick = (group) => rows.filter((r) => r.group === group && r.apply && r.train?.trades >= MIN_TRAIN && r.train.net > base.train.net).sort((a, b) => b.train.net - a.train.net)[0]; // only a change that beat your settings on the older days
-    const parts = ['stop', 'ladder', 'trail'].map(pick).filter(Boolean);
+    const parts = ['stop', 'stoprule', 'ladder', 'trail'].map(pick).filter(Boolean);
     if (parts.length) {
-      const set = Object.assign({}, ...parts.map((r) => variants(params).find((v) => v.key === r.key).set));
+      const set = Object.assign({}, ...parts.map((r) => variants(params, { combo }).find((v) => v.key === r.key).set));
       const { trades } = await run(set);
       const whole = describe(trades);
       const apply = Object.assign({}, ...parts.map((r) => r.apply));

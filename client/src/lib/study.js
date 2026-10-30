@@ -79,6 +79,9 @@ export function sharesExitText(p) {
 /** The shares study as plain text, to paste into the chat. */
 export function sharesText(r) {
   if (!r) return '';
+  if (r.finderOnly) {
+    return [`Shares finder, last ${r.period.days} trading days, ${r.period.stocks} stocks.`, indicatorsText(r.indicators, 'Indicators on their own (buys and sells)'), pairsText(r.pairs, 'Buys', 'Sells'), autoFindText(r.comboFound)].join('\n').trimEnd();
+  }
   const o = r.overall;
   const line = (x) => `${x.key}: ${x.trades} trades, ${x.winRate ?? '-'}% win, net ${formatPnl(x.totalNet)}, avg win ${formatPnl(x.avgWin)}, avg loss ${formatPnl(x.avgLoss)}, profit factor ${x.profitFactor ?? '-'}`;
   const lines = [

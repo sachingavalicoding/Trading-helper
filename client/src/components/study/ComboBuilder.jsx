@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
 import { MAX_COMBOS } from '../../lib/autoFind.js';
-import { MAX_CHECKS, VERDICT, blankCombo, fromSaved, needOf, needsText, pickList, ruleText, toPayload, toggleCheck, verdictMap } from '../../lib/combos.js';
+import { MAX_CHECKS, STOP_MODES, VERDICT, stopWord, blankCombo, fromSaved, needOf, needsText, pickList, ruleText, toPayload, toggleCheck, verdictMap } from '../../lib/combos.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
 
@@ -83,6 +83,24 @@ function Editor({ catalog, kind, verdicts, initial, onSave, onCancel, busy }) {
             ))}
           </select>
         </label>
+      )}
+      {kind !== 'shares' && (
+        <div className="space-y-1.5">
+          <div className="text-[11px] text-muted">Stop for this combination. The Combination research in a study finds the best one for each.</div>
+          <Segmented className="w-full" size="sm" value={combo.stopMode || ''} onChange={(v) => set({ stopMode: v })} options={STOP_MODES} />
+          {(combo.stopMode === 'cap' || combo.stopMode === 'atr') && (
+            <label className="flex items-center justify-between gap-3 text-xs text-muted">
+              <span>ATRs (0.8 to 2.5)</span>
+              <input className="field num !w-20 !px-2 !py-1.5 text-right !text-sm" inputMode="decimal" value={combo.stopAtr ?? 2} onChange={(e) => set({ stopAtr: Number(e.target.value) })} aria-label="Stop in ATRs" />
+            </label>
+          )}
+          {combo.stopMode === 'fixed' && (
+            <label className="flex items-center justify-between gap-3 text-xs text-muted">
+              <span>Index points from the entry (10 to 150)</span>
+              <input className="field num !w-20 !px-2 !py-1.5 text-right !text-sm" inputMode="numeric" value={combo.stopPoints ?? 30} onChange={(e) => set({ stopPoints: Number(e.target.value) })} aria-label="Stop in points" />
+            </label>
+          )}
+        </div>
       )}
       {liveOnly && <p className="rounded-lg bg-surface-2 p-2 text-[11px] leading-snug text-muted">News is live only: past headlines are not kept, so a study cannot test a combination with a news check.</p>}
 
@@ -200,7 +218,7 @@ export function ComboBuilder({ kind, endpoint, combos, reload }) {
                       </div>
                       <Switch on={c.on} disabled={busy} label={`Use ${c.name}`} onClick={() => toggleOn(c.id)} />
                     </div>
-                    <p className="text-[11px] leading-snug text-muted">{c.conds.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}</p>
+                    <p className="text-[11px] leading-snug text-muted">{c.conds.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}{stopWord(c) ? ` · ${stopWord(c)}` : ''}</p>
                     <div className="flex justify-end gap-2">
                       <button type="button" className="btn btn-sm" onClick={() => setEditing(c.id)} disabled={busy}>
                         <Pencil className="h-3.5 w-3.5" /> Edit

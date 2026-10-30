@@ -12,9 +12,9 @@ export const foundName = (f) => f.labels.map((l) => l.replace(/ \(.*\)$/, '')).j
 export const alreadySaved = (saved, f) => (saved || []).some((c) => c.conds.length === f.conds.length && f.conds.every((k) => c.conds.includes(k)));
 
 /** The saved combinations plus the found one, switched off so nothing trades until the user looks at it. */
-export function withFound(saved, f) {
+export function withFound(saved, f, stop = null) {
   const list = (saved || []).map((c, i) => toPayload(fromSaved(c), i));
-  return [...list, { name: foundName(f), conds: f.conds, need: f.conds.length, window: 3, on: false }];
+  return [...list, { name: foundName(f), conds: f.conds, need: f.conds.length, window: 3, on: false, ...(stop ? { stopMode: stop.mode, stopAtr: stop.k, stopPoints: stop.points } : {}) }];
 }
 
 export const canAdd = (saved) => (saved || []).length < MAX_COMBOS;

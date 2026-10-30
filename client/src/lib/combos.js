@@ -35,10 +35,28 @@ export function ruleText(combo) {
 
 /** A combination ready to send: ids and names filled, `need` 0 turned into the count. */
 export function toPayload(combo, index = 0) {
-  return { id: combo.id, name: combo.name.trim() || `Combination ${index + 1}`, conds: combo.conds, need: needOf(combo), window: combo.window || 3, on: combo.on !== false };
+  const own = combo.stopMode ? { stopMode: combo.stopMode, stopAtr: combo.stopAtr || 2, stopPoints: combo.stopPoints || 30 } : {};
+  return { id: combo.id, name: combo.name.trim() || `Combination ${index + 1}`, conds: combo.conds, need: needOf(combo), window: combo.window || 3, on: combo.on !== false, ...own };
 }
 
 /** Load a saved combination into the editor: "all" is shown as need 0. */
+export const STOP_MODES = [
+  { value: '', label: 'Shared stop' },
+  { value: 'chart', label: 'Chart level' },
+  { value: 'cap', label: 'Pulled in' },
+  { value: 'atr', label: 'ATR' },
+  { value: 'fixed', label: 'Points' },
+];
+
+/** A combination's own stop in words, or null when it uses the shared one. */
+export function stopWord(c) {
+  if (!c?.stopMode) return null;
+  if (c.stopMode === 'chart') return 'stop at the chart level';
+  if (c.stopMode === 'cap') return `stop at the chart level, pulled in to ${c.stopAtr ?? 2} ATR`;
+  if (c.stopMode === 'atr') return `stop ${c.stopAtr ?? 2} ATR from the entry`;
+  return `stop ${c.stopPoints ?? 30} points from the entry`;
+}
+
 export const fromSaved = (c) => ({ ...c, need: c.need >= c.conds.length ? 0 : c.need });
 
 /**

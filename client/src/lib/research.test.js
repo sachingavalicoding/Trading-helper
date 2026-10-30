@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyRequests, applyText, researchText } from './research.js';
+import { applyRequests, applyText, comboResearchText, researchText } from './research.js';
 
 describe('applyRequests', () => {
   it('sends the stop amount and ladder to the Account rules and the trail to the options settings', () => {
@@ -8,6 +8,12 @@ describe('applyRequests', () => {
       { path: '/trade-defaults', body: { options: { stopLoss: 2000, steps } } },
       { path: '/options', body: { trailMode: 'points', trailPoints: 20, trailStart: 20 } },
     ]);
+  });
+  it('sends a pattern stop to the options settings and a combination stop to that combination', () => {
+    expect(applyRequests({ patternStop: { mode: 'atr', k: 1.5 } })).toEqual([
+      { path: '/options', body: expect.objectContaining({ patternStopMode: 'atr', patternStopAtr: 1.5 }) },
+    ]);
+    expect(applyText({ patternStop: { mode: 'fixed', points: 40 } })).toContain('40');
   });
   it('sends nothing for a row that cannot be applied', () => {
     expect(applyRequests(null)).toEqual([]);
@@ -37,5 +43,16 @@ describe('researchText', () => {
   it('handles a skipped run', () => {
     expect(researchText({ skipped: 'no signal' })).toBe('Research: no signal.');
     expect(researchText(null)).toBe('');
+  });
+});
+
+describe('comboResearchText', () => {
+  it('says how far winners went against the entry and lists each stop', () => {
+    const r = { signals: 40, split: false, base: { trades: 20, winRate: 55, net: 1000 }, adverse: { winners: 11, p50: 500, p80: 1200, p90: 1800, max: 2400 }, stops: [{ label: 'ATR 1.5', trades: 20, winRate: 70, net: 3000, maxDrawdown: 800 }], exits: [], mix: null };
+    const t = comboResearchText(r, 'RSI + engulfing');
+    expect(t).toContain('RSI + engulfing');
+    expect(t).toContain('11 winners');
+    expect(t).toContain('ATR 1.5');
+    expect(comboResearchText(null, 'x')).toBe('');
   });
 });

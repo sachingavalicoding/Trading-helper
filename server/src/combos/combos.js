@@ -16,7 +16,7 @@ const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 
 /** What the settings routes accept; `normalizeCombos` then drops unknown conditions. */
 export const comboInput = z
-  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional() }))
+  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional(), stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(), stopAtr: z.coerce.number().min(0.8).max(2.5).optional(), stopPoints: z.coerce.number().min(10).max(150).optional() }))
   .max(MAX_COMBOS);
 
 /** Clean a combination from user input: known conditions only, no repeats, at most MAX_CONDITIONS, `need` between 1 and the count. */
@@ -26,8 +26,20 @@ export function normalizeCombo(raw, index = 0) {
   const name = String(raw.name || '').trim().slice(0, 60) || `Combination ${index + 1}`;
   const need = Math.min(conds.length, Math.max(1, Math.round(Number(raw.need)) || conds.length));
   const window = Math.min(6, Math.max(1, Math.round(Number(raw.window)) || DEFAULT_WINDOW));
-  return { id: slug(raw.id || name) || `combo-${index + 1}`, name, conds, need, window, on: raw.on !== false };
+  const out = { id: slug(raw.id || name) || `combo-${index + 1}`, name, conds, need, window, on: raw.on !== false };
+  // an optional stop of its own: the combination's entries use it in place of the stop set for every entry in Account > Entries
+  if (STOP_MODES.includes(raw.stopMode)) {
+    out.stopMode = raw.stopMode;
+    out.stopAtr = Math.min(2.5, Math.max(0.8, Number(raw.stopAtr) || 2));
+    out.stopPoints = Math.min(150, Math.max(10, Math.round(Number(raw.stopPoints)) || 30));
+  }
+  return out;
 }
+
+const STOP_MODES = ['chart', 'cap', 'atr', 'fixed'];
+
+/** The stop rule of a combination's own (see ruleStop), or null when it uses the shared one. */
+export const comboStopRule = (combo) => (STOP_MODES.includes(combo?.stopMode) ? { mode: combo.stopMode, k: combo.stopAtr ?? 2, points: combo.stopPoints ?? 30 } : null);
 
 export const normalizeCombos = (list) => {
   const seen = new Set();
@@ -80,6 +92,7 @@ export function comboSignals(chart, combo, { from = 15, windows = true, when = n
   const need = Math.min(combo.need || conds.length, conds.length);
   const window = combo.window || DEFAULT_WINDOW;
   const out = [];
+  const stopRule = comboStopRule(combo);
   for (const d of [1, -1]) {
     const view = chart.views[d];
     let lastFire = -99;
@@ -114,6 +127,7 @@ export function comboSignals(chart, combo, { from = 15, windows = true, when = n
         stop: d > 0 ? stop : -stop,
         note: combo.conds.map((k) => CONDITION_BY_KEY.get(k).label).join(' + '),
         atr: a,
+        ...(stopRule ? { stopRule } : {}),
       });
     }
   }

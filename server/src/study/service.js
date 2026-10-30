@@ -96,6 +96,7 @@ export class StudyService {
       pairFind,
       pairFirst,
       comboFind,
+      finderOnly: pairFind || comboFind, // with a finder on, only the finders run, not the normal study
       research,
       lossLimit: rules.stopLoss ?? 0,
       maxLots: settings?.maxLots ?? 2,
@@ -121,7 +122,7 @@ export class StudyService {
       }
     }
     const [rules, auto] = await Promise.all([loadRules(userId, 'EQ'), AutoSettings.findOne({ user: userId }).lean()]);
-    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, target, exitMin: exitMin ?? rules.exitMin, combos: normalizeCombos(auto?.combos), pairFind, pairFirst, comboFind }, onProgress: (step) => { job.step = step; } });
+    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, target, exitMin: exitMin ?? rules.exitMin, combos: normalizeCombos(auto?.combos), pairFind, pairFirst, comboFind, finderOnly: pairFind || comboFind }, onProgress: (step) => { job.step = step; } });
     await this.#save(userId, 'shares', result);
   }
 }

@@ -29,12 +29,14 @@ export async function runSharesStudy({ nifty1, history, params, onProgress = () 
   const money = { ...opts, steps: params.steps ?? [], target, exitMin };
   const ideas = [];
   const symbols = Object.keys(history).filter((s) => history[s]?.length > 100);
-  for (const [n, symbol] of symbols.entries()) {
+  for (const [n, symbol] of params.finderOnly ? [] : symbols.entries()) {
     onProgress(`Replaying the scanner on ${symbol} (${n + 1}/${symbols.length})`);
     ideas.push(...replayStock({ symbol, c1: history[symbol], nifty: nifty1, days: params.days, exits: 'live', money }));
     await yieldTurn();
   }
-  const extra = await comboStudy({ nifty1, history, symbols, params, money, opts, onProgress });
+  const needRank = params.finderOnly ? (params.pairFind && !params.pairFirst) || params.comboFind : params.rank !== false;
+  const extra = await comboStudy({ nifty1, history, symbols, params: { ...params, rank: needRank }, money, opts, onProgress });
+  if (params.finderOnly) return { generatedAt: new Date().toISOString(), finderOnly: true, period: { days: params.days, stocks: symbols.length }, params: { days: params.days, riskAmount: opts.riskAmount, slippagePct: opts.slippagePct, exit: target ? 'target' : 'lock', target, steps: money.steps, exitMin }, ...extra };
   const rows = (keyOf, label = (k) => k) => evaluateBy(ideas, keyOf, opts).map((r) => ({ ...r, key: label(r.key) }));
   const traded = ideas
     .map((i) => ({ i, r: netResult(i, opts) }))
@@ -60,7 +62,7 @@ export async function runSharesStudy({ nifty1, history, params, onProgress = () 
  * ideas. A share is read on its own 5-minute bars (own volume and VWAP), the breadth comes from all 50. Study-only extras: nothing here changes the scanner rows.
  */
 async function comboStudy({ nifty1, history, symbols, params, money, opts, onProgress }) {
-  const wanted = (params.combos || []).filter((c) => c.on !== false);
+  const wanted = params.finderOnly ? [] : (params.combos || []).filter((c) => c.on !== false);
   const rank = params.rank !== false;
   const pairWanted = Boolean(params.pairFind || params.comboFind);
   if (!wanted.length && !rank && !pairWanted) return { combos: [], indicators: [], combosSkipped: [], pairs: null, comboFound: null };
@@ -144,8 +146,8 @@ async function comboStudy({ nifty1, history, symbols, params, money, opts, onPro
       });
     };
     const common = { indicators, have: have || {}, studyDays: dayList.length, trainEnd: trainDay, evaluateMany };
-    const { first, base, missing } = pairStart(params.pairFirst, params.combos);
-    if (params.pairFind) pairs = missing ? { skipped: 'that combination is no longer saved' } : await findPairs({ ...common, first, base });
+    const { first, bases, missing } = pairStart(params.pairFirst, params.combos);
+    if (params.pairFind) pairs = missing ? { skipped: 'that combination is no longer saved' } : await findPairs({ ...common, first, bases, deep: Boolean(params.finderOnly) });
     if (params.comboFind) comboFound = await findCombos(common);
   }
   return { combos: combos.sort((a, b) => b.totalNet - a.totalNet), indicators, combosSkipped, pairs, comboFound };

@@ -518,6 +518,58 @@ test('Review lists every check, scores each for the day, draws the ones asked fo
   assert.ok(r.patterns.some((p) => p.key === 'combo:idle' && p.off), 'a combination that is off is still listed, marked off');
 });
 
+test('a combination can carry a stop of its own, which its signals use in place of the shared one, and a bad stop is dropped', async () => {
+  const { comboStopRule } = await import('../src/combos/combos.js');
+  const own = normalizeCombo({ name: 'Own', conds: ['rsiAbove50'], stopMode: 'fixed', stopPoints: 45 });
+  assert.deepEqual([own.stopMode, own.stopPoints, own.stopAtr], ['fixed', 45, 2]);
+  assert.deepEqual(comboStopRule(own), { mode: 'fixed', k: 2, points: 45 });
+  const clamped = normalizeCombo({ name: 'Wide', conds: ['rsiAbove50'], stopMode: 'atr', stopAtr: 9, stopPoints: 1 });
+  assert.deepEqual([clamped.stopAtr, clamped.stopPoints], [2.5, 10]);
+  const plain = normalizeCombo({ name: 'Plain', conds: ['rsiAbove50'], stopMode: 'nope' });
+  assert.equal(plain.stopMode, undefined);
+  assert.equal(comboStopRule(plain), null);
+  const chart = buildChart(minutes(3).filter((_, i) => i % 5 === 0 || true).reduce((a, b, i) => (i % 5 === 4 ? [...a, { ...b }] : a), []).map((b, i) => ({ ...b, time: OPEN + i * 300 })), {});
+  const sigs = comboSignals(chart, own);
+  assert.ok(sigs.length > 0 && sigs.every((x) => x.stopRule?.mode === 'fixed' && x.stopRule.points === 45));
+  assert.ok(comboSignals(chart, plain).every((x) => x.stopRule === undefined));
+});
+
+test('finder-only run: only the finders run, up to 10 results per starting combination with 1 to 3 added checks, and the stop research for each', async () => {
+  const base = { ...PARAMS, lossLimit: 3000, maxLots: 2, finderOnly: true };
+  const mine = normalizeCombos([{ id: 'mine', name: 'My RSI', conds: ['rsiAbove50'] }, { id: 'two', name: 'MACD', conds: ['macdZero'], stopMode: 'atr', stopAtr: 1.5 }]);
+  const seen = [];
+  const r = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, combos: mine, pairFind: true, pairFirst: 'combo:*' }, onProgress: (x) => seen.push(x) });
+  assert.equal(r.finderOnly, true);
+  assert.deepEqual(r.techniques, [], 'none of the normal study rows are made');
+  assert.equal(r.pairs.deep, true);
+  assert.deepEqual(r.pairs.anchors.map((a) => a.key), ['combo:mine', 'combo:two']);
+  assert.ok(seen.some((x) => /Research on stops/.test(x)));
+  for (const a of r.pairs.anchors) {
+    assert.ok(a.found.length <= 10);
+    for (const f of a.found) {
+      assert.ok(f.depth >= 1 && f.depth <= 3 && f.conds.length === a.conds.length + f.depth && a.conds.every((k) => f.conds.includes(k)));
+      assert.equal(f.added.length, f.depth);
+      assert.ok(f.train.net > 0 && f.test.net > 0);
+    }
+    assert.ok(a.found.every((f, i) => i === 0 || f.test.net <= a.found[i - 1].test.net));
+    if (a.research) {
+      assert.equal(a.research.stops.length, 12, 'every stop placement is tried');
+      assert.ok(a.research.stops.every((x) => x.apply.comboStop && x.apply.comboStop.id === a.key.replace('combo:', '')));
+      assert.ok(a.research.base && Array.isArray(a.research.exits));
+      if (a.research.adverse) assert.ok(a.research.adverse.p50 <= a.research.adverse.p80 && a.research.adverse.p80 <= a.research.adverse.p90 && a.research.adverse.p90 <= a.research.adverse.max);
+    }
+    for (const f of a.found.slice(0, 5)) assert.ok(f.research === undefined || f.research === null || f.research.stops.length === 12);
+  }
+  const gone = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, combos: mine, pairFind: true, pairFirst: 'combo:zzz' } });
+  assert.match(gone.pairs.skipped, /no longer saved/);
+  const history = { AAA: minutes(14, 3), BBB: minutes(14, 5) };
+  const sh = await runSharesStudy({ nifty1: minutes(14, 7), history, params: { days: 10, riskAmount: 200, finderOnly: true, pairFind: true, pairFirst: 'rsiAbove50', combos: mine } });
+  assert.equal(sh.finderOnly, true);
+  assert.equal(sh.overall, undefined, 'the scanner replay is not run');
+  assert.equal(sh.pairs.deep, true);
+  assert.deepEqual(sh.combos, []);
+});
+
 // ---------- Review: day story, warm-up bars, minute bars ----------
 
 test('the day story finds the legs a day moved in, and Review sends warm-up bars, minute bars and the story with a day', async () => {

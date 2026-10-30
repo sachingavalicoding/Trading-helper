@@ -99,6 +99,7 @@ export function SharesStudy() {
   const targetBad = exit === 'target' && !(targetValue >= 100 && targetValue <= 100000);
   const r = state?.result;
   const o = r?.overall;
+  const finderOn = pair || finder;
 
   async function copy() {
     const ok = await copyText(sharesText(r));
@@ -128,9 +129,10 @@ export function SharesStudy() {
         <div className="flex items-center gap-2">
           <Segmented className="flex-1" size="sm" value={days} onChange={setDays} options={DAYS} />
           <button type="button" onClick={() => run(days, { exit, target: targetValue || 300, exitMin: time.exitMin, pairFind: pair, pairFirst: pairFirst || undefined, comboFind: finder })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
-            <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Run study'}
+            <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : finderOn ? 'Run finder' : 'Run study'}
           </button>
         </div>
+        {finderOn && <p className="rounded-lg bg-surface-2 p-2 text-[11px] leading-snug text-muted">A finder is on, so only the finder runs, not the normal share study. It takes a few minutes. Turn the finders off to run the normal study.</p>}
         {running && <p className="text-xs text-muted">{state.status.step}. This takes a few minutes.</p>}
         {state?.status?.state === 'failed' && <p className="text-xs text-down">{state.status.error}</p>}
         {error && <p className="text-xs text-down">{error}</p>}
@@ -146,26 +148,30 @@ export function SharesStudy() {
             <div className="flex items-center justify-between gap-2 text-xs">
               <p className="text-muted">
                 Last {r.period.days} trading days · {r.period.stocks} stocks · risk ₹{r.params.riskAmount} a trade · {sharesExitText(r.params)}
+                {r.finderOnly ? ' · finder only' : ''}
               </p>
               <button type="button" onClick={copy} className="btn btn-sm shrink-0">
                 <ClipboardCopy className="h-3.5 w-3.5" /> Copy
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <Stat label="Net" value={formatPnl(o.totalNet)} tone={pnlClass(o.totalNet)} sub={`${o.trades} trades`} />
-              <Stat label="Win rate" value={o.winRate == null ? '–' : `${o.winRate}%`} sub={`profit factor ${o.profitFactor ?? '–'}`} />
-              <Stat label="Charges" value={formatPnl(-o.totalCharges)} tone="text-down" sub="already in the net" />
-              <Stat label="Worst losing run" value={formatPnl(-o.maxDrawdown)} tone="text-down" />
-            </div>
+            {!r.finderOnly && (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <Stat label="Net" value={formatPnl(o.totalNet)} tone={pnlClass(o.totalNet)} sub={`${o.trades} trades`} />
+                <Stat label="Win rate" value={o.winRate == null ? '–' : `${o.winRate}%`} sub={`profit factor ${o.profitFactor ?? '–'}`} />
+                <Stat label="Charges" value={formatPnl(-o.totalCharges)} tone="text-down" sub="already in the net" />
+                <Stat label="Worst losing run" value={formatPnl(-o.maxDrawdown)} tone="text-down" />
+              </div>
+            )}
           </Card>
-          <Group title="By setup" rows={r.bySetup} note="Switch a losing setup off in Account > Entries." />
-          <ComboRows rows={r.combos} />
+          {!r.finderOnly && <Group title="By setup" rows={r.bySetup} note="Switch a losing setup off in Account > Entries." />}
+          {!r.finderOnly && <ComboRows rows={r.combos} />}
           <PairFinder pf={r.pairs} endpoint="/auto" callWord="Buys" putWord="Sells" />
           <AutoFound af={r.comboFound} endpoint="/auto" title="Combinations found" />
           <IndicatorRanking rows={r.indicators} skipped={r.combosSkipped} callWord="Buys" putWord="Sells" />
-          <Group title="Buys and sells" rows={r.bySide} />
-          <Group title="By hour of entry" rows={r.byHour} />
-          <Group title="How the trades ended" rows={r.byExit} />
+          {!r.finderOnly && <Group title="Buys and sells" rows={r.bySide} />}
+          {!r.finderOnly && <Group title="By hour of entry" rows={r.byHour} />}
+          {!r.finderOnly && <Group title="How the trades ended" rows={r.byExit} />}
+          {!r.finderOnly && (
           <Card className="space-y-1 p-3">
             <h3 className="text-sm font-semibold">How far do ideas run?</h3>
             <p className="text-[11px] leading-snug text-muted">For each distance (in risks, 1R is the distance to the stop): the share of ideas that got that far before the stop, and the average result if every idea were sold there.</p>
@@ -183,7 +189,8 @@ export function SharesStudy() {
               </tbody>
             </table>
           </Card>
-          {r.recent.length > 0 && (
+          )}
+          {!r.finderOnly && r.recent.length > 0 && (
             <Card className="space-y-1 p-3">
               <h3 className="text-sm font-semibold">Latest trades</h3>
               <ul className="divide-y divide-line text-xs">
