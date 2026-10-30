@@ -64,6 +64,11 @@ function SideCard({ side, contract, preview, name, busy, gate, onBuy }) {
           </div>
         )}
       </div>
+      {side.score != null && (
+        <p className="text-xs text-muted">
+          <b className="text-fg">Chart score:</b> <span className="num">{Math.round(side.score)}</span> of 100. A pattern can be set to buy only at 60, 70 or 80 and above in Account &gt; Entries.
+        </p>
+      )}
       {side.trigger && (
         <p className="text-xs text-muted">
           <b className="text-fg">{side.trigger.kind}:</b> {side.trigger.note}.

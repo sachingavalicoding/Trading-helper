@@ -172,7 +172,7 @@ export class ReviewService {
   }
 
   /** The Nifty chart of one day with every pattern that formed on it, and what a one-lot option buy at each would have done. */
-  async patterns(userId, day, index = DEFAULT_INDEX) {
+  async patterns(userId, day, index = DEFAULT_INDEX, checks = []) {
     const idx = INDEXES[index];
     const [c1, rules, settings] = await Promise.all([this.market.getMinutes(idx.symbol, day), loadRules(userId, 'OPT'), OptionSettings.findOne({ user: userId }).lean()]);
     const params = {
@@ -191,7 +191,7 @@ export class ReviewService {
       breakEven: breakEvenOf(settings),
     };
     if (!c1.length) return { day, index, candles: [], signals: [], patterns: [] };
-    return { index, ...reviewPatterns({ c1, day, params, stocks5: await this.#savedStocks5(day), combos: normalizeCombos(settings?.combos), stopRule: stopRuleOf(settings) }) };
+    return { index, ...reviewPatterns({ c1, day, params, stocks5: await this.#savedStocks5(day), combos: normalizeCombos(settings?.combos), stopRule: stopRuleOf(settings), checks }) };
   }
 
   /** One stock on one day: its 5-minute chart, the news with what the price did after each headline, the ideas and the user's trades. */

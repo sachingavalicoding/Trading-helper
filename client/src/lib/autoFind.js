@@ -1,7 +1,7 @@
 import { formatPnl } from './format.js';
 import { fromSaved, toPayload } from './combos.js';
 
-const MAX_COMBOS = 12; // the most combinations the server keeps
+export const MAX_COMBOS = 30; // the most combinations the server keeps
 
 const part = (p) => `${p.trades} trades, ${p.winRate ?? '-'}% win, ${formatPnl(p.net)}`;
 
@@ -23,7 +23,7 @@ export const canAdd = (saved) => (saved || []).length < MAX_COMBOS;
 export function autoFindText(af) {
   if (!af) return '';
   if (af.skipped) return `Auto-find: ${af.skipped}.`;
-  const lines = ['', `Auto-find (${af.tried} combinations tried; found on the older ${af.trainDays} days, checked on the newer ${af.testDays} days it had not seen; one day: ${af.trainEnd}):`];
+  const lines = ['', `Auto-find (${af.tried} combinations tried; found on the older ${af.trainDays} days, checked on the newer ${af.testDays} days it had not seen${af.trainEnd ? `; one day: ${af.trainEnd}` : ''}):`];
   for (const b of af.baselines) lines.push(`Starting point ${b.label}: older ${part(b.train)}; newer ${part(b.test)}`);
   if (!af.found.length) lines.push('Nothing made money on both the older and the newer days.');
   for (const f of af.found) lines.push(`${f.labels.join(' + ')}: ${f.trades} trades, ${f.winRate ?? '-'}% win, ${formatPnl(f.net)}; older ${part(f.train)}; newer ${part(f.test)}`);

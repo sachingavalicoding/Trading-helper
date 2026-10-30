@@ -4,7 +4,7 @@ import { CONDITIONS, usable } from '../combos/conditions.js';
 import { describeCombo, missingData, singleCombo } from '../combos/combos.js';
 import { bars5Of, breadthByTime, shareChart, shareIdeas } from '../combos/shares.js';
 import { verdictOf } from '../combos/verdict.js';
-import { findPairs } from './pairFinder.js';
+import { findPairs, findCombos, pairStart } from './pairFinder.js';
 import { evaluate, evaluateBy, netResult, targetTable } from '../scanner/backtest.js';
 import { istParts } from '../market/marketHours.js';
 
@@ -62,8 +62,8 @@ export async function runSharesStudy({ nifty1, history, params, onProgress = () 
 async function comboStudy({ nifty1, history, symbols, params, money, opts, onProgress }) {
   const wanted = (params.combos || []).filter((c) => c.on !== false);
   const rank = params.rank !== false;
-  const pairWanted = Boolean(params.pairFind);
-  if (!wanted.length && !rank && !pairWanted) return { combos: [], indicators: [], combosSkipped: [], pairs: null };
+  const pairWanted = Boolean(params.pairFind || params.comboFind);
+  if (!wanted.length && !rank && !pairWanted) return { combos: [], indicators: [], combosSkipped: [], pairs: null, comboFound: null };
   onProgress('Working out the 50-stock breadth');
   const stocks5 = Object.fromEntries(symbols.map((s) => [s, bars5Of(history[s])]));
   const timeline = aggregateCandles(nifty1, '5m');
@@ -126,6 +126,7 @@ async function comboStudy({ nifty1, history, symbols, params, money, opts, onPro
     })
     .sort((a, b) => b.net - a.net);
   let pairs = null;
+  let comboFound = null;
   if (pairWanted) {
     const trainDay = dayList[Math.floor((dayList.length * 2) / 3)];
     const dayOfIdea = (i) => DAY(Date.parse(i.openedAt) / 1000);
@@ -142,7 +143,10 @@ async function comboStudy({ nifty1, history, symbols, params, money, opts, onPro
         return { conds, train: part(ideas.filter((i) => dayOfIdea(i) < trainDay)), test: part(ideas.filter((i) => dayOfIdea(i) >= trainDay)), all: { trades: all.trades, net: all.totalNet, winRate: all.winRate, calls: all.buys, puts: all.sells } };
       });
     };
-    pairs = await findPairs({ indicators, have: have || {}, first: params.pairFirst || null, studyDays: dayList.length, trainEnd: trainDay, evaluateMany });
+    const common = { indicators, have: have || {}, studyDays: dayList.length, trainEnd: trainDay, evaluateMany };
+    const { first, base, missing } = pairStart(params.pairFirst, params.combos);
+    if (params.pairFind) pairs = missing ? { skipped: 'that combination is no longer saved' } : await findPairs({ ...common, first, base });
+    if (params.comboFind) comboFound = await findCombos(common);
   }
-  return { combos: combos.sort((a, b) => b.totalNet - a.totalNet), indicators, combosSkipped, pairs };
+  return { combos: combos.sort((a, b) => b.totalNet - a.totalNet), indicators, combosSkipped, pairs, comboFound };
 }

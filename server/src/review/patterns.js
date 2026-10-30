@@ -2,8 +2,8 @@ import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { istParts } from '../market/marketHours.js';
 import { TECHNIQUES, available, prepare, findSignals, turnoverSeries, ruleStop } from '../study/patterns.js';
 import { fitStop, breadthSeries } from '../study/optionsStudy.js';
-import { buildChart } from '../combos/conditions.js';
-import { comboSignals, describeCombo, heldConditions, missingData } from '../combos/combos.js';
+import { buildChart, CONDITIONS, CONDITION_BY_KEY, usable } from '../combos/conditions.js';
+import { comboSignals, describeCombo, heldConditions, missingData, singleCombo } from '../combos/combos.js';
 import { simulateTrade, EXIT_MIN } from '../study/simulate.js';
 import { round2 } from '../utils/money.js';
 
@@ -186,8 +186,9 @@ export function dayStory(bars5, { minSwing = 0 } = {}) {
  * @param stocks5 { SYMBOL: 5-minute candles } of the 50 stocks when saved, which unlocks the volume and VWAP patterns
  * @param combos  the user's own combinations (normalized), traded like patterns
  * @param stopRule the user's stop rule (see ruleStop), applied to every signal; the chart level when null
+ * @param checks  keys of single checks (indicators) to draw as signals as well; every usable check is also listed in `checks` and scored for the day in `checkStats`
  */
-export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], stopRule = null }) {
+export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], stopRule = null, checks = [] }) {
   const exitMin = params.exitMin ?? EXIT_MIN;
   let bars5 = aggregateCandles(c1, '5m');
   if (bars5.length && bars5.at(-1).time + 300 > c1.at(-1).time + 60) bars5 = bars5.slice(0, -1); // the last bucket is still forming
@@ -201,22 +202,49 @@ export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], s
   const breadth = breadthSeries(bars5, stocks5);
   const found = findSignals(prepare(bars5, null, flow)).filter((s) => dayOf(s.time - 300) === day && s.technique !== 'doubleBottomMid');
   // The user's own combinations, drawn and traded like patterns; `why` says which of their checks held.
-  const chart = combos.length ? buildChart(bars5, { breadth, flow }) : null;
+  const chart = buildChart(bars5, { breadth, flow });
   const combosSkipped = [];
   const comboInfo = new Map();
-  for (const combo of combos.filter((c) => c.on !== false)) {
+  for (const combo of combos) {
     const missing = missingData(combo, chart.have);
     if (missing.length) {
       combosSkipped.push({ id: combo.id, name: combo.name, reason: `needs ${[...new Set(missing)].map((m) => (m === 'flow' ? 'volume of the 50 stocks' : m === 'breadth' ? 'the 50-stock breadth' : m)).join(' and ')}, which are not saved` });
       continue;
     }
     const key = `combo:${combo.id}`;
-    patterns.push({ key, label: `Mine: ${combo.name}`, text: describeCombo(combo), combo: true });
+    patterns.push({ key, label: `Mine: ${combo.name}`, text: describeCombo(combo), combo: true, ...(combo.on === false ? { off: true } : {}) });
     comboInfo.set(key, combo);
     for (const s of comboSignals(chart, combo, { label: key }).filter((x) => dayOf(x.time - 300) === day)) {
       found.push({ ...s, why: heldConditions(chart, combo, s.side === 'CE' ? 1 : -1, s.i) });
     }
   }
+  // every check on its own: listed so any can be picked, scored for the day, and drawn like a pattern when asked for
+  const usableChecks = CONDITIONS.filter((c) => usable(c, chart.have));
+  const checkList = usableChecks.map(({ key, label, group, text }) => ({ key, label, group, text }));
+  const checkSignals = new Map(usableChecks.map((c) => [c.key, comboSignals(chart, singleCombo(c.key), { label: `check:${c.key}` }).filter((x) => dayOf(x.time - 300) === day)]));
+  for (const key of checks) {
+    const cond = CONDITION_BY_KEY.get(key);
+    if (!cond || !checkSignals.has(key)) continue;
+    patterns.push({ key: `check:${key}`, label: `Check: ${cond.label}`, text: cond.text, check: true, group: cond.group });
+    for (const x of checkSignals.get(key)) found.push({ ...x, why: heldConditions(chart, singleCombo(key), x.side === 'CE' ? 1 : -1, x.i) });
+  }
+  const lockNet = (s) => {
+    const at = byTime.get(s.time);
+    if (at == null || istParts(new Date(s.time * 1000)).minutes >= exitMin) return null;
+    const { stop, wide } = fitStop(s, c1[at].open, stopRule);
+    if (wide) return null;
+    const t = simulateTrade({ c1, byTime, signal: { ...s, stop }, params: { ...params, target: 0 } });
+    return t && !t.skipped ? t.net : null;
+  };
+  const checkStats = usableChecks
+    .map((c) => {
+      const sigs = checkSignals.get(c.key);
+      const nets = sigs.map((x) => ({ side: x.side, net: lockNet(x) })).filter((x) => x.net != null);
+      const net = round2(nets.reduce((a, x) => a + x.net, 0));
+      return { key: c.key, signals: sigs.length, trades: nets.length, wins: nets.filter((x) => x.net > 0).length, net, calls: round2(nets.filter((x) => x.side === 'CE').reduce((a, x) => a + x.net, 0)), puts: round2(nets.filter((x) => x.side === 'PE').reduce((a, x) => a + x.net, 0)) };
+    })
+    .filter((x) => x.signals > 0)
+    .sort((a, b) => b.net - a.net);
   const signals = [];
   for (const s of found.sort((a, b) => a.time - b.time || a.technique.localeCompare(b.technique))) {
     const startIdx = byTime.get(s.time);
@@ -270,6 +298,8 @@ export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], s
     signals,
     moves: biggestMoves(c1, day, signals, exitMin),
     combosSkipped,
+    checks: checkList,
+    checkStats,
     stopRule: stopRule ?? { mode: 'chart' },
     exits: { lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? [{ at: params.lockStart, keep: params.lockStart - params.lockGap }], lossLimit: params.lossLimit, target: TARGET_PER_LOT, exitMin },
   };

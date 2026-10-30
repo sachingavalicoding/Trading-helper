@@ -247,7 +247,7 @@ export class OptionTrader {
     const last = bars.at(-1);
     if (!last || this.now() - (last.time + 300) * 1000 > PATTERN_FRESH_MS) return { skipped: 'no fresh bar' };
     const hits = findSignals(prepare(bars), { only: keys, from: bars.length - 1, windows: this.config.enforceMarketHours }).sort((a, b) => keys.indexOf(a.technique) - keys.indexOf(b.technique));
-    return this.#actOn(settings, read, hits, last, (hit) => LIVE_PATTERNS.find((p) => p.key === hit.technique).label);
+    return this.#actOn(settings, read, hits, last, (hit) => LIVE_PATTERNS.find((p) => p.key === hit.technique).label, { minScore: settings.patternMinScore ?? 0 });
   }
 
   /**
@@ -284,7 +284,8 @@ export class OptionTrader {
     return chart;
   }
 
-  async #actOn(settings, read, hits, last, labelOf) {
+  // `minScore`: a pattern is bought only while the chart's score for its side is at least this (0 = no check, the score then only decorates the log)
+  async #actOn(settings, read, hits, last, labelOf, { minScore = 0 } = {}) {
     let result = { skipped: 'no pattern' };
     for (const hit of hits) {
       const seen = `${settings.user}|${read.index}|${hit.technique}|${last.time}`;
@@ -294,9 +295,14 @@ export class OptionTrader {
       const d = hit.side === 'CE' ? 1 : -1;
       const label = labelOf(hit);
       const spot = read.spot;
+      const sideScore = read[hit.side === 'CE' ? 'ce' : 'pe']?.score;
       let stop = ruleStop(hit, spot, stopRuleOf(settings));
       if (d * (spot - stop) < MIN_STOP_ATR * hit.atr) stop = spot - d * MIN_STOP_ATR * hit.atr;
-      const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: undefined, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique };
+      const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: sideScore, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique };
+      if (minScore && !(sideScore >= minScore)) {
+        result = await this.#skip(settings, side, `${label} ${hit.side}: the chart score ${sideScore == null ? 'is not known' : `is ${Math.round(sideScore)}`}, under the ${minScore} you asked for`);
+        continue;
+      }
       if (d * (spot - stop) > MAX_STOP_ATR * hit.atr) {
         result = await this.#skip(settings, side, `${label} ${hit.side}: the stop (${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}) is ${round2((d * (spot - stop)) / hit.atr)} ATR away, over the ${MAX_STOP_ATR} limit`);
         continue;

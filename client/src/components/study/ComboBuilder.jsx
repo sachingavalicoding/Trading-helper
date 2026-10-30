@@ -3,6 +3,7 @@ import { Check, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
+import { MAX_COMBOS } from '../../lib/autoFind.js';
 import { MAX_CHECKS, VERDICT, blankCombo, fromSaved, needOf, needsText, pickList, ruleText, toPayload, toggleCheck, verdictMap } from '../../lib/combos.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
@@ -217,7 +218,7 @@ export function ComboBuilder({ kind, endpoint, combos, reload }) {
             <Editor catalog={catalog.data} kind={kind} verdicts={verdicts} initial={blankCombo()} busy={busy} onCancel={() => setEditing(null)} onSave={save} />
           ) : (
             editing == null &&
-            saved.length < 12 && (
+            saved.length < MAX_COMBOS && (
               <button type="button" className="btn btn-sm w-full" onClick={() => setEditing('new')}>
                 <Plus className="h-3.5 w-3.5" /> New combination
               </button>

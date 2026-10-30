@@ -7,7 +7,8 @@ import { FIRST_ENTRY_MIN, LAST_ENTRY_MIN } from '../options/signal.js';
 // { id, name, conds: [condition keys], need: how many of them (all by default), window: how many bars an "event" condition stays true }.
 // It gives a signal on the first bar where enough of them hold, then waits for it to stop holding (or 3 bars) before it can give another.
 
-export const MAX_CONDITIONS = 8;
+export const MAX_CONDITIONS = 20;
+export const MAX_COMBOS = 30; // saved combinations per user, for options and for shares each
 export const DEFAULT_WINDOW = 3;
 const COOLDOWN_BARS = 3;
 const STOP_LOOKBACK = 6; // with no pattern in the combination, the stop sits under the last 6 bars, like the Breakout pattern
@@ -16,7 +17,7 @@ const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 /** What the settings routes accept; `normalizeCombos` then drops unknown conditions. */
 export const comboInput = z
   .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional() }))
-  .max(12);
+  .max(MAX_COMBOS);
 
 /** Clean a combination from user input: known conditions only, no repeats, at most MAX_CONDITIONS, `need` between 1 and the count. */
 export function normalizeCombo(raw, index = 0) {
@@ -31,7 +32,7 @@ export function normalizeCombo(raw, index = 0) {
 export const normalizeCombos = (list) => {
   const seen = new Set();
   const out = [];
-  (Array.isArray(list) ? list : []).slice(0, 12).forEach((raw, i) => {
+  (Array.isArray(list) ? list : []).slice(0, MAX_COMBOS).forEach((raw, i) => {
     const c = normalizeCombo(raw, i);
     if (!c) return;
     let id = c.id;

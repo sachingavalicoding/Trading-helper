@@ -41,7 +41,7 @@ export function saveSeen(list) {
 
 /** Switch on the combinations of `patterns` that have never been offered; returns the new watch list and seen list, or null when nothing is new. */
 export function offerCombos(watch, seen, patterns) {
-  const fresh = (patterns || []).filter((p) => p.combo && !seen.includes(p.key)).map((p) => p.key);
+  const fresh = (patterns || []).filter((p) => p.combo && !p.off && !seen.includes(p.key)).map((p) => p.key);
   return fresh.length ? { watch: [...watch, ...fresh], seen: [...seen, ...fresh] } : null;
 }
 
@@ -54,10 +54,13 @@ export function saveWatch(list) {
 }
 
 /** "Breakout of the last hour" -> "Breakout"; the long label is on the pattern's own text. */
-export const shortLabel = (label) => (String(label).startsWith('Mine: ') ? String(label) : String(label).split(/ (?:of|at|in|\/)|,/)[0]);
+export const shortLabel = (label) => (String(label).startsWith('Mine: ') || String(label).startsWith('Check: ') ? String(label) : String(label).split(/ (?:of|at|in|\/)|,/)[0]);
 
 /** The tag drawn beside an arrow: the pattern's own code, or MY for one of your combinations. */
-export const codeOf = (technique) => CODE[technique] || (String(technique).startsWith('combo:') ? 'MY' : technique);
+export const codeOf = (technique) => CODE[technique] || (String(technique).startsWith('combo:') ? 'MY' : String(technique).startsWith('check:') ? 'IND' : technique);
+
+/** The indicator keys among the watched keys: they are asked for from the server, which draws only those. */
+export const checksOf = (watch) => watch.filter((k) => String(k).startsWith('check:')).map((k) => k.slice(6));
 
 export const sideWord = (side) => (side === 'CE' ? 'Call' : 'Put');
 

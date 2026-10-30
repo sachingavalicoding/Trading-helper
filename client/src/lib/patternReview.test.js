@@ -63,3 +63,12 @@ describe('offering new combinations', () => {
     expect(offerCombos(['breakout'], ['combo:a'], patterns).watch).toEqual(['breakout', 'combo:b']);
   });
 });
+
+describe('indicator keys', () => {
+  it('takes only the indicators out of the watch list and tags their arrows IND', async () => {
+    const { checksOf, codeOf, offerCombos } = await import('./patternReview.js');
+    expect(checksOf(['breakout', 'check:rsiAbove50', 'combo:x', 'check:macdZero'])).toEqual(['rsiAbove50', 'macdZero']);
+    expect(codeOf('check:rsiAbove50')).toBe('IND');
+    expect(offerCombos([], [], [{ key: 'combo:a', combo: true, off: true }, { key: 'combo:b', combo: true }]).watch).toEqual(['combo:b']);
+  });
+});

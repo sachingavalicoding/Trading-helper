@@ -9,6 +9,7 @@ import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 import { ExitTimeField, useExitTime } from './ExitTimeField.jsx';
 import { IndicatorRanking } from './IndicatorRanking.jsx';
 import { PairFinder, PairFinderControl } from './PairFinder.jsx';
+import { AutoFound } from './AutoFound.jsx';
 
 const DAYS = [
   { value: 1, label: 'Today' },
@@ -91,6 +92,7 @@ export function SharesStudy() {
   const [target, setTarget] = useState('300');
   const [pair, setPair] = useState(false);
   const [pairFirst, setPairFirst] = useState('');
+  const [finder, setFinder] = useState(false);
   const { state, error, running, run } = useStudy('shares');
   const time = useExitTime('shares');
   const targetValue = Number(target);
@@ -121,11 +123,11 @@ export function SharesStudy() {
           </label>
         )}
         <ExitTimeField time={time} />
-        <PairFinderControl on={pair} setOn={setPair} first={pairFirst} setFirst={setPairFirst} kind="shares" />
+        <PairFinderControl on={pair} setOn={setPair} first={pairFirst} setFirst={setPairFirst} finder={finder} setFinder={setFinder} kind="shares" />
         {targetBad && <p className="text-xs text-down">The target must be between ₹100 and ₹1,00,000.</p>}
         <div className="flex items-center gap-2">
           <Segmented className="flex-1" size="sm" value={days} onChange={setDays} options={DAYS} />
-          <button type="button" onClick={() => run(days, { exit, target: targetValue || 300, exitMin: time.exitMin, pairFind: pair, pairFirst: pairFirst || undefined })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
+          <button type="button" onClick={() => run(days, { exit, target: targetValue || 300, exitMin: time.exitMin, pairFind: pair, pairFirst: pairFirst || undefined, comboFind: finder })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Run study'}
           </button>
         </div>
@@ -159,6 +161,7 @@ export function SharesStudy() {
           <Group title="By setup" rows={r.bySetup} note="Switch a losing setup off in Account > Entries." />
           <ComboRows rows={r.combos} />
           <PairFinder pf={r.pairs} endpoint="/auto" callWord="Buys" putWord="Sells" />
+          <AutoFound af={r.comboFound} endpoint="/auto" title="Combinations found" />
           <IndicatorRanking rows={r.indicators} skipped={r.combosSkipped} callWord="Buys" putWord="Sells" />
           <Group title="Buys and sells" rows={r.bySide} />
           <Group title="By hour of entry" rows={r.byHour} />
