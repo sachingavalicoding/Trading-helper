@@ -8,6 +8,7 @@ import { useStudy } from '../../lib/useStudy.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 import { ExitTimeField, useExitTime } from './ExitTimeField.jsx';
 import { IndicatorRanking } from './IndicatorRanking.jsx';
+import { PairFinder, PairFinderControl } from './PairFinder.jsx';
 
 const DAYS = [
   { value: 1, label: 'Today' },
@@ -88,6 +89,8 @@ export function SharesStudy() {
   const [days, setDays] = useState(10);
   const [exit, setExit] = useState('lock');
   const [target, setTarget] = useState('300');
+  const [pair, setPair] = useState(false);
+  const [pairFirst, setPairFirst] = useState('');
   const { state, error, running, run } = useStudy('shares');
   const time = useExitTime('shares');
   const targetValue = Number(target);
@@ -118,10 +121,11 @@ export function SharesStudy() {
           </label>
         )}
         <ExitTimeField time={time} />
+        <PairFinderControl on={pair} setOn={setPair} first={pairFirst} setFirst={setPairFirst} kind="shares" />
         {targetBad && <p className="text-xs text-down">The target must be between ₹100 and ₹1,00,000.</p>}
         <div className="flex items-center gap-2">
           <Segmented className="flex-1" size="sm" value={days} onChange={setDays} options={DAYS} />
-          <button type="button" onClick={() => run(days, { exit, target: targetValue || 300, exitMin: time.exitMin })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
+          <button type="button" onClick={() => run(days, { exit, target: targetValue || 300, exitMin: time.exitMin, pairFind: pair, pairFirst: pairFirst || undefined })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Run study'}
           </button>
         </div>
@@ -154,6 +158,7 @@ export function SharesStudy() {
           </Card>
           <Group title="By setup" rows={r.bySetup} note="Switch a losing setup off in Account > Entries." />
           <ComboRows rows={r.combos} />
+          <PairFinder pf={r.pairs} endpoint="/auto" callWord="Buys" putWord="Sells" />
           <IndicatorRanking rows={r.indicators} skipped={r.combosSkipped} callWord="Buys" putWord="Sells" />
           <Group title="Buys and sells" rows={r.bySide} />
           <Group title="By hour of entry" rows={r.byHour} />

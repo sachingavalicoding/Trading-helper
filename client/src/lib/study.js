@@ -4,6 +4,7 @@ import { indicatorsText } from './combos.js';
 import { breakEvenText, stopRuleText, trailText } from './stops.js';
 import { autoFindText } from './autoFind.js';
 import { researchText } from './research.js';
+import { pairsText } from './pairs.js';
 
 export const EXIT_WORD = { STOP: 'Stop hit', LOCK: 'Profit lock', EOD: 'Closed on time', TARGET: 'Target hit', TRAIL: 'Trailing stop', BREAKEVEN: 'Break-even stop' };
 export const FEW_TRADES = 10; // under this many trades a result is mostly luck
@@ -57,7 +58,7 @@ export function studyText(r) {
     for (const b of r.breadth) lines.push(`${b.share}%+ ${b.side}: ${b.episodes} times, next 30 min ${b.avg30 ?? '-'} pts (${b.hit30 ?? '-'}% right), next 60 min ${b.avg60 ?? '-'} pts (${b.hit60 ?? '-'}% right)`);
   }
   for (const s of r.combosSkipped || []) lines.push('', `${s.name} was not tested: ${s.reason}.`);
-  return [...lines, indicatorsText(r.indicators), autoFindText(r.autoFound), researchText(r.research)].join('\n').trimEnd();
+  return [...lines, indicatorsText(r.indicators), autoFindText(r.autoFound), pairsText(r.pairs), researchText(r.research)].join('\n').trimEnd();
 }
 
 /** Hours with their trade counts and rupees, in time order: [{ hour, trades, net }]. */
@@ -104,5 +105,5 @@ export function sharesText(r) {
     for (const x of r.combos) lines.push(`${line({ ...x, key: x.label.replace('My combination: ', '') })}; buys ${formatPnl(x.buys.net)} (${x.buys.trades}), sells ${formatPnl(x.sells.net)} (${x.sells.trades}); halves ${formatPnl(x.halves[0])} / ${formatPnl(x.halves[1])}; ${x.text}`);
   }
   for (const s of r.combosSkipped || []) lines.push('', `${s.name} was not tested: ${s.reason}.`);
-  return [...lines, indicatorsText(r.indicators, 'Indicators on their own (buys and sells)')].join('\n').trimEnd();
+  return [...lines, indicatorsText(r.indicators, 'Indicators on their own (buys and sells)'), pairsText(r.pairs, 'Buys', 'Sells')].join('\n').trimEnd();
 }
