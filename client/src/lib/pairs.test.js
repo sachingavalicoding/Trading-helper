@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pairsText } from './pairs.js';
+import { pairsText, skipsText, winnerOf, winnerText } from './pairs.js';
 
 const p = (trades, net) => ({ trades, net, winRate: 55 });
 const pf = {
@@ -32,5 +32,20 @@ describe('add-on rows', () => {
     const f = { ...pf.anchors[0].found[0], added: 'Price above VWAP', skipped: 4 };
     const t = pairsText({ ...pf, addOn: true, anchors: [{ ...pf.anchors[0], found: [f] }] });
     expect(t).toContain('+ Price above VWAP');
+  });
+});
+
+describe('finder results', () => {
+  const f = (over) => ({ conds: ['a', 'b'], labels: ['A', 'B'], added: ['B'], depth: 1, trades: 40, winRate: 80, net: 8000, lift: 3000, calls: { trades: 20, net: 4000 }, puts: { trades: 20, net: 4000 }, train: { trades: 28, winRate: 78, net: 5000 }, test: { trades: 12, winRate: 83, net: 3000 }, skipped: 20, skips: { trades: 20, losers: 14, losersNet: -6000, winners: 6, winnersNet: 2000 }, ...over });
+  const pf2 = { tried: 30, trainDays: 20, testDays: 10, goal: 'profit', anchors: [{ key: 'combo:x', label: 'Mine', trades: 60, winRate: 62, net: 5000, train: { trades: 40, winRate: 60, net: 3000 }, test: { trades: 20, winRate: 65, net: 2000 }, found: [f({}), f({ added: ['C'], winRate: 90, net: 6000, test: { trades: 9, winRate: 90, net: 1000 } })] }] };
+  it('says which entries a result skips', () => {
+    expect(skipsText(f({}))).toBe('skips 20 entries: 14 losers (-₹6,000.00), 6 winners (+₹2,000.00)');
+    expect(skipsText(f({ skips: null, skipped: 0 }))).toBe('');
+  });
+  it('names the best result by profit or by win rate', () => {
+    expect(winnerOf(pf2).f.added).toEqual(['B']);
+    expect(winnerOf({ ...pf2, goal: 'winrate' }).f.added).toEqual(['C']);
+    expect(winnerText(pf2)).toContain('80% win (Mine alone 62%)');
+    expect(pairsText(pf2)).toContain('win rate 62% to 80%');
   });
 });

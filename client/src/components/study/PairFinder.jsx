@@ -5,19 +5,48 @@ import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
 import { formatPnl, pnlClass } from '../../lib/format.js';
 import { alreadySaved, canAdd, withFound } from '../../lib/autoFind.js';
+import { skipsText } from '../../lib/pairs.js';
+import { bestOf } from '../../lib/research.js';
 import { Badge, Card } from '../ui.jsx';
 import { ComboResearch } from './ComboResearch.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
 
 const part = (p) => `${p.trades} trades · ${p.winRate ?? '–'}% win · ${formatPnl(p.net)}`;
 
-/** The pair finder switch, and the check to start from ("Best three" or any one check). `kind` is 'options' or 'shares'. */
-export function PairFinderControl({ on, setOn, first, setFirst, kind, finder, setFinder }) {
+/** The check or saved combination a finder starts from. `kind` is 'options' or 'shares'. */
+export function StartFromSelect({ kind, value, onChange }) {
   const catalog = useApi('/combos/catalog', []);
   const own = useApi(kind === 'shares' ? '/auto' : '/options', []);
   const mine = own.data?.settings?.combos || [];
   const list = (catalog.data?.conditions || []).filter((c) => kind === 'shares' || c.needs !== 'news');
   const groups = catalog.data?.groups || [];
+  return (
+    <label className="flex items-center justify-between gap-3 text-xs text-muted">
+      <span>Start from</span>
+      <select className="field !w-auto max-w-[60%] !px-2 !py-1.5 !text-xs" value={value} onChange={(e) => onChange(e.target.value)} aria-label="Indicator or combination to start from">
+        <option value="">The best three on their own</option>
+        {mine.length > 0 && (
+          <optgroup label="Add checks to my combinations">
+            <option value="combo:*">All my combinations that are on (up to 6)</option>
+            {mine.map((c) => (
+              <option key={c.id} value={`combo:${c.id}`}>{c.name}{c.on ? '' : ' (off)'}</option>
+            ))}
+          </optgroup>
+        )}
+        {groups.map((g) => (
+          <optgroup key={g} label={g}>
+            {list.filter((c) => c.group === g).map((c) => (
+              <option key={c.key} value={c.key}>{c.label}</option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** The pair finder switch, and the check to start from ("Best three" or any one check). `kind` is 'options' or 'shares'. */
+export function PairFinderControl({ on, setOn, first, setFirst, kind, finder, setFinder }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
@@ -32,29 +61,7 @@ export function PairFinderControl({ on, setOn, first, setFirst, kind, finder, se
         </p>
         <Switch on={finder} label="Combination finder" onClick={() => setFinder((v) => !v)} />
       </div>
-      {on && (
-        <label className="flex items-center justify-between gap-3 text-xs text-muted">
-          <span>Start from</span>
-          <select className="field !w-auto max-w-[60%] !px-2 !py-1.5 !text-xs" value={first} onChange={(e) => setFirst(e.target.value)} aria-label="Indicator to start the pair from">
-            <option value="">The best three on their own</option>
-            {mine.length > 0 && (
-              <optgroup label="Add checks to my combinations">
-                <option value="combo:*">All my combinations that are on (up to 6)</option>
-                {mine.map((c) => (
-                  <option key={c.id} value={`combo:${c.id}`}>{c.name}{c.on ? '' : ' (off)'}</option>
-                ))}
-              </optgroup>
-            )}
-            {groups.map((g) => (
-              <optgroup key={g} label={g}>
-                {list.filter((c) => c.group === g).map((c) => (
-                  <option key={c.key} value={c.key}>{c.label}</option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </label>
-      )}
+      {on && <StartFromSelect kind={kind} value={first} onChange={setFirst} />}
     </div>
   );
 }
@@ -115,8 +122,9 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
                   <span className={`num shrink-0 text-sm font-bold ${pnlClass(f.net)}`}>{formatPnl(f.net)}</span>
                 </div>
                 <p className="num text-[11px] text-muted">
-                  {f.trades} trades{pf.addOn && f.skipped > 0 ? ` (skips ${f.skipped})` : ''} · {f.winRate ?? '–'}% win · {formatPnl(f.lift)} against alone · {callWord} {formatPnl(f.calls.net)} ({f.calls.trades}) · {putWord} {formatPnl(f.puts.net)} ({f.puts.trades})
+                  {f.trades} trades · {f.winRate ?? '–'}% win{a.winRate != null ? ` (alone ${a.winRate}%)` : ''} · {formatPnl(f.lift)} against alone · {callWord} {formatPnl(f.calls.net)} ({f.calls.trades}) · {putWord} {formatPnl(f.puts.net)} ({f.puts.trades})
                 </p>
+                {skipsText(f) && <p className="num text-[11px] text-muted">It {skipsText(f)}.</p>}
                 <p className="num text-[11px] text-muted">
                   Older days: {part(f.train)} · Newer days: {part(f.test)}
                 </p>
@@ -127,8 +135,8 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
                     <button type="button" className="btn btn-sm" disabled={busy != null || !saved || !canAdd(saved)} onClick={() => add(f)}>
                       {canAdd(saved) ? 'Add to My combinations (off)' : 'My combinations is full (30)'}
                     </button>
-                    {endpoint === '/options' && f.research?.mix?.apply?.comboStop && canAdd(saved) && (
-                      <button type="button" className="btn btn-sm" disabled={busy != null || !saved} onClick={() => add(f, f.research.mix.apply.comboStop)}>
+                    {endpoint === '/options' && (f.research?.mix?.apply?.comboStop ?? bestOf(f.research).stop?.apply?.comboStop) && canAdd(saved) && (
+                      <button type="button" className="btn btn-sm" disabled={busy != null || !saved} onClick={() => add(f, f.research.mix?.apply?.comboStop ?? bestOf(f.research).stop.apply.comboStop)}>
                         Add with its best stop
                       </button>
                     )}
