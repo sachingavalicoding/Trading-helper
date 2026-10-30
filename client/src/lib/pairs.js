@@ -10,7 +10,7 @@ export function pairsText(pf, callWord = 'Calls', putWord = 'Puts') {
   for (const a of pf.anchors) {
     lines.push(`Starting from ${a.label}: ${part(a)}; older ${part(a.train)}; newer ${part(a.test)}`);
     if (!a.found.length) lines.push('  No partner made money on both the older and the newer days.');
-    for (const f of a.found) lines.push(`  + ${f.labels[1]}: ${f.trades} trades, ${f.winRate ?? '-'}% win, ${formatPnl(f.net)} (${formatPnl(f.lift)} against ${a.label} alone); ${callWord} ${formatPnl(f.calls.net)}, ${putWord} ${formatPnl(f.puts.net)}; older ${part(f.train)}; newer ${part(f.test)}`);
+    for (const f of a.found) lines.push(`  + ${f.added ?? f.labels[1]}: ${f.trades} trades, ${f.winRate ?? '-'}% win, ${formatPnl(f.net)} (${formatPnl(f.lift)} against ${a.label} alone); ${callWord} ${formatPnl(f.calls.net)}, ${putWord} ${formatPnl(f.puts.net)}; older ${part(f.train)}; newer ${part(f.test)}`);
   }
   return lines.join('\n');
 }

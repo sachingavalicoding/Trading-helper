@@ -26,3 +26,11 @@ describe('pairsText', () => {
     expect(pairsText(pf, 'Buys', 'Sells')).toContain('Buys');
   });
 });
+
+describe('add-on rows', () => {
+  it('names the added check and says how many trades it skips', () => {
+    const f = { ...pf.anchors[0].found[0], added: 'Price above VWAP', skipped: 4 };
+    const t = pairsText({ ...pf, addOn: true, anchors: [{ ...pf.anchors[0], found: [f] }] });
+    expect(t).toContain('+ Price above VWAP');
+  });
+});

@@ -475,6 +475,36 @@ async function breakoutOnce() {
   await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
 }
 
+test('a pattern is bought only when the chart score of its side reaches the score asked for, and with no minimum the score is ignored', async () => {
+  const realNow = optionTrader.now;
+  optionTrader.now = () => new Date(MIDMORNING());
+  try {
+    const u = await registerUser(app);
+    const uid = u.user.id || u.user._id;
+    const s = (await OptionSettings.create({ user: uid, enabled: true, patterns: ['breakout'], patternMinScore: 70 })).toObject();
+    // each look is a new 5-minute bar, because a pattern is judged once on its own bar
+    const scored = (score, n) => ({ ...breakoutRead(20000, MIDMORNING() + n * 300000), ce: { score }, pe: { score: 10 } });
+    assert.match((await optionTrader.considerPatterns(s, { ...breakoutRead(20000, MIDMORNING() + 300000) })).skipped, /score is not known/, 'no score at all is not a pass');
+    assert.match((await optionTrader.considerPatterns(s, scored(65, 2))).skipped, /is 65, under the 70/);
+    const r = await optionTrader.considerPatterns(s, scored(75, 3));
+    assert.ok(r.order, r.skipped);
+    const log = await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'PLACED' }).lean();
+    assert.equal(log.score, 75, 'the score is shown in the log');
+    const skip = await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'SKIPPED', reason: /under the 70/ }).lean();
+    assert.ok(skip, 'the skip is logged with its reason');
+    await api().post('/api/positions/exit-all').set(u.auth).expect(200);
+    const off = (await OptionSettings.create({ user: (await registerUser(app)).user.id, enabled: true, patterns: ['breakout'] })).toObject();
+    const free = await optionTrader.considerPatterns(off, breakoutRead());
+    assert.ok(free.order, 'with no minimum a pattern buys whatever the score');
+    const saved = (await api().put('/api/options').set(u.auth).send({ patternMinScore: 80 }).expect(200)).body;
+    assert.equal(saved.settings.patternMinScore, 80);
+    await api().put('/api/options').set(u.auth).send({ patternMinScore: 120 }).expect(400);
+    await api().post('/api/positions/exit-all').set(u.auth).expect(200);
+  } finally {
+    optionTrader.now = realNow;
+  }
+});
+
 test('the pattern switches are saved, validated and shown with their choices', async () => {
   const u = await registerUser(app);
   const first = (await api().get('/api/options').set(u.auth).expect(200)).body;
@@ -556,7 +586,7 @@ test('the stop mode of pattern entries is saved, validated, and a fixed ATR stop
 test('combinations are saved, cleaned and shown with the list of checks they can be built from', async () => {
   const u = await registerUser(app);
   const cat = (await api().get('/api/combos/catalog').set(u.auth).expect(200)).body;
-  assert.ok(cat.conditions.length >= 90 && cat.groups.includes('Chart patterns') && cat.maxConditions === 8);
+  assert.ok(cat.conditions.length >= 90 && cat.groups.includes('Chart patterns') && cat.maxConditions === 20);
   assert.ok(cat.conditions.every((c) => c.key && c.label && c.group && c.kind));
   await api().get('/api/combos/catalog').expect(401);
 

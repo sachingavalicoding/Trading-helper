@@ -13,8 +13,8 @@ const part = (p) => `${p.trades} trades · ${p.winRate ?? '–'}% win · ${forma
  * Combinations the study found by itself: learned on the older days, then checked on newer days it had not seen.
  * "Add" saves one under Account > Entries > My combinations, switched off, so nothing trades until you turn it on.
  */
-export function AutoFound({ af }) {
-  const opts = useApi('/options', []);
+export function AutoFound({ af, endpoint = '/options', title = 'Found for you' }) {
+  const opts = useApi(endpoint, []);
   const [busy, setBusy] = useState(null);
   if (!af) return null;
   const saved = opts.data?.settings?.combos;
@@ -22,7 +22,7 @@ export function AutoFound({ af }) {
   async function add(f, i) {
     setBusy(i);
     try {
-      await api('/options', { method: 'PUT', body: { combos: withFound(saved, f) } });
+      await api(endpoint, { method: 'PUT', body: { combos: withFound(saved, f) } });
       opts.reload?.();
       toast.success('Added, switched off. Turn it on under Account > Entries.');
     } catch (e) {
@@ -36,13 +36,13 @@ export function AutoFound({ af }) {
     <Card className="space-y-2 border-accent2/40 p-3">
       <div>
         <h3 className="flex items-center gap-1.5 text-sm font-semibold text-accent2">
-          <Sparkles className="h-4 w-4" /> Found for you
+          <Sparkles className="h-4 w-4" /> {title}
         </h3>
         {af.skipped ? (
           <p className="text-[11px] leading-snug text-muted">Not run: {af.skipped}.</p>
         ) : (
           <p className="text-[11px] leading-snug text-muted">
-            {af.tried} combinations tried. Each was learned on the older {af.trainDays} days and then checked on the newer {af.testDays} days it had not seen; only the ones that made money on both are shown (at least {af.minTrain} and {af.minTest} trades). With this many tries some will still be luck, so add one switched off, watch it in Review, and switch it on only when it keeps working.
+            {af.tried} combinations tried{af.pool ? ` from the best ${af.pool.length} single indicators` : ''}. Each was learned on the older {af.trainDays} days and then checked on the newer {af.testDays} days it had not seen; only the ones that made money on both are shown (at least {af.minTrain} and {af.minTest} trades). With this many tries some will still be luck, so add one switched off, watch it in Review, and switch it on only when it keeps working.
           </p>
         )}
       </div>
@@ -75,7 +75,7 @@ export function AutoFound({ af }) {
                 <Badge tone="muted">Already in My combinations</Badge>
               ) : (
                 <button type="button" className="btn btn-sm" disabled={busy != null || !saved || !canAdd(saved)} onClick={() => add(f, i)}>
-                  {canAdd(saved) ? 'Add to My combinations (off)' : 'My combinations is full (12)'}
+                  {canAdd(saved) ? 'Add to My combinations (off)' : 'My combinations is full (30)'}
                 </button>
               )}
             </li>

@@ -8,7 +8,7 @@ import { CONDITIONS, CONDITION_BY_KEY, buildChart, usable } from '../combos/cond
 import { comboSignals, singleCombo, missingData, describeCombo } from '../combos/combos.js';
 import { verdictOf, halvesOf } from '../combos/verdict.js';
 import { runResearch } from './research.js';
-import { findPairs } from './pairFinder.js';
+import { findPairs, findCombos, pairStart } from './pairFinder.js';
 
 // The options study: what each way of reading the Nifty chart would have earned on the last few weeks, as paper trades of one lot.
 // It reads history and changes nothing: the live trading rules are not touched by it.
@@ -315,7 +315,7 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   const indicators = params.rank === false ? [] : await rankIndicators({ chart, inStudy, midTime, complete, byTime, params, onProgress });
   const trainEnd = complete.find((b) => DAY(b.time) === studyDays[Math.floor((studyDays.length * 2) / 3)])?.time ?? null;
   const autoFound = params.autoFind ? await autoFind({ chart, inStudy, trainEnd, studyDays: studyDays.length, complete, byTime, params, onProgress }) : null;
-  const pairs = params.pairFind ? await pairFinder({ chart, inStudy, trainEnd, studyDays: studyDays.length, complete, byTime, params, indicators, onProgress }) : null;
+  const { pairs, combos: comboFound } = params.pairFind || params.comboFind ? await finders({ chart, inStudy, trainEnd, studyDays: studyDays.length, complete, byTime, params, indicators, onProgress }) : { pairs: null, combos: null };
   const research = params.research && groups.breakoutEngulf.length ? await runResearch({ signals: groups.breakoutEngulf, tradesFor: (sigs, { params: p }) => tradesFor(sigs, { c1: complete, byTime, params: p }), midTime, trainEnd: studyDays.length >= FIND_MIN_DAYS ? trainEnd : null, params, onProgress, yieldTurn }) : params.research ? { skipped: 'Breakout and Engulfing gave no signal in this period' } : null;
   const botTrades = botRun ? botRun.trades : [];
   return {
@@ -329,6 +329,7 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
     indicators,
     autoFound,
     pairs,
+    comboFound,
     research,
     combosSkipped,
     breadth: breadthStudy(bars5, breadth, fromTime),
@@ -415,8 +416,8 @@ async function autoFind({ chart, inStudy, trainEnd, studyDays, complete, byTime,
   };
 }
 
-/** The pair finder on the index's options: one check (or the best few) next to every other check, each pair traded on paper and judged on older and newer days. */
-async function pairFinder({ chart, inStudy, trainEnd, studyDays, complete, byTime, params, indicators, onProgress }) {
+/** The pair finder and the combination finder on the index's options: lists of checks traded on paper and judged on older and newer days. */
+async function finders({ chart, inStudy, trainEnd, studyDays, complete, byTime, params, indicators, onProgress }) {
   const part = (trades) => {
     const m = summarize(trades);
     return { trades: m.trades, net: m.net, winRate: m.winRate };
@@ -431,13 +432,18 @@ async function pairFinder({ chart, inStudy, trainEnd, studyDays, complete, byTim
       rows.push({ conds, train: part(trades.filter((t) => t.entryTime < trainEnd)), test: part(trades.filter((t) => t.entryTime >= trainEnd)), all: { trades: all.trades, net: all.net, winRate: all.winRate, calls: all.bySide.CE, puts: all.bySide.PE } });
       tried += 1;
       if (tried % 12 === 0) {
-        onProgress(`Pair finder: ${tried} pairs tried`);
+        onProgress(`Finder: ${tried} combinations tried`);
         await yieldTurn();
       }
     }
     return rows;
   };
-  return findPairs({ indicators, have: chart.have, first: params.pairFirst || null, studyDays, trainEnd, evaluateMany });
+  const common = { indicators, have: chart.have, studyDays, trainEnd, evaluateMany };
+  const { first, base, missing } = pairStart(params.pairFirst, params.combos);
+  return {
+    pairs: params.pairFind ? (missing ? { skipped: 'that combination is no longer saved' } : await findPairs({ ...common, first, base })) : null,
+    combos: params.comboFind ? await findCombos(common) : null,
+  };
 }
 
 /** Every check of the combination builder on its own: how a trade taken each time it turns true would have done. The keepers are the ones to build combinations from. */

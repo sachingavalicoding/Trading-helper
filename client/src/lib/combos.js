@@ -2,7 +2,7 @@ import { formatPnl } from './format.js';
 
 // Helpers for the combination builder (Account > Entries) and the indicator ranking in the studies.
 
-export const MAX_CHECKS = 8;
+export const MAX_CHECKS = 20;
 export const VERDICT = {
   Keep: { tone: 'up', text: 'Keep', hint: 'Made money, and in both halves of the period' },
   Unsteady: { tone: 'warn', text: 'Unsteady', hint: 'Made money overall but lost in one half, so it may suit only one kind of market' },

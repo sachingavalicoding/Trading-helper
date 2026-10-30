@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Lightbulb } from 'lucide-react';
 import { useApi } from '../lib/useApi.js';
 import { formatPnl, formatPrice, pnlClass } from '../lib/format.js';
 import { VERDICT, pctText, shiftDay, takeaways } from '../lib/review.js';
-import { afterText, dayTotals, exitLine, loadSeen, loadWatch, moveLines, offerCombos, saveSeen, saveWatch, shortLabel, sideWord, skipText, watched, whyText } from '../lib/patternReview.js';
+import { afterText, checksOf, dayTotals, exitLine, loadSeen, loadWatch, moveLines, offerCombos, saveSeen, saveWatch, shortLabel, sideWord, skipText, watched, whyText } from '../lib/patternReview.js';
 import { dayType, legCount, storyLines } from '../lib/dayStory.js';
 import { INDEXES, indexOf, loadIndex, saveIndex } from '../lib/indexes.js';
 import { stopRuleText, whatIfText } from '../lib/stops.js';
@@ -307,8 +307,10 @@ function SignalDetail({ s, pattern, exits, name = 'Nifty' }) {
 function PatternsTab({ day }) {
   const [index, setIndex] = useState(loadIndex);
   const idx = indexOf(index);
-  const { data, loading, error } = useApi(`/review/patterns?day=${day}&index=${index}`, []);
   const [watch, setWatch] = useState(loadWatch);
+  const checks = checksOf(watch).join(',');
+  const { data, loading, error } = useApi(`/review/patterns?day=${day}&index=${index}${checks ? `&checks=${encodeURIComponent(checks)}` : ''}`, []);
+  const [showChecks, setShowChecks] = useState(false);
   const [selected, setSelected] = useState(null);
   useEffect(() => setSelected(null), [day]);
   useEffect(() => {
@@ -354,9 +356,15 @@ function PatternsTab({ day }) {
   const picked = chosen.find((s) => s.id === selected) ?? null;
   const patternOf = (key) => data.patterns.find((p) => p.key === key);
   // the same switches as the chips below, listed in the chart's indicator picker so patterns and combinations work like indicators
-  const overlays = data.patterns
-    .filter((p) => p.key !== 'doubleBottomMid')
-    .map((p) => ({ id: p.key, label: shortLabel(p.label), group: p.combo ? 'My combinations' : 'Patterns', count: count(p.key), on: watch.includes(p.key) }));
+  const statOf = new Map((data.checkStats || []).map((x) => [x.key, x]));
+  const overlays = [
+    ...data.patterns
+      .filter((p) => p.key !== 'doubleBottomMid' && !p.check)
+      .map((p) => ({ id: p.key, label: `${shortLabel(p.label)}${p.off ? ' (off)' : ''}`, group: p.combo ? 'My combinations' : 'Patterns', count: count(p.key), on: watch.includes(p.key) })),
+    ...(data.checks || []).map((c) => ({ id: `check:${c.key}`, label: c.label, group: `Indicator: ${c.group}`, count: statOf.get(c.key)?.signals ?? 0, on: watch.includes(`check:${c.key}`) })),
+  ];
+  const stats = data.checkStats || [];
+  const shownStats = showChecks ? stats : stats.slice(0, 10);
 
   return (
     <div className="space-y-3">
@@ -368,7 +376,7 @@ function PatternsTab({ day }) {
             .filter((p) => p.key !== 'doubleBottomMid')
             .map((p) => (
               <Chip key={p.key} on={watch.includes(p.key)} onClick={() => toggle(p.key)}>
-                {shortLabel(p.label)} <span className="num opacity-70">{count(p.key)}</span>
+                {shortLabel(p.label)}{p.off ? ' (off)' : ''} <span className="num opacity-70">{count(p.key)}</span>
               </Chip>
             ))}
         </div>
@@ -381,6 +389,35 @@ function PatternsTab({ day }) {
         <p className="text-[11px] text-muted">Stops on this screen follow your setting: {stopRuleText(data.stopRule)}. Your combinations (Account &gt; Entries) are the "Mine" chips.</p>
         <p className="text-[11px] text-muted">The number is how many times it formed on this day. Arrows on the chart: up for a call, down for a put, grey when the bot would skip it.</p>
       </Card>
+
+      {stats.length > 0 && (
+        <Card className="space-y-2 p-3">
+          <div className="text-xs font-semibold">Which indicators worked on this day ({stats.length} fired)</div>
+          <p className="text-[11px] leading-snug text-muted">Every indicator on its own: a one-lot buy each time it turned true, with your stop and profit lock. Tap one to draw it on the chart, then tap its arrow for that entry's profit or loss. Your combinations that are switched off are in the chips above.</p>
+          <ul className="divide-y divide-line">
+            {shownStats.map((x) => {
+              const c = (data.checks || []).find((k) => k.key === x.key);
+              const on = watch.includes(`check:${x.key}`);
+              return (
+                <li key={x.key}>
+                  <button type="button" onClick={() => toggle(`check:${x.key}`)} aria-pressed={on} className={`flex w-full items-center justify-between gap-3 py-2 text-left text-xs ${on ? 'bg-surface-2' : ''}`}>
+                    <span className="min-w-0">
+                      <span className="block font-medium">{c?.label ?? x.key}</span>
+                      <span className="num block text-[11px] text-muted">{c?.group} · {x.trades} traded of {x.signals} · {x.trades ? Math.round((x.wins / x.trades) * 100) : 0}% win · Calls {formatPnl(x.calls)} · Puts {formatPnl(x.puts)}</span>
+                    </span>
+                    <span className={`num shrink-0 font-semibold ${pnlClass(x.net)}`}>{formatPnl(x.net)}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {stats.length > 10 && (
+            <button type="button" className="btn btn-sm w-full" onClick={() => setShowChecks((v) => !v)}>
+              {showChecks ? 'Show fewer' : `Show all ${stats.length}`}
+            </button>
+          )}
+        </Card>
+      )}
 
       {data.moves?.length > 0 && (
         <Card className="space-y-1.5 p-3">

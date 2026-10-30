@@ -112,15 +112,16 @@ test('checks that need the 50 stocks, or news, are unusable until that data is g
 
 // ---------- combinations ----------
 
-test('a combination is cleaned: unknown checks and repeats go, it has at most 8, need stays between 1 and the count, ids are unique', () => {
+test('a combination is cleaned: unknown checks and repeats go, it has at most 20, need stays between 1 and the count, ids are unique', () => {
   assert.equal(normalizeCombo({ name: 'none', conds: ['nope'] }), null);
   const c = normalizeCombo({ name: '  Mine ', conds: ['rsiAbove50', 'rsiAbove50', 'nope', 'macdZero'], need: 9 });
   assert.deepEqual([c.name, c.conds, c.need, c.window, c.on], ['Mine', ['rsiAbove50', 'macdZero'], 2, 3, true]);
   assert.equal(normalizeCombo({ conds: ['rsiAbove50'], need: 0 }).need, 1, 'need is at least 1');
-  assert.equal(normalizeCombo({ conds: CONDITIONS.slice(0, 20).map((x) => x.key) }).conds.length, MAX_CONDITIONS);
+  assert.equal(normalizeCombo({ conds: CONDITIONS.slice(0, 30).map((x) => x.key) }).conds.length, MAX_CONDITIONS);
   const list = normalizeCombos([{ name: 'A', conds: ['rsiAbove50'] }, { name: 'A', conds: ['macdZero'] }, { name: 'bad', conds: [] }]);
   assert.deepEqual(list.map((x) => x.id), ['a', 'a-2']);
   assert.deepEqual(normalizeCombos(null), []);
+  assert.equal(normalizeCombos(Array.from({ length: 40 }, (_, i) => ({ name: `C${i}`, conds: ['rsiAbove50'] }))).length, 30, 'up to 30 combinations are kept');
   assert.match(describeCombo(c), /All 2 must hold together/);
   assert.match(describeCombo(normalizeCombo({ name: 'n', conds: ['rsiAbove50', 'macdCross', 'macdZero'], need: 2 })), /At least 2 of 3.*event/);
 });
@@ -430,7 +431,7 @@ test('the pair finder pairs one chosen check with every other check on the index
   assert.equal(r.pairs.auto, false);
   assert.equal(r.pairs.anchors[0].key, 'rsiAbove50');
   assert.equal(r.pairs.trainDays + r.pairs.testDays, 20);
-  assert.ok(seen.some((x) => /Pair finder/.test(x)));
+  assert.ok(seen.some((x) => /Finder/.test(x)));
   checkPairs(r.pairs, { first: 'rsiAbove50' });
   const bad = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, pairFind: true, pairFirst: 'nope' } });
   assert.match(bad.pairs.skipped, /cannot be tested/);
@@ -455,6 +456,66 @@ test('the pair finder also runs on the 50 stocks, with buys and sells in place o
   assert.equal(off.pairs, null);
   const r = await runSharesStudy({ nifty1: minutes(14, 7), history, params: { days: 10, riskAmount: 200, rank: false, pairFind: true, pairFirst: 'rsiAbove50' } });
   checkPairs(r.pairs, { first: 'rsiAbove50' });
+});
+
+test('add-on finder: one of your combinations is tried with every other check added, and each result says how many of its trades it skips', async () => {
+  const base = { ...PARAMS, lossLimit: 1500, maxLots: 2 };
+  const mine = normalizeCombos([{ id: 'mine', name: 'My RSI', conds: ['rsiAbove50', 'macdZero'], on: false }]);
+  const r = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, rank: false, combos: mine, pairFind: true, pairFirst: 'combo:mine' } });
+  const a = r.pairs.anchors[0];
+  assert.equal(r.pairs.addOn, true);
+  assert.equal(a.key, 'combo:mine');
+  assert.equal(a.label, 'My RSI');
+  for (const f of a.found) {
+    assert.deepEqual(f.conds.slice(0, 2), ['rsiAbove50', 'macdZero']);
+    assert.equal(f.conds.length, 3);
+    assert.ok(f.added && Number.isFinite(f.skipped) && Number.isFinite(f.lift));
+    assert.ok(f.train.net > 0 && f.test.net > 0);
+  }
+  const gone = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, rank: false, combos: mine, pairFind: true, pairFirst: 'combo:other' } });
+  assert.match(gone.pairs.skipped, /no longer saved/, 'a combination that is not saved is not made up');
+});
+
+test('combination finder: pairs and triples of the best single checks, kept only when they also made money on the days they did not see', async () => {
+  const base = { ...PARAMS, lossLimit: 1500, maxLots: 2 };
+  const off = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20 } });
+  assert.equal(off.comboFound, null);
+  const short = await runOptionsStudy({ nifty1: minutes(12), params: { ...base, days: 8, comboFind: true } });
+  assert.match(short.comboFound.skipped, /at least 10 trading days/);
+  const r = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, comboFind: true } });
+  const c = r.comboFound;
+  if (c.skipped) assert.match(c.skipped, /fewer than three/);
+  else {
+    const pool = new Set(r.indicators.filter((x) => x.net > 0).map((x) => x.key));
+    assert.ok(c.tried >= 3 && c.pool.length <= 12 && c.found.length <= 8);
+    for (const f of c.found) {
+      assert.ok(f.conds.length >= 2 && f.conds.length <= 3 && f.conds.every((k) => pool.has(k)), 'built from checks that made money on their own');
+      assert.ok(f.train.net > 0 && f.test.net > 0 && f.train.trades >= c.minTrain && f.test.trades >= c.minTest);
+    }
+  }
+  const history = { AAA: minutes(14, 3), BBB: minutes(14, 5) };
+  const sh = await runSharesStudy({ nifty1: minutes(14, 7), history, params: { days: 10, riskAmount: 200, comboFind: true } });
+  assert.ok(sh.comboFound && (sh.comboFound.skipped || Array.isArray(sh.comboFound.found)));
+});
+
+test('Review lists every check, scores each for the day, draws the ones asked for with their entries, and keeps your switched-off combinations', async () => {
+  const { reviewPatterns } = await import('../src/review/patterns.js');
+  const c1 = minutes(8);
+  const dayOf = (t) => new Date(t * 1000 + 19800_000).toISOString().slice(0, 10);
+  const day = [...new Set(c1.map((b) => dayOf(b.time)))].at(-1);
+  const off = { id: 'idle', name: 'Idle one', conds: ['rsiAbove50', 'macdZero'], need: 2, window: 3, on: false };
+  const r = reviewPatterns({ c1, day, params: { ...PARAMS, lossLimit: 1500, maxLots: 2 }, combos: [off], checks: ['rsiAbove50', 'nope'] });
+  assert.ok(r.checks.length > 70 && r.checks.every((c) => c.key && c.label && c.group));
+  assert.ok(r.checkStats.length > 0 && r.checkStats.every((x, i) => i === 0 || x.net <= r.checkStats[i - 1].net), 'best first');
+  for (const x of r.checkStats) assert.ok(x.trades <= x.signals && x.wins <= x.trades);
+  const drawn = r.patterns.find((p) => p.key === 'check:rsiAbove50');
+  assert.ok(drawn && drawn.check && /RSI/.test(drawn.label));
+  assert.ok(!r.patterns.some((p) => p.key === 'check:nope'), 'an unknown check is ignored');
+  assert.ok(!r.patterns.some((p) => p.key === 'check:macdZero'), 'only the checks asked for are drawn');
+  const mine = r.signals.filter((s) => s.technique === 'check:rsiAbove50');
+  assert.ok(mine.length > 0 && mine.every((s) => s.why?.length === 1 && s.whatIf.length === 7));
+  assert.equal(mine.length, r.checkStats.find((x) => x.key === 'rsiAbove50').signals);
+  assert.ok(r.patterns.some((p) => p.key === 'combo:idle' && p.off), 'a combination that is off is still listed, marked off');
 });
 
 // ---------- Review: day story, warm-up bars, minute bars ----------

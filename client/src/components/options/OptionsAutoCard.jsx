@@ -96,6 +96,14 @@ export function OptionsEntries({ data, reload }) {
             })}
           </ul>
         )}
+        {s.patternEntries && (
+          <div className="space-y-1">
+            <p className="text-[11px] leading-snug text-muted">
+              <b className="text-fg">Pattern score.</b> Buy a pattern only when the chart's score for that side (the one on the Signal tab) is at least this. The study row "Patterns, score 70+ agrees" shows what that would have paid.
+            </p>
+            <Segmented className="w-full" size="sm" value={s.patternMinScore ?? 0} onChange={(v) => save({ patternMinScore: v })} options={[{ value: 0, label: 'Off' }, { value: 60, label: '60+' }, { value: 70, label: '70+' }, { value: 80, label: '80+' }]} />
+          </div>
+        )}
         <div className="flex items-center justify-between gap-3">
           <p className="text-[11px] leading-snug text-muted">
             <b className="text-fg">My combinations.</b> Buys when one of the combinations you built turns true ({mine ? `${mine} switched on` : 'none built yet, make one under My combinations'}).
