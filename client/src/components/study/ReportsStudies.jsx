@@ -89,7 +89,7 @@ export function entrySummary(options, auto) {
     const chosen = new Set(s.patterns);
     const labels = options.patternChoices.filter((p) => chosen.has(p.key)).map((p) => p.label.split(' (')[0]);
     const mine = (s.combos || []).filter((c) => c.on).length;
-    parts.push(`Options: ${s.patternEntries ? (labels.length ? labels.join(', ') : 'no pattern') : 'patterns off'}, ${s.scoreEntries ? 'score on' : 'score off'}${mine ? `, ${s.comboEntries === false ? 'combinations off' : `${mine} of your combinations`}` : ''}`);
+    parts.push(`Options (${(s.indexes ?? ['NIFTY']).map((k) => (k === 'SENSEX' ? 'Sensex' : 'Nifty')).join(' + ')}): ${s.patternEntries ? (labels.length ? labels.join(', ') : 'no pattern') : 'patterns off'}${mine ? `, ${s.comboEntries === false ? 'combinations off' : `${mine} of your combinations`}` : ''}`);
   }
   if (auto) {
     const off = new Set(auto.settings.skipSetups);

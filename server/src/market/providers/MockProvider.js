@@ -1,7 +1,7 @@
 import { BaseProvider, aggregateCandles } from './BaseProvider.js';
 import { NIFTY50, INDICES, isIndex } from '../instruments.js';
 import { roundToTick, round2 } from '../../utils/money.js';
-import { UNDERLYING, STRIKE_STEP, DEFAULT_LOT_SIZE, atmStrike, optionSymbol, weeklyExpiries, isOptionSymbol } from '../../options/symbols.js';
+import { INDEXES, DEFAULT_LOT_SIZE, atmStrike, optionSymbol, weeklyExpiries, isOptionSymbol, parseOptionSymbol, indexKeyOf } from '../../options/symbols.js';
 import { premiumFor } from '../../options/pricing.js';
 
 const HISTORY_BARS = 375; // one full NSE session of 1-minute bars
@@ -18,12 +18,14 @@ const gauss = () => {
  * Every number it produces is synthetic and the UI labels it SIMULATED.
  */
 export class MockProvider extends BaseProvider {
-  constructor({ intervalMs = 1000, now = () => Date.now(), lotSize = DEFAULT_LOT_SIZE, expiryWeekday } = {}) {
+  constructor({ intervalMs = 1000, now = () => Date.now(), lotSize = DEFAULT_LOT_SIZE, sensexLotSize = INDEXES.SENSEX.lot, expiryWeekday, sensexExpiryWeekday } = {}) {
     super();
     this.intervalMs = intervalMs;
     this.now = now;
     this.lotSize = lotSize;
+    this.sensexLotSize = sensexLotSize;
     this.expiryWeekday = expiryWeekday;
+    this.sensexExpiryWeekday = sensexExpiryWeekday;
     this.iv = 0.14; // implied volatility the simulated premiums are priced with; it drifts a little
     this.optionState = new Map(); // option symbol -> { ltp, open, high, low, prevClose }
     this.state = new Map();
@@ -60,19 +62,20 @@ export class MockProvider extends BaseProvider {
     for (const sym of symbols) if (isOptionSymbol(sym) && !this.optionState.has(sym)) this.#startOption(sym);
   }
 
-  async getOptionExpiries() {
-    return weeklyExpiries(new Date(this.now()), { count: 3, weekday: this.expiryWeekday });
+  async getOptionExpiries(index = 'NIFTY') {
+    return weeklyExpiries(new Date(this.now()), { count: 3, weekday: (index === 'SENSEX' ? this.sensexExpiryWeekday : this.expiryWeekday) ?? INDEXES[index]?.expiryWeekday });
   }
 
-  async getOptionContracts(expiry) {
-    const spot = this.state.get(UNDERLYING)?.ltp;
+  async getOptionContracts(expiry, index = 'NIFTY') {
+    const idx = INDEXES[index] ?? INDEXES.NIFTY;
+    const spot = this.state.get(idx.symbol)?.ltp;
     if (!spot) return [];
-    const mid = atmStrike(spot);
+    const mid = atmStrike(spot, idx.strikeStep);
     const out = [];
     for (let k = -10; k <= 10; k++) {
       for (const type of ['CE', 'PE']) {
-        const strike = mid + k * STRIKE_STEP;
-        out.push({ symbol: optionSymbol({ expiry, strike, type }), strike, type, expiry, lotSize: this.lotSize });
+        const strike = mid + k * idx.strikeStep;
+        out.push({ symbol: optionSymbol({ expiry, strike, type, index: idx.key }), strike, type, expiry, lotSize: idx.key === 'SENSEX' ? this.sensexLotSize : this.lotSize });
       }
     }
     return out;
@@ -110,7 +113,8 @@ export class MockProvider extends BaseProvider {
     if (!s) throw new Error(`unknown symbol ${symbol}`);
     this.#apply(s, price, 0);
     this.emit('tick', this.#tick(s));
-    if (s.symbol === UNDERLYING) this.#emitOptions(s.ltp);
+    const key = indexKeyOf(s.symbol);
+    if (key) this.#emitOptions(key, s.ltp);
   }
 
   getLastTick(symbol) {
@@ -121,7 +125,7 @@ export class MockProvider extends BaseProvider {
   }
 
   #startOption(symbol) {
-    const spot = this.state.get(UNDERLYING)?.ltp;
+    const spot = this.state.get(INDEXES[parseOptionSymbol(symbol)?.index]?.symbol)?.ltp;
     const fair = spot ? premiumFor(symbol, spot, { iv: this.iv, now: new Date(this.now()) }) : null;
     if (fair == null) return;
     const ltp = roundToTick(Math.max(fair, 0.05));
@@ -135,8 +139,9 @@ export class MockProvider extends BaseProvider {
     o.low = Math.min(o.low, o.ltp);
   }
 
-  #emitOptions(spot) {
+  #emitOptions(index, spot) {
     for (const [symbol, o] of this.optionState) {
+      if (parseOptionSymbol(symbol)?.index !== index) continue;
       this.#applyOption(symbol, o, premiumFor(symbol, spot, { iv: this.iv, now: new Date(this.now()) }));
       this.emit('tick', this.#optionTick(symbol, o));
     }
@@ -244,9 +249,10 @@ export class MockProvider extends BaseProvider {
       const qty = s.index ? 0 : Math.max(1, Math.round(Math.random() * 400 * (1500 / Math.max(s.prevClose, 100))));
       this.#apply(s, next, qty);
       this.emit('tick', this.#tick(s));
-      if (s.symbol === UNDERLYING) {
-        this.iv = Math.min(0.24, Math.max(0.1, this.iv + gauss() * 0.0004));
-        this.#emitOptions(s.ltp);
+      const key = indexKeyOf(s.symbol);
+      if (key) {
+        if (key === 'NIFTY') this.iv = Math.min(0.24, Math.max(0.1, this.iv + gauss() * 0.0004));
+        this.#emitOptions(key, s.ltp);
       }
     }
   }

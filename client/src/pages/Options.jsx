@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { INDEXES, loadIndex, saveIndex } from '../lib/indexes.js';
 import { useMarket } from '../context/MarketContext.jsx';
 import { useApi } from '../lib/useApi.js';
 import { formatPnl, formatINR, pnlClass } from '../lib/format.js';
@@ -17,11 +18,16 @@ const TABS = [
   { value: 'log', label: 'Log' },
 ];
 
-/** Nifty 50 index options, paper only. Kept apart from shares: its own positions, orders, history and log. */
+/** Nifty 50 and Sensex index options, paper only. Kept apart from shares: its own positions, orders, history and log. */
 export default function Options() {
   const { version } = useMarket();
   const { data, reload } = useApi('/options', [version]);
   const [tab, setTab] = useState('signal');
+  const [index, setIndex] = useState(loadIndex);
+  const pick = (key) => {
+    setIndex(key);
+    saveIndex(key);
+  };
   const today = data?.today;
   return (
     <div className="space-y-3">
@@ -39,12 +45,13 @@ export default function Options() {
           <div className="num text-lg font-bold">{today ? formatINR(today.spent) : '—'}</div>
         </div>
       </Card>
-      <NiftyChart />
+      <Segmented className="w-full" size="sm" value={index} onChange={pick} options={INDEXES.map((i) => ({ value: i.key, label: i.short }))} />
+      <NiftyChart index={index} />
       <Segmented className="w-full" value={tab} onChange={setTab} options={TABS} />
       {tab === 'signal' && (
         <div className="space-y-3">
           {data && <OptionsAutoCard data={data} reload={reload} />}
-          <OptionsSignal minScore={data?.settings.minScore ?? 70} onBought={() => setTab('positions')} />
+          <OptionsSignal index={index} onBought={() => setTab('positions')} />
         </div>
       )}
       {tab === 'positions' && <OptionsPositions />}

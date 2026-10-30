@@ -6,7 +6,7 @@ import { createApp } from '../src/app.js';
 import { OptionTrader } from '../src/options/optionTrader.js';
 import { AutoTrader } from '../src/auto/autoTrader.js';
 import { AutoLog, Order, Position, Trade, OptionSettings, TradeDefaults } from '../src/models/index.js';
-import { optionSymbol, parseOptionSymbol, isOptionSymbol, weeklyExpiries, chooseExpiry, atmStrike, optionLabel } from '../src/options/symbols.js';
+import { optionSymbol, parseOptionSymbol, isOptionSymbol, weeklyExpiries, chooseExpiry, atmStrike, optionLabel, indexKeyOf } from '../src/options/symbols.js';
 import { bsPrice, bsDelta, impliedVol } from '../src/options/pricing.js';
 import { calculateCharges, roundTripCharges } from '../src/services/charges.js';
 import { choppiness, stochastic, heikinAshi, roc, sessionMean } from '../src/signals/indicators.js';
@@ -20,7 +20,15 @@ import { normalizeCombos } from '../src/combos/combos.js';
 test('an option symbol says its expiry, strike and side, and round-trips', () => {
   const sym = optionSymbol({ expiry: '2026-11-03', strike: 24500, type: 'CE' });
   assert.equal(sym, 'NIFTY-20261103-24500-CE');
-  assert.deepEqual(parseOptionSymbol(sym), { expiry: '2026-11-03', strike: 24500, type: 'CE' });
+  assert.deepEqual(parseOptionSymbol(sym), { index: 'NIFTY', expiry: '2026-11-03', strike: 24500, type: 'CE' });
+  const sx = optionSymbol({ index: 'SENSEX', expiry: '2026-11-05', strike: 82000, type: 'PE' });
+  assert.equal(sx, 'SENSEX-20261105-82000-PE');
+  assert.deepEqual(parseOptionSymbol(sx), { index: 'SENSEX', expiry: '2026-11-05', strike: 82000, type: 'PE' });
+  assert.ok(isOptionSymbol(sx));
+  assert.equal(optionLabel(sx), 'SENSEX 82000 PE · 5 Nov');
+  assert.equal(atmStrike(82049, 100), 82000);
+  assert.equal(atmStrike(82051, 100), 82100);
+  assert.deepEqual(['NIFTY 50', 'SENSEX', 'RELIANCE'].map(indexKeyOf), ['NIFTY', 'SENSEX', null]);
   assert.ok(isOptionSymbol(sym));
   assert.ok(!isOptionSymbol('RELIANCE') && !isOptionSymbol('NIFTY 50') && !isOptionSymbol('BAJAJ-AUTO'));
   assert.equal(optionLabel(sym), 'NIFTY 24500 CE · 3 Nov');
@@ -365,13 +373,16 @@ function callRead(spotNow, stopGap = 40) {
   return { ...read, ready: true, best: side, lead: side };
 }
 
+// The all-checks score no longer buys; these tests use a chart read's best side as the entry to check the sizing, the stops and the exits.
+const consider = (settings, read) => optionTrader.enterRead(settings, read, read.best);
+
 test('the trader buys a call sized to the loss limit, with a hard stop and the Account profit lock, no target and no trailing stop, and logs it as an option trade', async () => {
   const fresh = await registerUser(app);
   const uid = fresh.user.id || fresh.user._id;
   ctx.provider.setPrice('NIFTY 50', 25000);
   const s = (await OptionSettings.create({ user: uid, enabled: true })).toObject();
   const read = callRead(25000);
-  const r = await optionTrader.consider(s, read);
+  const r = await consider(s, read);
   assert.ok(r.order, r.skipped);
   assert.equal(r.order.source, 'AUTO');
   const sym = r.plan.symbol;
@@ -404,7 +415,7 @@ test('the trader buys a call sized to the loss limit, with a hard stop and the A
   assert.equal((await auto.todaySummary(uid)).trades, 0, 'option trades do not count against the share auto-trader');
 
   // a second call is refused: one at a time
-  const again = await optionTrader.consider(s, callRead(25000));
+  const again = await consider(s, callRead(25000));
   assert.match(again.skipped, /already/);
   await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
 });
@@ -412,7 +423,7 @@ test('the trader buys a call sized to the loss limit, with a hard stop and the A
 // 5-minute bars that wobble inside a 25,000 range, the last one closing the 5 minutes just past and breaking out of the last hour
 // 11:02 IST today: the 40 bars before it stay inside one trading day whatever time the test runs
 const MIDMORNING = () => Date.parse(`${new Date(Date.now() + 19800000).toISOString().slice(0, 10)}T05:32:20Z`);
-function breakoutRead(ageMs = 20000, at = MIDMORNING()) {
+function breakoutRead(ageMs = 20000, at = MIDMORNING(), { k = 1, index } = {}) {
   const lastTime = Math.floor((at - ageMs) / 300000) * 300 - 300;
   const bars = [];
   for (let i = 0; i < 40; i++) {
@@ -422,7 +433,9 @@ function breakoutRead(ageMs = 20000, at = MIDMORNING()) {
   }
   const open = bars.at(-1).close;
   bars.push({ time: lastTime + 300, open, high: 25020, low: Math.min(open, 25018) - 2, close: 25018, volume: 0 });
-  return { ready: true, spot: 25018, market: { ...mk(25018), done5: bars }, snapshot: {} };
+  // k scales every price, so the same chart shape can stand for the Sensex (about 3.3 times the Nifty)
+  const done5 = bars.map((b) => ({ ...b, open: b.open * k, high: b.high * k, low: b.low * k, close: b.close * k }));
+  return { ready: true, ...(index ? { index } : {}), spot: 25018 * k, market: { ...mk(25018 * k), atr5: 25 * k, done5 }, snapshot: {} };
 }
 
 test('a breakout of the last hour is bought once, with the pattern name in the log and a stop under the last 6 bars, and a pattern that is off or stale is not', async () => {
@@ -439,8 +452,8 @@ async function breakoutOnce() {
   const fresh = await registerUser(app);
   const uid = fresh.user.id || fresh.user._id;
   const s = (await OptionSettings.create({ user: uid, enabled: true, patterns: ['breakout'] })).toObject();
-  assert.deepEqual(entryModes({}), { patterns: ['breakout', 'insideBar', 'emaCross'], score: true, combos: false }, 'settings saved before these switches existed get the defaults');
-  assert.deepEqual(entryModes({ patternEntries: false, scoreEntries: false }), { patterns: [], score: false, combos: false });
+  assert.deepEqual(entryModes({}), { patterns: ['breakout', 'insideBar', 'emaCross'], combos: false }, 'settings saved before these switches existed get the defaults');
+  assert.deepEqual(entryModes({ patternEntries: false, scoreEntries: true }), { patterns: [], combos: false }, 'the score no longer buys, whatever an old setting says');
   assert.equal(entryModes({ combos: [{ name: 'x', conds: ['rsiAbove50'] }] }).combos, true, 'a switched-on combination is an entry source');
   assert.equal(entryModes({ combos: [{ name: 'x', conds: ['rsiAbove50'], on: false }] }).combos, false);
   assert.ok(LIVE_PATTERNS.length === 14 && !LIVE_PATTERNS.some((p) => p.key === 'breadth'));
@@ -467,11 +480,18 @@ test('the pattern switches are saved, validated and shown with their choices', a
   const first = (await api().get('/api/options').set(u.auth).expect(200)).body;
   assert.deepEqual(first.settings.patterns, ['breakout', 'insideBar', 'emaCross']);
   assert.equal(first.settings.patternEntries, true);
-  assert.equal(first.settings.scoreEntries, true);
+  assert.equal(first.settings.scoreEntries, undefined, 'the score is no longer an entry');
+  assert.equal(first.settings.minScore, undefined);
+  assert.deepEqual(first.settings.indexes, ['NIFTY']);
+  assert.equal(first.settings.mirror, false);
+  assert.deepEqual(first.indexChoices.map((c) => c.key), ['NIFTY', 'SENSEX']);
   assert.ok(first.patternChoices.some((p) => p.key === 'breakout' && /last hour/.test(p.label)));
-  const saved = (await api().put('/api/options').set(u.auth).send({ patterns: ['breakout'], scoreEntries: false }).expect(200)).body;
+  const saved = (await api().put('/api/options').set(u.auth).send({ patterns: ['breakout'], indexes: ['SENSEX', 'NIFTY'], mirror: true }).expect(200)).body;
   assert.deepEqual(saved.settings.patterns, ['breakout']);
-  assert.equal(saved.settings.scoreEntries, false);
+  assert.deepEqual(saved.settings.indexes, ['NIFTY', 'SENSEX'], 'kept in the usual order');
+  assert.equal(saved.settings.mirror, true);
+  await api().put('/api/options').set(u.auth).send({ indexes: ['BANKNIFTY'] }).expect(400);
+  await api().put('/api/options').set(u.auth).send({ indexes: [] }).expect(400);
   await api().put('/api/options').set(u.auth).send({ patterns: ['nope'] }).expect(400);
   await api().put('/api/options').set(u.auth).send({ patternEntries: 'yes' }).expect(400);
 });
@@ -580,7 +600,7 @@ test('when a 1-minute candle of the index closes beyond the chart stop the trade
     await settle();
   };
   try {
-    const r = await optionTrader.consider(s, callRead(25000, 20));
+    const r = await consider(s, callRead(25000, 20));
     assert.ok(r.order, r.skipped);
     ctx.provider.setPrice('NIFTY 50', 24995); // above the 24980 stop: still open
     await settle();
@@ -606,7 +626,7 @@ test('when a 1-minute candle of the index closes beyond the chart stop the trade
     assert.ok(row.outcome.netPnl < 0 && row.outcome.resultR < 0);
     assert.ok(row.outcome.worstR < 0);
     // After a loss it cools off before the next trade.
-    const next = await optionTrader.consider(s, callRead(25000));
+    const next = await consider(s, callRead(25000));
     assert.match(next.skipped, /cooling off/);
   } finally {
     optionTrader.stop();
@@ -632,7 +652,7 @@ test('a trailing stop follows the best index price by the points you set and sel
     await settle();
   };
   try {
-    const r = await optionTrader.consider(s, callRead(25000, 40));
+    const r = await consider(s, callRead(25000, 40));
     assert.ok(r.order, r.skipped);
     assert.equal(r.plan.stopSpot, 24960);
     ctx.provider.setPrice('NIFTY 50', 25005); // not yet 10 points: the chart stop stays
@@ -678,7 +698,7 @@ test('break-even moves the chart stop to the entry once the index is far enough 
     await settle();
   };
   try {
-    const r = await optionTrader.consider(s, callRead(25000, 40));
+    const r = await consider(s, callRead(25000, 40));
     assert.ok(r.order, r.skipped);
     ctx.provider.setPrice('NIFTY 50', 25025); // 25 points up: the stop moves from 24960 to the entry, 25000
     await settle();
@@ -706,7 +726,7 @@ test('the profit lock takes the profit once it has been past the start: +1,000 k
   ctx.provider.setPrice('NIFTY 50', 25000);
   await settle();
   const s = (await OptionSettings.create({ user: uid, enabled: true, maxLots: 1 })).toObject();
-  const r = await optionTrader.consider(s, callRead(25000));
+  const r = await consider(s, callRead(25000));
   assert.ok(r.order, r.skipped);
   const stopAt = async () => (await Order.findOne({ user: uid, symbol: r.plan.symbol, role: 'STOPLOSS', status: 'OPEN' }).lean()).triggerPrice;
   const first = await stopAt();
@@ -736,7 +756,7 @@ test('everything the auto trader bought is closed at 15:15 and nothing is closed
   ctx.provider.setPrice('NIFTY 50', 25000);
   await settle();
   const s = (await OptionSettings.create({ user: uid, enabled: true })).toObject();
-  const r = await optionTrader.consider(s, callRead(25000));
+  const r = await consider(s, callRead(25000));
   assert.ok(r.order, r.skipped);
 
   const later = new OptionTrader({ market: ctx.market, engine: ctx.engine, config: ctx.config, now: () => new Date(Date.UTC(2026, 9, 26, 6, 0)) }); // 11:30 IST, well before the close
@@ -765,28 +785,29 @@ test('everything the auto trader bought is closed at 15:15 and nothing is closed
   }
 });
 
-test('blocked and weak setups are logged once with the reason, not on every scan', async () => {
+test('a skipped entry is logged once with the reason, not on every scan', async () => {
   const fresh = await registerUser(app);
   const uid = fresh.user.id || fresh.user._id;
+  ctx.provider.setPrice('NIFTY 50', 25000);
   const s = (await OptionSettings.create({ user: uid, enabled: true })).toObject();
   const read = callRead(25000);
-  const blocked = { ...read, best: null, lead: { ...read.best, blocked: ['The index is moving sideways, where options lose to time decay'], score: 78 } };
-  const a = await optionTrader.consider(s, blocked);
-  assert.match(a.skipped, /blocked/);
-  await optionTrader.consider(s, blocked);
+  const first = await consider(s, read);
+  assert.ok(first.order, first.skipped);
+  const a = await consider(s, read);
+  assert.match(a.skipped, /already/);
+  await consider(s, read);
   const rows = await AutoLog.find({ user: uid, segment: 'OPT', decision: 'SKIPPED' }).lean();
-  assert.equal(rows.length, 1);
-  assert.match(rows[0].reason, /sideways/);
-  const quiet = await optionTrader.consider(s, { ...read, best: null, lead: { ...read.best, score: 40, blocked: [] } });
-  assert.equal(quiet.skipped, 'no setup');
-  assert.equal(await AutoLog.countDocuments({ user: uid, segment: 'OPT' }), 1, 'a quiet market is not a decision');
+  assert.equal(rows.length, 1, 'the same reason is written once');
+  assert.match(rows[0].reason, /already/);
+  assert.equal(rows[0].detail.index, 'NIFTY');
+  await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
 });
 
 test('the options API: settings, the chart read, the log, and a manual buy', async () => {
   const fresh = await registerUser(app);
   const off = (await api().get('/api/options').set(fresh.auth).expect(200)).body;
   assert.equal(off.settings.enabled, false);
-  assert.equal(off.settings.budget, 30000);
+  assert.equal(off.settings.budget, 60000, 'one budget for Nifty and Sensex together');
   assert.match(off.disclaimer, /paper/i);
   assert.deepEqual(off.rules, { stopLoss: 1500, lockStart: 1000, lockGap: 250, exitMin: 915, lockOn: true, steps: [{ at: 1000, keep: 750 }], savedSteps: [{ at: 1000, keep: 750 }] }, 'the stop and lock come from the Account tab');
   assert.equal(off.settings.lockLadder, undefined);
@@ -794,7 +815,7 @@ test('the options API: settings, the chart read, the log, and a manual buy', asy
   const on = (await api().put('/api/options').set(fresh.auth).send({ enabled: true, maxLots: 1 }).expect(200)).body;
   assert.equal(on.settings.enabled, true);
   assert.equal(on.settings.maxLots, 1);
-  await api().put('/api/options').set(fresh.auth).send({ minScore: 10 }).expect(400);
+  await api().put('/api/options').set(fresh.auth).send({ maxLots: 0 }).expect(400);
   await api().put('/api/options').set(fresh.auth).send({ enabled: false }).expect(200);
 
   const read = (await api().get('/api/options/read').set(fresh.auth).expect(200)).body;
@@ -819,7 +840,7 @@ test('the share auto log does not show option rows', async () => {
   const fresh = await registerUser(app);
   const uid = fresh.user.id || fresh.user._id;
   const s = (await OptionSettings.create({ user: uid, enabled: true })).toObject();
-  await optionTrader.consider(s, callRead(25000));
+  await consider(s, callRead(25000));
   await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
   const shares = (await api().get('/api/auto/log').set(fresh.auth).expect(200)).body;
   assert.equal(shares.entries.length, 0);
@@ -857,7 +878,7 @@ test('an option bought by hand is not closed by the 15:00 cut-off or the stall r
   await ctx.engine.exitPosition(uid, r.plan.symbol);
 });
 
-test('the entry triggers (score, patterns, combinations) are separate switches, and a fixed stop in points is saved and validated', async () => {
+test('the entry triggers (patterns, combinations) are separate switches, and a fixed stop in points is saved and validated', async () => {
   const u = await registerUser(app);
   const first = (await api().get('/api/options').set(u.auth).expect(200)).body.settings;
   assert.deepEqual([first.comboEntries, first.patternStopPoints], [true, 30]);
@@ -867,11 +888,11 @@ test('the entry triggers (score, patterns, combinations) are separate switches, 
   await api().put('/api/options').set(u.auth).send({ patternStopPoints: 5 }).expect(400);
   await api().put('/api/options').set(u.auth).send({ comboEntries: 'maybe' }).expect(400);
 
-  const base = { patternEntries: false, scoreEntries: false, patterns: [], combos: saved.combos };
+  const base = { patternEntries: false, patterns: [], combos: saved.combos };
   assert.equal(entryModes({ ...base, comboEntries: false }).combos, false, 'combinations switched off: none is used even though one is saved');
   assert.equal(entryModes({ ...base, comboEntries: true }).combos, true);
   assert.equal(entryModes({ ...base }).combos, true, 'settings saved before the switch existed keep their combinations');
-  assert.deepEqual([entryModes({ ...base, scoreEntries: true }).score, entryModes({ ...base, patternEntries: true, patterns: ['breakout'] }).patterns], [true, ['breakout']]);
+  assert.deepEqual(entryModes({ ...base, patternEntries: true, patterns: ['breakout'] }).patterns, ['breakout']);
 });
 
 test('with a fixed stop, a pattern entry puts the stop that many points from the entry', async () => {
@@ -918,4 +939,136 @@ test('a signal is tried again on the next scan when the contract it picked had n
     market.pickOption = realPick;
     optionTrader.now = realNow;
   }
+});
+
+// ---------- the Sensex ----------
+
+const ltpOf = (c) => ctx.market.getLtp(c.symbol);
+
+test('the Sensex has its own contracts (strikes 100 apart, lot of 20, Thursday expiry) and they follow the Sensex, not the Nifty', async () => {
+  ctx.provider.setPrice('NIFTY 50', 25000);
+  ctx.provider.setPrice('SENSEX', 82000);
+  await settle();
+  const sx = await ctx.market.pickOption({ type: 'CE', now: new Date(), index: 'SENSEX' });
+  assert.match(sx.symbol, /^SENSEX-\d{8}-82000-CE$/);
+  assert.equal(sx.lotSize, 20);
+  assert.equal(new Date(`${sx.expiry}T12:00:00Z`).getUTCDay(), 4, 'Sensex weekly options expire on Thursdays');
+  assert.ok(sx.ltp > 100, `premium ${sx.ltp}`);
+  const nf = await ctx.market.pickOption({ type: 'CE', now: new Date() });
+  assert.match(nf.symbol, /^NIFTY-\d{8}-25000-CE$/);
+  const [sx0, nf0] = [ltpOf(sx), ltpOf(nf)];
+  ctx.provider.setPrice('SENSEX', 82300);
+  assert.ok(ltpOf(sx) > sx0 + 50, 'a 300 point rise lifts a Sensex call');
+  assert.equal(ltpOf(nf), nf0, 'a Nifty option does not move with the Sensex');
+  ctx.provider.setPrice('NIFTY 50', 25100);
+  assert.ok(ltpOf(nf) > nf0 + 20);
+  ctx.provider.setPrice('NIFTY 50', 25000);
+  ctx.provider.setPrice('SENSEX', 82000);
+  assert.equal(ctx.market.lotSize(sx.symbol), 20);
+  // an order is in whole lots of that contract
+  const fresh = await registerUser(app);
+  await api().post('/api/orders').set(fresh.auth).send({ symbol: sx.symbol, side: 'BUY', qty: 21 }).expect(400);
+  const placed = (await api().post('/api/orders').set(fresh.auth).send({ symbol: sx.symbol, side: 'BUY', qty: 20 }).expect(201)).body;
+  assert.equal(placed.order.segment, 'OPT');
+  await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
+});
+
+test('a pattern on the Sensex chart buys a Sensex option, logged with its index, and the Nifty chart is not used for it', async () => {
+  ctx.provider.setPrice('NIFTY 50', 25000);
+  ctx.provider.setPrice('SENSEX', 82000);
+  await settle();
+  const realNow = optionTrader.now;
+  optionTrader.now = () => new Date(MIDMORNING());
+  try {
+    const fresh = await registerUser(app);
+    const uid = fresh.user.id || fresh.user._id;
+    const s = (await OptionSettings.create({ user: uid, enabled: true, patterns: ['breakout'], indexes: ['NIFTY', 'SENSEX'], maxOpen: 2 })).toObject();
+    const k = 82000 / 25000;
+    const r = await optionTrader.considerPatterns(s, breakoutRead(20000, MIDMORNING(), { k, index: 'SENSEX' }));
+    assert.ok(r.order, r.skipped);
+    assert.match(r.plan.symbol, /^SENSEX-/);
+    assert.equal(r.plan.lotSize, 20);
+    assert.ok(r.plan.qty % 20 === 0 && r.plan.maxLoss <= 1500, `${r.plan.qty} units, loss at the stop ${r.plan.maxLoss}`);
+    assert.ok(r.plan.stopSpot > 80000 && r.plan.stopSpot < 82000 * 1.0, `a Sensex stop level, got ${r.plan.stopSpot}`);
+    const log = await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'PLACED' }).lean();
+    assert.equal(log.detail.index, 'SENSEX');
+    assert.match(log.detail.label, /^SENSEX 82\d{3} CE/);
+    assert.ok(optionTrader.open.get(`${uid}|${r.plan.symbol}`)?.index === 'SENSEX');
+
+    // one call at a time across both indexes: the Nifty breakout is refused while the Sensex call is open...
+    const nifty = await optionTrader.considerPatterns({ ...s, patterns: ['breakout'] }, breakoutRead(20000, MIDMORNING(), { index: 'NIFTY' }));
+    assert.match(nifty.skipped, /already holding a CE/);
+    // ...unless the user takes the signal on both indexes
+    const both = await optionTrader.considerPatterns({ ...s, mirror: true }, breakoutRead(20000, MIDMORNING() + 300000, { index: 'NIFTY' })); // the next bar: the refused one is not tried again
+    assert.ok(both.order, both.skipped);
+    assert.match(both.plan.symbol, /^NIFTY-/);
+    assert.equal((await optionTrader.todaySummary(uid)).open, 2, 'a call on each index');
+    await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
+  } finally {
+    optionTrader.now = realNow;
+  }
+});
+
+test('a Sensex trade is stopped by a closed 1-minute Sensex candle beyond its stop, and Nifty prices cannot touch it', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  ctx.provider.setPrice('NIFTY 50', 25000);
+  ctx.provider.setPrice('SENSEX', 82000);
+  await settle();
+  const s = (await OptionSettings.create({ user: uid, enabled: true, indexes: ['SENSEX'] })).toObject();
+  const realNow = optionTrader.now;
+  let clock = Date.now();
+  optionTrader.now = () => new Date(clock);
+  optionTrader.start();
+  const minuteLater = async (symbol, price) => {
+    clock += 60_000;
+    ctx.provider.setPrice(symbol, price);
+    await settle();
+  };
+  try {
+    const read = callRead(82000, 130);
+    const r = await consider(s, { ...read, index: 'SENSEX', best: { ...read.best, index: 'SENSEX' } });
+    assert.ok(r.order, r.skipped);
+    assert.match(r.plan.symbol, /^SENSEX-/);
+    assert.equal(r.plan.stopSpot, 81870);
+    // the Nifty is far below 81,870, but it is another index: nothing happens
+    ctx.provider.setPrice('NIFTY 50', 24000);
+    await minuteLater('NIFTY 50', 24000);
+    await sleep(50);
+    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'OPEN');
+    ctx.provider.setPrice('SENSEX', 81850);
+    await settle();
+    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'OPEN', 'a tick through the level is not a close');
+    await minuteLater('SENSEX', 81850);
+    await sleep(100);
+    assert.equal((await Position.findOne({ user: uid, symbol: r.plan.symbol })).status, 'CLOSED');
+    const row = await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'PLACED' }).lean();
+    assert.equal(row.outcome.exitReason, 'STOP');
+  } finally {
+    optionTrader.stop();
+    optionTrader.now = realNow;
+    ctx.provider.setPrice('NIFTY 50', 25000);
+    ctx.provider.setPrice('SENSEX', 82000);
+  }
+});
+
+test('the options API reads either index, and buys a Sensex option by hand', async () => {
+  ctx.provider.setPrice('SENSEX', 82000);
+  await settle();
+  const fresh = await registerUser(app);
+  await api().get('/api/options/read?index=BANKNIFTY').set(fresh.auth).expect(400);
+  const nifty = (await api().get('/api/options/read').set(fresh.auth).expect(200)).body;
+  assert.equal(nifty.index, 'NIFTY');
+  const sensex = (await api().get('/api/options/read?index=SENSEX').set(fresh.auth).expect(200)).body;
+  // the sample feed has no Sensex history yet, so the chart may not be ready; when it is, it is the Sensex's
+  if (sensex.ready) {
+    assert.equal(sensex.index, 'SENSEX');
+    assert.equal(sensex.underlying, 'SENSEX');
+    assert.match(sensex.contracts.CE.symbol, /^SENSEX-/);
+  }
+  const bought = await api().post('/api/options/buy').set(fresh.auth).send({ type: 'CE', lots: 1, index: 'SENSEX' });
+  assert.ok([201, 400].includes(bought.status), `status ${bought.status}`);
+  if (bought.status === 201) assert.match(bought.body.plan.symbol, /^SENSEX-/);
+  await api().post('/api/options/buy').set(fresh.auth).send({ type: 'CE', index: 'DAX' }).expect(400);
+  await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
 });

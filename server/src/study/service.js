@@ -4,7 +4,7 @@ import { stopRuleOf } from './patterns.js';
 import { breakEvenOf, trailOf } from './simulate.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { NIFTY50 } from '../market/instruments.js';
-import { UNDERLYING } from '../options/symbols.js';
+import { INDEXES, DEFAULT_INDEX, lotSizeOf } from '../options/symbols.js';
 import { conflict } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 import { runOptionsStudy } from './optionsStudy.js';
@@ -30,11 +30,11 @@ export class StudyService {
   }
 
   /** Starts a run and returns at once; poll status(). Only one run per user and kind at a time. */
-  start(userId, kind, { days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0, exitMin, autoFind = false, research = false } = {}) {
+  start(userId, kind, { days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX } = {}) {
     if (this.status(userId, kind).state === 'running') throw conflict('A study is already running');
     const job = { state: 'running', step: 'Starting', startedAt: Date.now() };
     this.jobs.set(`${userId}|${kind}`, job);
-    const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind, research });
+    const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind, research, index });
     run.catch((e) => {
       logger.warn(`${kind} study failed: ${e.message}`);
       Object.assign(job, { state: 'failed', error: e.message });
@@ -53,16 +53,17 @@ export class StudyService {
     return typeof this.market.getStudyRange === 'function' ? this.market.getStudyRange(symbol, unit, days) : this.market.getRange(symbol, unit, days);
   }
 
-  async #nifty(job, days) {
+  async #nifty(job, days, index = DEFAULT_INDEX) {
     const calendar = Math.ceil((days * 7) / 5) + WARMUP_DAYS;
-    job.step = 'Reading Nifty candles';
-    const nifty1 = await this.#range(UNDERLYING, 1, calendar);
-    if (nifty1.length < 400) throw new Error('Not enough Nifty history came back. On Upstox, log in again (the token lasts one day) and retry.');
+    const idx = INDEXES[index];
+    job.step = `Reading ${idx.short} candles`;
+    const nifty1 = await this.#range(idx.symbol, 1, calendar);
+    if (nifty1.length < 400) throw new Error(`Not enough ${idx.short} history came back. On Upstox, log in again (the token lasts one day), press Download in Account > Studies > Data${index === 'SENSEX' ? ' (Sensex is downloaded with the rest the first time after this update)' : ''}, and retry.`);
     return { nifty1, calendar };
   }
 
-  async #runOptions(userId, job, { days, iv, target = 0, fixedLots = 0, exitMin, autoFind = false, research = false }) {
-    const { nifty1, calendar } = await this.#nifty(job, days);
+  async #runOptions(userId, job, { days, iv, target = 0, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX }) {
+    const { nifty1, calendar } = await this.#nifty(job, days, index);
     const stocks5 = {};
     let failed = 0;
     for (const [n, { symbol }] of NIFTY50.entries()) {
@@ -81,9 +82,11 @@ export class StudyService {
       lockStart: rules.lockStart || 1000,
       lockGap: rules.lockGap || 250,
       steps: rules.steps,
-      lotSize: this.config.niftyLotSize,
+      index,
+      lotSize: lotSizeOf(index, this.config),
       holidays: this.config.nseHolidays,
-      expiryWeekday: this.market.expiryWeekday,
+      expiryWeekday: this.market.weekdayOf?.(index) ?? this.market.expiryWeekday,
+      strikeStep: INDEXES[index].strikeStep,
       minScore: settings?.minScore ?? 80,
       combos: normalizeCombos(settings?.combos),
       stopRule: stopRuleOf(settings),

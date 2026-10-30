@@ -75,16 +75,16 @@ export class BaseProvider extends EventEmitter {
     return [];
   }
 
-  /** Expiry dates (YYYY-MM-DD, soonest first) of Nifty index options the feed lists; [] when it has none. */
-  async getOptionExpiries() {
+  /** Expiry dates (YYYY-MM-DD, soonest first) of the index options the feed lists (`index` 'NIFTY' or 'SENSEX'); [] when it has none. */
+  async getOptionExpiries(_index = 'NIFTY') {
     return [];
   }
 
   /**
-   * Nifty option contracts for one expiry: [{ symbol, strike, type: 'CE'|'PE', expiry, lotSize }], where `symbol` is the
+   * Index option contracts (Nifty by default, or `index` = 'SENSEX') for one expiry: [{ symbol, strike, type: 'CE'|'PE', expiry, lotSize }], where `symbol` is the
    * app's own name (see options/symbols.js). Contracts the feed lists become subscribable by that symbol.
    */
-  async getOptionContracts(_expiry) {
+  async getOptionContracts(_expiry, _index = 'NIFTY') {
     return [];
   }
 

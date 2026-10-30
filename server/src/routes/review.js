@@ -2,14 +2,15 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { NIFTY50 } from '../market/instruments.js';
-import { UNDERLYING } from '../options/symbols.js';
+import { INDEXES, INDEX_KEYS } from '../options/symbols.js';
 import { notFound } from '../utils/errors.js';
 
 export const REVIEW_DISCLAIMER = 'A look back at rule-based calls against what the price did. A few days of results are noise, not proof. Not investment advice.';
 
 const dayQuery = z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'day must look like 2026-10-26').optional() });
 const techQuery = z.object({ days: z.coerce.number().int().min(5).max(60).default(30) });
-const known = new Set([UNDERLYING, ...NIFTY50.map((s) => s.symbol)]);
+const patternsQuery = dayQuery.extend({ index: z.enum(INDEX_KEYS).default('NIFTY') });
+const known = new Set([...INDEX_KEYS.map((k) => INDEXES[k].symbol), ...NIFTY50.map((s) => s.symbol)]);
 
 export function reviewRoutes({ review }) {
   const router = Router();
@@ -27,10 +28,10 @@ export function reviewRoutes({ review }) {
     res.json({ ...(await review.stock(req.userId, symbol, req.valid.day ?? review.today)), disclaimer: REVIEW_DISCLAIMER });
   });
 
-  // The Nifty chart of one day with every pattern that formed on it and what a one-lot option buy at each would have done.
-  router.get('/patterns', validate(dayQuery, 'query'), async (req, res) => {
+  // The Nifty (or Sensex, ?index=SENSEX) chart of one day with every pattern and combination that formed on it and what a one-lot option buy at each would have done.
+  router.get('/patterns', validate(patternsQuery, 'query'), async (req, res) => {
     const day = req.valid.day ?? review.today;
-    res.json({ ...(await review.patterns(req.userId, day)), disclaimer: REVIEW_DISCLAIMER });
+    res.json({ ...(await review.patterns(req.userId, day, req.valid.index)), disclaimer: REVIEW_DISCLAIMER });
   });
 
   // Which techniques, checks and kinds of news paid.

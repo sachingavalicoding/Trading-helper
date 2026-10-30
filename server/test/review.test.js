@@ -110,6 +110,13 @@ test('review routes: a morning headline and a scanner idea are judged against th
     assert.equal(stock.news.find((n) => n.title === 'Quiet day at TCS').agreed, null);
     assert.equal(stock.ideas.length, 1);
     await request(app).get('/api/review/day').expect(401);
+
+    // the Sensex has a chart of its own, and both indexes can be asked for patterns and combinations
+    const sensexStock = (await request(app).get('/api/review/stock/SENSEX?day=2026-10-23').set(auth).expect(200)).body;
+    assert.equal(sensexStock.name, 'Sensex');
+    assert.equal((await request(app).get('/api/review/patterns?day=2026-10-23').set(auth).expect(200)).body.index, 'NIFTY');
+    assert.equal((await request(app).get('/api/review/patterns?day=2026-10-23&index=SENSEX').set(auth).expect(200)).body.index, 'SENSEX');
+    await request(app).get('/api/review/patterns?day=2026-10-23&index=DAX').set(auth).expect(400);
   } finally {
     await teardown(ctx);
   }

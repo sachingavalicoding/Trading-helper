@@ -11,9 +11,9 @@ const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValu
  * The Nifty day as candles with an arrow where each watched pattern formed (up for a call, down for a put), on the full chart with indicators.
  * Tap an arrow, or pick the row below, and the chart also draws that trade: the entry, the stop, the level where a profit
  * target would have been hit, and where the profit lock and the target sold.
- * `signals`: the watched ones. `selected`: one of them or null. `onPick(id)`.
+ * `signals`: the watched ones. `selected`: one of them or null. `onPick(id)`. `overlays` / `onOverlay`: the patterns and your combinations, listed in the chart's indicator picker so they switch on and off like indicators.
  */
-export function PatternChart({ candles, warm, minutes, signals, selected, onPick, height = 320 }) {
+export function PatternChart({ candles, warm, minutes, signals, selected, onPick, overlays, onOverlay, height = 320 }) {
   const { theme } = useTheme();
   const { markers, lines } = useMemo(() => {
     const up = cssVar('--up');
@@ -34,5 +34,5 @@ export function PatternChart({ candles, warm, minutes, signals, selected, onPick
     return { markers, lines };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signals, selected, theme]);
-  return <DayChart candles={candles} warm={warm} minutes={minutes} isIndex markers={markers} lines={lines} height={height} onPick={(ids) => onPick(ids.find((id) => signals.some((s) => s.id === id)) ?? ids[0])} />;
+  return <DayChart candles={candles} warm={warm} minutes={minutes} isIndex markers={markers} lines={lines} overlays={overlays} onOverlay={onOverlay} height={height} onPick={(ids) => onPick(ids.find((id) => signals.some((s) => s.id === id)) ?? ids[0])} />;
 }

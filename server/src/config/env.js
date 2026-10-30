@@ -38,6 +38,9 @@ export const env = {
   // Nifty options: contracts per lot (the live feed's own lot size wins when it lists one) and the weekly expiry weekday (2 = Tuesday).
   niftyLotSize: num(process.env.NIFTY_LOT_SIZE, 65),
   niftyExpiryWeekday: num(process.env.NIFTY_EXPIRY_WEEKDAY, 2),
+  // Sensex options (BSE): the same two settings. Weekly expiry is Thursday (4); confirm the lot size with BSE (default 20).
+  sensexLotSize: num(process.env.SENSEX_LOT_SIZE, 20),
+  sensexExpiryWeekday: num(process.env.SENSEX_EXPIRY_WEEKDAY, 4),
 
   upstox: {
     accessToken: process.env.UPSTOX_ACCESS_TOKEN || '',

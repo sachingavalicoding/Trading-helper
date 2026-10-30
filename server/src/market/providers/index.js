@@ -3,7 +3,7 @@ import { UpstoxProvider } from './upstox/UpstoxProvider.js';
 
 // Register new brokers here (Angel One, Fyers, Dhan...). Each must extend BaseProvider.
 const registry = {
-  mock: (env) => new MockProvider({ lotSize: env.niftyLotSize }),
+  mock: (env) => new MockProvider({ lotSize: env.niftyLotSize, sensexLotSize: env.sensexLotSize }),
   upstox: (env) => new UpstoxProvider(env.upstox),
 };
 

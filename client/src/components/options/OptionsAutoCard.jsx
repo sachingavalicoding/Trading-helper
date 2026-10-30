@@ -4,13 +4,15 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
 import { formatPrice, pnlClass } from '../../lib/format.js';
-import { Badge, Card, Fold, Segmented } from '../ui.jsx';
+import { Badge, Card, Segmented } from '../ui.jsx';
 import { resultLine, resultTone } from '../../lib/results.js';
 import { STOP_ATRS, STOP_MODES, STOP_POINTS } from '../../lib/stops.js';
+import { indexWords } from '../../lib/indexes.js';
 
 const FIELDS = [
-  { key: 'budget', label: 'Money set aside for options (₹)', step: 1000, min: 5000, max: 100000000 },
+  { key: 'budget', label: 'Money for options, Nifty and Sensex together (₹)', step: 1000, min: 5000, max: 100000000 },
   { key: 'maxLots', label: 'Most lots in one trade', step: 1, min: 1, max: 20 },
+  { key: 'maxOpen', label: 'Most trades open at once', step: 1, min: 1, max: 3 },
   { key: 'maxTrades', label: 'Most trades a day', step: 1, min: 1, max: 10 },
   { key: 'dailyLossPct', label: 'Stop for the day after losing (%)', step: 1, min: 2, max: 30 },
 ];
@@ -25,7 +27,7 @@ export function Switch({ on, onClick, disabled, label }) {
   );
 }
 
-/** What the trader buys on: chart patterns picked from the study, and the original all-checks score. Lives in the Account tab. */
+/** What the trader buys on: the indexes, chart patterns picked from the study, and your own combinations. Lives in the Account tab. */
 export function OptionsEntries({ data, reload }) {
   const [busy, setBusy] = useState(false);
   async function save(patch) {
@@ -45,9 +47,30 @@ export function OptionsEntries({ data, reload }) {
   const study = useApi('/study/options', []);
   const stats = useMemo(() => new Map((study.data?.result?.techniques ?? []).map((t) => [t.key, t])), [study.data]);
   const mine = (s.combos || []).filter((c) => c.on).length;
-  const triggers = [s.patternEntries && s.patterns.length > 0 && 'patterns', s.comboEntries && mine > 0 && 'combinations', s.scoreEntries && 'score'].filter(Boolean);
+  const triggers = [s.patternEntries && s.patterns.length > 0 && 'patterns', s.comboEntries && mine > 0 && 'combinations'].filter(Boolean);
   return (
     <div className="space-y-3">
+      <div className="space-y-2">
+        <h4 className="text-xs font-semibold">Which index</h4>
+        <p className="text-[11px] leading-snug text-muted">The bot reads the chart of each index you switch on and buys that index's option. Nifty and Sensex usually move together, so they share one budget, one daily loss limit and one trade count.</p>
+        {data.indexChoices.map((c) => {
+          const on = s.indexes.includes(c.key);
+          return (
+            <div key={c.key} className="flex items-center justify-between gap-3 text-xs">
+              <span>{c.name}</span>
+              <Switch on={on} disabled={busy || (on && s.indexes.length === 1)} label={c.name} onClick={() => save({ indexes: on ? s.indexes.filter((k) => k !== c.key) : [...s.indexes, c.key] })} />
+            </div>
+          );
+        })}
+        {s.indexes.length > 1 && (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] leading-snug text-muted">
+              <b className="text-fg">Take the signal on both.</b> {s.mirror ? 'A call on the Nifty and a call on the Sensex can be open together. This doubles the same bet, so set "most trades open at once" to 2 in Limits.' : 'Off: one call and one put at a time, whichever index shows the signal first.'}
+            </p>
+            <Switch on={s.mirror} disabled={busy} label="Take the signal on both indexes" onClick={() => save({ mirror: !s.mirror })} />
+          </div>
+        )}
+      </div>
       <div className="space-y-2">
         <h4 className="text-xs font-semibold">What triggers a buy</h4>
         <p className="text-[11px] leading-snug text-muted">Switch on what you trust. The result beside each pattern is from your latest Options study ({study.data?.result ? `${study.data.result.period.days} days` : 'run one under Studies'}), so you can see which ones pay before you switch them on.</p>
@@ -80,18 +103,6 @@ export function OptionsEntries({ data, reload }) {
           <Switch on={s.comboEntries} disabled={busy} label="My combinations" onClick={() => save({ comboEntries: !s.comboEntries })} />
         </div>
         <p className={`text-[11px] leading-snug ${triggers.length ? 'text-muted' : 'text-warn'}`}>{triggers.length ? `Buying on: ${triggers.join(', ')}.` : 'Nothing will be bought: switch on at least one trigger.'}</p>
-        <Fold id="opt-score" title="Score entries (advanced)" summary={s.scoreEntries ? `On, minimum ${s.minScore}. In the studies so far it lost money.` : 'Off. In the studies so far it lost money.'} plain>
-          <div className="space-y-2 pt-1">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[11px] leading-snug text-muted">The original rule: every chart check agrees and the score reaches the minimum. In the studies so far it lost money, so it is kept off.</p>
-              <Switch on={s.scoreEntries} disabled={busy} label="Score entries" onClick={() => save({ scoreEntries: !s.scoreEntries })} />
-            </div>
-            <label className="flex items-center justify-between gap-3 text-xs text-muted">
-              <span>Minimum score</span>
-              <input type="number" inputMode="numeric" defaultValue={s.minScore} step={5} min={60} max={100} onBlur={(e) => e.target.value !== '' && Number(e.target.value) !== s.minScore && save({ minScore: Number(e.target.value) })} className="field num !w-24 !px-2 !py-1.5 text-right !text-sm" aria-label="Minimum score" />
-            </label>
-          </div>
-        </Fold>
       </div>
 
       <p className="text-[11px] leading-snug text-muted">Where the stop goes, the trailing stop and the profit lock are in Account &gt; Limits.</p>
@@ -99,7 +110,7 @@ export function OptionsEntries({ data, reload }) {
   );
 }
 
-/** Account > Limits > Options: where the first stop goes for every entry (pattern, combination or score): the chart level, capped, ATR or fixed points. */
+/** Account > Limits > Options: where the first stop goes for every entry (pattern or combination): the chart level, capped, ATR or fixed points. */
 export function StopPlacement({ data, reload }) {
   const [busy, setBusy] = useState(false);
   async function save(patch) {
@@ -118,7 +129,7 @@ export function StopPlacement({ data, reload }) {
   return (
     <div className="space-y-2 border-t border-line pt-3">
       <h4 className="text-sm font-semibold">Options: where the stop goes</h4>
-        <p className="text-[11px] leading-snug text-muted">Used for every entry (pattern, combination or score), in the study and in Review. {mode.hint}</p>
+        <p className="text-[11px] leading-snug text-muted">Used for every entry (pattern or combination), in the study and in Review. {mode.hint}</p>
         <Segmented className="w-full" size="sm" value={s.patternStopMode} onChange={(v) => save({ patternStopMode: v })} options={STOP_MODES.map((m) => ({ value: m.value, label: m.label }))} />
         {(s.patternStopMode === 'cap' || s.patternStopMode === 'atr') && (
           <label className="flex items-center justify-between gap-3 text-xs text-muted">
@@ -134,7 +145,7 @@ export function StopPlacement({ data, reload }) {
         )}
         {s.patternStopMode === 'fixed' && (
           <label className="flex items-center justify-between gap-3 text-xs text-muted">
-            <span>Nifty points from the entry</span>
+            <span>Index points from the entry</span>
             <select className="field num !w-24 !px-2 !py-1.5 !text-sm" value={s.patternStopPoints} disabled={busy} onChange={(e) => save({ patternStopPoints: Number(e.target.value) })} aria-label="Stop distance in points">
               {(STOP_POINTS.includes(s.patternStopPoints) ? STOP_POINTS : [...STOP_POINTS, s.patternStopPoints].sort((x, y) => x - y)).map((p) => (
                 <option key={p} value={p}>
@@ -191,10 +202,10 @@ export function OptionsAutoCard({ data, reload }) {
         </button>
       </div>
       <p className="text-[11px] leading-snug text-muted">
-        Buys one Nifty at-the-money call or put when the chart is clear. The stop and the profit lock are the ones in your Account tab, and everything the auto trader bought is closed at the exit time in your Account tab (15:15 unless you changed it).
+        Buys one {indexWords(s.indexes)} at-the-money call or put when a chart pattern or one of your combinations turns true. The stop and the profit lock are the ones in your Account tab, and everything the auto trader bought is closed at the exit time in your Account tab (15:15 unless you changed it).
       </p>
       <p className="text-[11px] leading-snug text-muted">
-        Buys on: {s.patternEntries ? `${s.patterns.length} chart patterns` : 'no chart patterns'}, {s.comboEntries ? 'your combinations' : 'no combinations'}, score entries {s.scoreEntries ? 'on' : 'off'}. Change this in Account &gt; Entries.
+        Buys on: {s.patternEntries ? `${s.patterns.length} chart patterns` : 'no chart patterns'}, {s.comboEntries ? 'your combinations' : 'no combinations'}. Change this in Account &gt; Entries.
       </p>
       <p className="text-[11px] leading-snug text-muted">{data.disclaimer}</p>
     </Card>

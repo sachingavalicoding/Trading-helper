@@ -263,6 +263,36 @@ test('patterns with a score keep only the chosen patterns whose side reached the
 
 // ---------- the API ----------
 
+test('a Sensex study reads the Sensex candles, with its own lot size, strike step and expiry day', async () => {
+  const sensex1 = walk(30).map((c) => ({ ...c, open: c.open * 3.3, high: c.high * 3.3, low: c.low * 3.3, close: c.close * 3.3 }));
+  const asked = [];
+  const market = {
+    expiryWeekday: 2,
+    sensexExpiryWeekday: 4,
+    weekdayOf: (index) => (index === 'SENSEX' ? 4 : 2),
+    provider: { isSimulated: false },
+    getRange: async (symbol, unit) => {
+      asked.push(symbol);
+      return unit === 1 && symbol === 'SENSEX' ? sensex1 : [];
+    },
+  };
+  const study = new StudyService({ market, config: { ...ctx.config, niftyLotSize: 65, sensexLotSize: 20 } });
+  const app = createApp({ ...ctx, study });
+  const u = await registerUser(app);
+  await request(app).post('/api/study/options').set(u.auth).send({ days: 10, index: 'DAX' }).expect(400);
+  await request(app).post('/api/study/options').set(u.auth).send({ days: 10, index: 'SENSEX' }).expect(202);
+  let body;
+  for (let i = 0; i < 100; i++) {
+    body = (await request(app).get('/api/study/options').set(u.auth).expect(200)).body;
+    if (body.status.state !== 'running') break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  assert.equal(body.status.state, 'idle', JSON.stringify(body.status));
+  assert.equal(body.result.params.index, 'SENSEX');
+  assert.equal(body.result.params.lotSize, 20);
+  assert.ok(asked.includes('SENSEX') && !asked.includes('NIFTY 50'), 'the Nifty candles are not used for a Sensex study');
+});
+
 test('the study runs in the background, keeps its latest result, refuses a second run at once and checks its input', async () => {
   const nifty1 = walk(30);
   let calls = 0;

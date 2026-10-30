@@ -37,8 +37,9 @@ export function barsFor(tf, { warm = [], candles = [], minutes = [] }) {
  * One day of the index or a stock as candles, with the same indicator picker, timeframes and fullscreen as the Options chart.
  * The earlier days (`warm`) sit to the left so slow indicators such as EMA 50 are already settled at the open; the view starts at the day.
  * `markers`: [{ id, time (epoch seconds), position, shape, color, text, size }]. `lines`: [{ price, color, title, style }]. `onPick(ids)` when a marker's bar is tapped.
+ * `overlays`: [{ id, label, group, count, on }] are patterns and combinations listed in the indicator picker beside the indicators; `onOverlay(id)` switches one.
  */
-export function DayChart({ candles, warm = [], minutes = [], isIndex = false, markers = [], lines = [], onPick, height = 320 }) {
+export function DayChart({ candles, warm = [], minutes = [], isIndex = false, markers = [], lines = [], overlays = [], onOverlay, onPick, height = 320 }) {
   const { theme } = useTheme();
   const [tf, setTf] = useState('5m');
   const [indicators, setIndicators] = useState(loadIndicators);
@@ -168,7 +169,7 @@ export function DayChart({ candles, warm = [], minutes = [], isIndex = false, ma
         ))}
         <button type="button" onClick={() => setSheet(true)} aria-label="Indicators" className="ml-1 flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold text-muted">
           <SlidersHorizontal className="h-4 w-4" />
-          {active.length > 0 && <span className="rounded bg-surface-2 px-1 text-[10px] text-fg">{active.length}</span>}
+          {active.length + overlays.filter((o) => o.on).length > 0 && <span className="rounded bg-surface-2 px-1 text-[10px] text-fg">{active.length + overlays.filter((o) => o.on).length}</span>}
         </button>
         <button type="button" onClick={() => setFullscreen((v) => !v)} aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} className="ml-auto rounded-md p-1.5 text-muted">
           {fullscreen ? <X className="h-5 w-5" /> : <Maximize2 className="h-4 w-4" />}
@@ -189,7 +190,7 @@ export function DayChart({ candles, warm = [], minutes = [], isIndex = false, ma
           </div>
         )}
       </div>
-      {sheet && <IndicatorSheet active={active} available={available} onToggle={toggle} onClose={() => setSheet(false)} />}
+      {sheet && <IndicatorSheet active={active} available={available} onToggle={toggle} onClose={() => setSheet(false)} overlays={overlays} onOverlay={onOverlay} />}
     </div>
   );
 }

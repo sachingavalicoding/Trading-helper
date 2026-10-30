@@ -4,7 +4,7 @@ import { getMarketStatus } from './marketHours.js';
 import { INTERVAL_SECONDS, aggregateCandles } from './providers/BaseProvider.js';
 import { istParts } from './marketHours.js';
 import { addDays, daysBetween } from './days.js';
-import { UNDERLYING, atmStrike, chooseExpiry, weeklyExpiries } from '../options/symbols.js';
+import { INDEXES, atmStrike, chooseExpiry, weeklyExpiries } from '../options/symbols.js';
 
 const HISTORY_TTL_MS = 30000;
 
@@ -16,12 +16,13 @@ const DAILY_TTL_MS = 6 * 60 * 60 * 1000;
 const DAILY_DAYS = 45;
 
 export class MarketDataService extends EventEmitter {
-  constructor(provider, { holidays = [], expiryWeekday, enforceHours = false } = {}) {
+  constructor(provider, { holidays = [], expiryWeekday, sensexExpiryWeekday, enforceHours = false } = {}) {
     super();
     this.setMaxListeners(50);
     this.provider = provider;
     this.holidays = holidays;
-    this.expiryWeekday = expiryWeekday;
+    this.expiryWeekday = expiryWeekday; // Nifty's weekly expiry weekday
+    this.sensexExpiryWeekday = sensexExpiryWeekday;
     this.enforceHours = enforceHours; // tells the app whether the order engine refuses orders outside market hours
     this.history = null; // the saved candle history (HistoryStore), set by HistorySync; studies and Review read it first
     this.latest = new Map();
@@ -81,19 +82,25 @@ export class MarketDataService extends EventEmitter {
     return this.contracts.get(symbol)?.lotSize;
   }
 
+  /** The weekly expiry weekday of an index's options (0 = Sunday). */
+  weekdayOf(index) {
+    return (index === 'SENSEX' ? this.sensexExpiryWeekday : this.expiryWeekday) ?? INDEXES[index]?.expiryWeekday;
+  }
+
   /**
-   * The at-the-money Nifty contract of `type` ('CE' or 'PE') for the expiry worth buying, started streaming so it has a price.
-   * Returns null when the feed lists no contracts or the Nifty has no price yet.
+   * The at-the-money contract of `type` ('CE' or 'PE') on `index` ('NIFTY' or 'SENSEX') for the expiry worth buying, started streaming so it has a price.
+   * Returns null when the feed lists no contracts or the index has no price yet.
    */
-  async pickOption({ type, now = new Date(), minDays = 1 }) {
-    const spot = this.getLtp(UNDERLYING);
+  async pickOption({ type, now = new Date(), minDays = 1, index = 'NIFTY' }) {
+    const idx = INDEXES[index] ?? INDEXES.NIFTY;
+    const spot = this.getLtp(idx.symbol);
     if (!spot) return null;
-    const listed = await this.provider.getOptionExpiries();
-    const expiries = listed.length ? listed : weeklyExpiries(now, { holidays: this.holidays, weekday: this.expiryWeekday });
+    const listed = await this.provider.getOptionExpiries(idx.key);
+    const expiries = listed.length ? listed : weeklyExpiries(now, { holidays: this.holidays, weekday: this.weekdayOf(idx.key) });
     const expiry = chooseExpiry(expiries, now, { minDays });
     if (!expiry) return null;
-    const atm = atmStrike(spot);
-    const pick = (await this.provider.getOptionContracts(expiry))
+    const atm = atmStrike(spot, idx.strikeStep);
+    const pick = (await this.provider.getOptionContracts(expiry, idx.key))
       .filter((c) => c.type === type)
       .sort((a, b) => Math.abs(a.strike - atm) - Math.abs(b.strike - atm))[0];
     if (!pick) return null;

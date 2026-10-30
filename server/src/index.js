@@ -18,7 +18,7 @@ async function main() {
   assertEnv();
   await connectDb(env.mongoUri);
 
-  const market = new MarketDataService(createProvider(env), { holidays: env.nseHolidays, expiryWeekday: env.niftyExpiryWeekday, enforceHours: env.enforceMarketHours });
+  const market = new MarketDataService(createProvider(env), { holidays: env.nseHolidays, expiryWeekday: env.niftyExpiryWeekday, sensexExpiryWeekday: env.sensexExpiryWeekday, enforceHours: env.enforceMarketHours });
   const engine = new OrderEngine({ market, config: env });
   await engine.init();
   try {
