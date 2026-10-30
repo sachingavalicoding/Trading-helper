@@ -44,14 +44,26 @@ export function applyRequests(apply, { combos = [] } = {}) {
 
 const part = (p) => (p ? `${p.trades} trades ${formatPnl(p.net)}` : '–');
 
-/** One combination's research as plain text: where its stop should go, how far its winners went against it, and the best exits. */
+/** A stop or exit row that paid on both the older and the newer days (or any row when the run had no split). */
+const steady = (split) => (x) => !split || (x.train?.net > 0 && x.test?.net > 0);
+
+/** The stop and the profit setting that did best and held on the older and the newer days; null when none did. */
+export function bestOf(r) {
+  if (!r) return { stop: null, exit: null };
+  const ok = steady(r.split);
+  return { stop: r.bestStop ?? r.stops?.find(ok) ?? null, exit: r.bestExit ?? [...(r.exits || [])].filter(ok).sort((a, b) => b.net - a.net)[0] ?? null };
+}
+
+/** One combination's research as plain text: how far its winners went against it, the best stop and the best profit setting (the full table stays on screen). */
 export function comboResearchText(r, label) {
   if (!r) return '';
   const part = (p) => (p ? `${p.trades} trades ${formatPnl(p.net)}` : '–');
-  const lines = [`  Stops and exits for ${label} (${r.signals} signals; your settings now: ${r.base.trades} trades, ${r.base.winRate ?? '-'}% win, ${formatPnl(r.base.net)}):`];
+  const row = (x) => `${x.label}${x.current ? ' (now)' : ''}: ${x.trades} trades, ${x.winRate ?? '-'}% win, ${formatPnl(x.net)}${r.split ? `; older ${part(x.train)}, newer ${part(x.test)}` : ''}`;
+  const { stop, exit } = bestOf(r);
+  const lines = [`  Stop and exits for ${label} (${r.signals} signals; your settings now: ${r.base.trades} trades, ${r.base.winRate ?? '-'}% win, ${formatPnl(r.base.net)}):`];
   if (r.adverse) lines.push(`  Its ${r.adverse.winners} winners went against it by at most ${rs(r.adverse.p50)} half the time, ${rs(r.adverse.p80)} 80% of the time, ${rs(r.adverse.p90)} 90% of the time and ${rs(r.adverse.max)} at the worst, per lot, before they won.`);
-  for (const x of r.stops) lines.push(`  ${x.label}${x.current ? ' (now)' : ''}: ${x.trades} trades, ${x.winRate ?? '-'}% win, ${formatPnl(x.net)}, drawdown ${formatPnl(-x.maxDrawdown)}${r.split ? `; older ${part(x.train)}, newer ${part(x.test)}` : ''}`);
-  for (const x of r.exits) lines.push(`  ${x.label}: ${x.trades} trades, ${x.winRate ?? '-'}% win, ${formatPnl(x.net)}${r.split ? `; older ${part(x.train)}, newer ${part(x.test)}` : ''}`);
+  lines.push(stop ? `  Best stop: ${row(stop)}` : '  No stop placement paid on both the older and the newer days.');
+  if (exit) lines.push(`  Best profit setting: ${row(exit)}`);
   if (r.mix) lines.push(`  ${r.mix.label}: ${r.mix.text} Result: ${r.mix.trades} trades, ${formatPnl(r.mix.net)}${r.split ? `; older ${part(r.mix.train)}, newer ${part(r.mix.test)}` : ''}`);
   return lines.join('\n');
 }

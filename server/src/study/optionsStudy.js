@@ -244,9 +244,13 @@ function tradesFor(signals, { c1, byTime, params }) {
  * @param params  { days, iv, lockStart, lockGap, lotSize, holidays, expiryWeekday, minScore }
  */
 export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgress = () => {} }) {
-  const complete = nifty1;
+  const dayOf = (key) => Date.parse(`${key}T00:00:00Z`) / 86400000; // an IST date as the DAY() number
+  const complete = params.to ? nifty1.filter((b) => DAY(b.time) <= dayOf(params.to)) : nifty1; // a date range ends on its last day
   const days = [...new Set(complete.map((b) => DAY(b.time)))].sort((a, b) => a - b);
-  const studyDays = days.slice(-params.days);
+  const inRange = params.from ? days.filter((d) => d >= dayOf(params.from) && d <= (params.to ? dayOf(params.to) : Infinity)) : null;
+  if (inRange && inRange.length < 1) throw new Error('No saved candles between those dates. Press Download in Account > Studies > Data, or pick other dates.');
+  if (inRange && inRange.length > MAX_RANGE_DAYS) throw new Error(`Pick at most ${MAX_RANGE_DAYS} trading days (that range has ${inRange.length}).`);
+  const studyDays = inRange ?? days.slice(-params.days);
   const fromTime = complete.find((b) => DAY(b.time) === studyDays[0]).time;
   const byTime = new Map(complete.map((b, i) => [b.time, i]));
   let bars5 = aggregateCandles(complete, '5m');
@@ -446,13 +450,17 @@ async function finderOnlyRun({ complete, byTime, bars5, breadth, flow, prep, stu
   };
 }
 
+const MAX_RANGE_DAYS = 65;
 const RESEARCH_TOP = 5; // the best added checks of each starting point that also get the stop and exit research
 
 /** What the research keeps of a combination: the stop rows and the best of the other groups, how far its winners went against it, and the best mix. */
 function compactResearch(r, adverse) {
   if (!r || r.skipped) return null;
   const best = (group, n) => r.rows.filter((x) => x.group === group).sort((a, b) => (b.test?.net ?? b.net) - (a.test?.net ?? a.net) || b.net - a.net).slice(0, n);
-  return { signals: r.signals, split: r.split, base: r.base, stops: r.rows.filter((x) => x.group === 'stoprule').sort((a, b) => b.net - a.net), exits: [...best('stop', 2), ...best('ladder', 3), ...best('trail', 3)], mix: r.mix, adverse };
+  const stops = r.rows.filter((x) => x.group === 'stoprule').sort((a, b) => b.net - a.net);
+  const exits = [...best('stop', 2), ...best('ladder', 3), ...best('trail', 3)];
+  const steady = (x) => !r.split || (x.train?.net > 0 && x.test?.net > 0); // paid on the older and the newer days
+  return { signals: r.signals, split: r.split, base: r.base, stops, exits, mix: r.mix, adverse, bestStop: stops.find(steady) ?? null, bestExit: exits.filter(steady).sort((a, b) => b.net - a.net)[0] ?? null };
 }
 
 /** How far the winning trades of a set of entries went against them before they won, per lot in rupees (a wide stop, one lot, so nothing is cut short). */
@@ -476,7 +484,7 @@ async function finders({ chart, inStudy, trainEnd, midTime = null, studyDays, co
       const combo = { id: conds.join('+'), name: conds.join('+'), conds, need: conds.length, window: 3 };
       const { trades } = tradesFor(comboSignals(chart, combo).filter(inStudy), { c1: complete, byTime, params });
       const all = summarize(trades);
-      rows.push({ conds, train: part(trades.filter((t) => t.entryTime < trainEnd)), test: part(trades.filter((t) => t.entryTime >= trainEnd)), all: { trades: all.trades, net: all.net, winRate: all.winRate, calls: all.bySide.CE, puts: all.bySide.PE } });
+      rows.push({ conds, train: part(trades.filter((t) => t.entryTime < trainEnd)), test: part(trades.filter((t) => t.entryTime >= trainEnd)), all: { trades: all.trades, net: all.net, winRate: all.winRate, calls: all.bySide.CE, puts: all.bySide.PE }, list: trades.map((t) => [t.entryTime, t.net]) });
       tried += 1;
       if (tried % 12 === 0) {
         onProgress(`Finder: ${tried} combinations tried`);
@@ -485,10 +493,10 @@ async function finders({ chart, inStudy, trainEnd, midTime = null, studyDays, co
     }
     return rows;
   };
-  const common = { indicators, have: chart.have, studyDays, trainEnd, evaluateMany };
+  const common = { indicators, have: chart.have, studyDays, trainEnd, evaluateMany, goal: params.pairGoal === 'winrate' ? 'winrate' : 'profit' };
   const { first, bases, missing } = pairStart(params.pairFirst, params.combos);
-  const pairs = params.pairFind ? (missing ? { skipped: 'that combination is no longer saved' } : await findPairs({ ...common, first, bases, deep: Boolean(params.finderOnly) })) : null;
-  if (pairs?.anchors && params.finderOnly && midTime != null) {
+  const pairs = params.pairFind ? (missing ? { skipped: 'that combination is no longer saved' } : await findPairs({ ...common, first, bases, depth: params.finderOnly ? params.pairDepth ?? 3 : 1, show: params.pairShow })) : null;
+  if (pairs?.anchors && params.finderOnly && params.pairResearch !== false && midTime != null) {
     // the stop and exit research for each starting point and for its best additions
     const own = new Map(bases.map((b) => [`combo:${b.id}`, comboStopRule((params.combos || []).find((c) => c.id === b.id))]));
     let n = 0;
@@ -509,7 +517,7 @@ async function finders({ chart, inStudy, trainEnd, midTime = null, studyDays, co
       for (const f of a.found.slice(0, RESEARCH_TOP)) f.research = await research(a, f.conds, `${a.label} + ${f.added.join(' + ')}`);
     }
   }
-  return { pairs, combos: params.comboFind ? await findCombos(common) : null };
+  return { pairs, combos: params.comboFind ? await findCombos({ ...common, show: params.pairShow ?? undefined }) : null };
 }
 
 /** Every check of the combination builder on its own: how a trade taken each time it turns true would have done. The keepers are the ones to build combinations from. */

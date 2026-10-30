@@ -58,7 +58,7 @@ export function studyText(r) {
     for (const b of r.breadth) lines.push(`${b.share}%+ ${b.side}: ${b.episodes} times, next 30 min ${b.avg30 ?? '-'} pts (${b.hit30 ?? '-'}% right), next 60 min ${b.avg60 ?? '-'} pts (${b.hit60 ?? '-'}% right)`);
   }
   for (const s of r.combosSkipped || []) lines.push('', `${s.name} was not tested: ${s.reason}.`);
-  return [...lines, indicatorsText(r.indicators), autoFindText(r.autoFound), pairsText(r.pairs), autoFindText(r.comboFound), researchText(r.research)].join('\n').trimEnd();
+  return [...lines, r.finderOnly ? '' : indicatorsText(r.indicators), autoFindText(r.autoFound), pairsText(r.pairs), autoFindText(r.comboFound), researchText(r.research)].join('\n').trimEnd();
 }
 
 /** Hours with their trade counts and rupees, in time order: [{ hour, trades, net }]. */

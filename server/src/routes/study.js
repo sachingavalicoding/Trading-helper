@@ -20,6 +20,12 @@ const runSchema = z.object({
   pairFind: z.boolean().default(false), // pair finder: one check (or the best three) next to every other check, judged on older and newer days
   pairFirst: z.string().max(80).optional(), // the check (or `combo:<id>` of a saved combination) to start from; left out = the best three on their own
   comboFind: z.boolean().default(false), // combination finder: pairs and triples of the best single checks
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), // options only: first day of a date range (IST); with `to`, replaces `days`
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  pairDepth: z.coerce.number().int().min(1).max(3).optional(), // finder: most checks added to a starting point (1, 2 or 3)
+  pairShow: z.coerce.number().int().min(3).max(30).optional(), // finder: results kept per starting point
+  pairGoal: z.enum(['profit', 'winrate']).optional(), // finder: order the results by newer-days profit or by win rate
+  pairResearch: z.boolean().optional(), // finder, options: research stop and profit for each result (default on)
   research: z.boolean().default(false), // options only: also try other stop amounts, profit ladders and trailing stops on Breakout + Engulfing
   exitMin: z.coerce.number().int().min(9 * 60 + 30).max(15 * 60 + 15).optional(), // the time everything is closed; left out = the one in Account Limits
 });
@@ -38,6 +44,7 @@ export function studyRoutes({ study }) {
   router.post('/:kind', validate(runSchema), (req, res) => {
     const { kind } = req.params;
     if (req.body.days != null && req.body.days > MAX_DAYS[kind]) throw badRequest(`days must be 1 to ${MAX_DAYS[kind]}`, 'VALIDATION');
+    if (kind === 'options' && req.body.from && req.body.to && req.body.from > req.body.to) throw badRequest('the first date must not be after the last', 'VALIDATION');
     study.start(req.userId, kind, req.body);
     res.status(202).json({ status: study.status(req.userId, kind) });
   });

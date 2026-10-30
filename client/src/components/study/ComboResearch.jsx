@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { VERDICT } from '../../lib/combos.js';
 import { formatPnl, pnlClass } from '../../lib/format.js';
-import { applyRequests, applyText } from '../../lib/research.js';
+import { applyRequests, applyText, bestOf } from '../../lib/research.js';
 import { Badge } from '../ui.jsx';
 
 const part = (p) => (p ? `${p.trades} trades · ${formatPnl(p.net)}` : '–');
@@ -56,9 +56,10 @@ export function ComboResearch({ r, own = false, onApplied }) {
   }
 
   const adv = r.adverse;
+  const best = bestOf(r).stop;
   return (
     <details className="rounded-lg border border-line">
-      <summary className="cursor-pointer px-2 py-1.5 text-[11px] font-semibold text-accent">Stop and exits for this ({r.signals} signals)</summary>
+      <summary className="cursor-pointer px-2 py-1.5 text-[11px] font-semibold text-accent">Stop and exits for this ({r.signals} signals){best ? ` · best stop: ${best.label.replace(/^Stop at /, '')}` : ''}</summary>
       <div className="space-y-2 p-2">
         {adv ? (
           <p className="rounded-lg bg-surface-2 p-2 text-[11px] leading-snug text-muted">

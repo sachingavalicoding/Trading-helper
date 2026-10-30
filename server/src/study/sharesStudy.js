@@ -147,8 +147,8 @@ async function comboStudy({ nifty1, history, symbols, params, money, opts, onPro
     };
     const common = { indicators, have: have || {}, studyDays: dayList.length, trainEnd: trainDay, evaluateMany };
     const { first, bases, missing } = pairStart(params.pairFirst, params.combos);
-    if (params.pairFind) pairs = missing ? { skipped: 'that combination is no longer saved' } : await findPairs({ ...common, first, bases, deep: Boolean(params.finderOnly) });
-    if (params.comboFind) comboFound = await findCombos(common);
+    if (params.pairFind) pairs = missing ? { skipped: 'that combination is no longer saved' } : await findPairs({ ...common, first, bases, depth: params.finderOnly ? params.pairDepth ?? 3 : 1, show: params.pairShow, goal: params.pairGoal === 'winrate' ? 'winrate' : 'profit' });
+    if (params.comboFind) comboFound = await findCombos({ ...common, show: params.pairShow ?? undefined, goal: params.pairGoal === 'winrate' ? 'winrate' : 'profit' });
   }
   return { combos: combos.sort((a, b) => b.totalNet - a.totalNet), indicators, combosSkipped, pairs, comboFound };
 }

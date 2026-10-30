@@ -30,11 +30,12 @@ export class StudyService {
   }
 
   /** Starts a run and returns at once; poll status(). Only one run per user and kind at a time. */
-  start(userId, kind, { days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false } = {}) {
+  start(userId, kind, { days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch } = {}) {
     if (this.status(userId, kind).state === 'running') throw conflict('A study is already running');
     const job = { state: 'running', step: 'Starting', startedAt: Date.now() };
     this.jobs.set(`${userId}|${kind}`, job);
-    const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin, pairFind, pairFirst, comboFind }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind, research, index, pairFind, pairFirst, comboFind });
+    const finder = { pairDepth, pairShow, pairGoal, pairResearch };
+    const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin, pairFind, pairFirst, comboFind, ...finder }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind, research, index, pairFind, pairFirst, comboFind, from, to, ...finder });
     run.catch((e) => {
       logger.warn(`${kind} study failed: ${e.message}`);
       Object.assign(job, { state: 'failed', error: e.message });
@@ -53,8 +54,9 @@ export class StudyService {
     return typeof this.market.getStudyRange === 'function' ? this.market.getStudyRange(symbol, unit, days) : this.market.getRange(symbol, unit, days);
   }
 
-  async #nifty(job, days, index = DEFAULT_INDEX) {
-    const calendar = Math.ceil((days * 7) / 5) + WARMUP_DAYS;
+  async #nifty(job, days, index = DEFAULT_INDEX, from = null) {
+    const back = from ? Math.ceil((Date.now() - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1 : Math.ceil((days * 7) / 5); // calendar days back to the first day wanted
+    const calendar = back + WARMUP_DAYS;
     const idx = INDEXES[index];
     job.step = `Reading ${idx.short} candles`;
     const nifty1 = await this.#range(idx.symbol, 1, calendar);
@@ -62,8 +64,8 @@ export class StudyService {
     return { nifty1, calendar };
   }
 
-  async #runOptions(userId, job, { days, iv, target = 0, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false }) {
-    const { nifty1, calendar } = await this.#nifty(job, days, index);
+  async #runOptions(userId, job, { days, iv, target = 0, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch }) {
+    const { nifty1, calendar } = await this.#nifty(job, days, index, from);
     const stocks5 = {};
     let failed = 0;
     for (const [n, { symbol }] of NIFTY50.entries()) {
@@ -96,6 +98,12 @@ export class StudyService {
       pairFind,
       pairFirst,
       comboFind,
+      from,
+      to,
+      pairDepth,
+      pairShow,
+      pairGoal,
+      pairResearch,
       finderOnly: pairFind || comboFind, // with a finder on, only the finders run, not the normal study
       research,
       lossLimit: rules.stopLoss ?? 0,
@@ -108,7 +116,7 @@ export class StudyService {
     await this.#save(userId, 'options', result);
   }
 
-  async #runShares(userId, job, { days, target = 0, exitMin, pairFind = false, pairFirst = null, comboFind = false }) {
+  async #runShares(userId, job, { days, target = 0, exitMin, pairFind = false, pairFirst = null, comboFind = false, pairDepth, pairShow, pairGoal }) {
     const { nifty1, calendar } = await this.#nifty(job, days);
     const history = {};
     let failed = 0;
@@ -122,7 +130,7 @@ export class StudyService {
       }
     }
     const [rules, auto] = await Promise.all([loadRules(userId, 'EQ'), AutoSettings.findOne({ user: userId }).lean()]);
-    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, target, exitMin: exitMin ?? rules.exitMin, combos: normalizeCombos(auto?.combos), pairFind, pairFirst, comboFind, finderOnly: pairFind || comboFind }, onProgress: (step) => { job.step = step; } });
+    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, target, exitMin: exitMin ?? rules.exitMin, combos: normalizeCombos(auto?.combos), pairFind, pairFirst, comboFind, pairDepth, pairShow, pairGoal, finderOnly: pairFind || comboFind }, onProgress: (step) => { job.step = step; } });
     await this.#save(userId, 'shares', result);
   }
 }

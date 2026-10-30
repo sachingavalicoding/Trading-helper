@@ -570,6 +570,38 @@ test('finder-only run: only the finders run, up to 10 results per starting combi
   assert.deepEqual(sh.combos, []);
 });
 
+test('the finder can order by win rate, stop at one added check, skip the stop research, and read a date range; each result says which entries it skips', async () => {
+  const base = { ...PARAMS, lossLimit: 3000, maxLots: 2, finderOnly: true };
+  const mine = normalizeCombos([{ id: 'mine', name: 'My RSI', conds: ['rsiAbove50'] }]);
+  const full = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, combos: mine, pairFind: true, pairFirst: 'combo:mine', pairShow: 4 } });
+  const a = full.pairs.anchors[0];
+  assert.equal(full.pairs.depth, 3);
+  assert.ok(a.found.length <= 4);
+  for (const f of a.found) {
+    assert.ok(f.skips === null || (f.skips.trades >= f.skips.losers && f.skips.losers >= 0), 'it counts the entries of the combination that the added checks remove');
+    assert.ok(f.winRateLift === null || typeof f.winRateLift === 'number');
+  }
+  const one = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, combos: mine, pairFind: true, pairFirst: 'combo:mine', pairDepth: 1, pairResearch: false } });
+  assert.equal(one.pairs.depth, 1);
+  assert.ok(one.pairs.anchors[0].found.every((f) => f.depth === 1));
+  assert.equal(one.pairs.anchors[0].research, undefined, 'no stop research when switched off');
+  const wr = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, combos: mine, pairFind: true, pairFirst: 'combo:mine', pairGoal: 'winrate', pairResearch: false } });
+  const w = wr.pairs.anchors[0];
+  assert.equal(wr.pairs.goal, 'winrate');
+  assert.ok(w.found.every((f) => f.winRate > w.winRate), 'only results that beat its win rate');
+  assert.ok(w.found.every((f, i) => i === 0 || f.winRate <= w.found[i - 1].winRate));
+  // a date range: the days between the two dates only
+  const { from, to } = full.period;
+  const days = full.period.days;
+  const ranged = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, from, to, combos: mine, pairFind: true, pairFirst: 'combo:mine', pairResearch: false } });
+  assert.equal(ranged.period.from, from);
+  assert.equal(ranged.period.days, days);
+  const cut = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, from, to: from, combos: mine, pairFind: true, pairFirst: 'rsiAbove50', pairResearch: false } });
+  assert.equal(cut.period.days, 1);
+  assert.equal(cut.period.to, from);
+  await assert.rejects(runOptionsStudy({ nifty1: minutes(24), params: { ...base, from: '2001-01-01', to: '2001-01-05', pairFind: true } }), /No saved candles/);
+});
+
 // ---------- Review: day story, warm-up bars, minute bars ----------
 
 test('the day story finds the legs a day moved in, and Review sends warm-up bars, minute bars and the story with a day', async () => {
