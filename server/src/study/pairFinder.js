@@ -11,19 +11,22 @@ export const PAIR_MIN_TEST = 5;
 const ANCHORS = 3; // how many of the best single checks are paired when none is chosen
 const SHOW = 5; // partners kept per starting check
 
-/** What `pairFirst` names: a saved combination (`combo:<id>`) to add checks to, or a single check; null for both when it is left out. */
+const MAX_BASES = 6; // "all my combinations" starts from at most this many of the switched-on ones
+
+/** What `pairFirst` names: a saved combination (`combo:<id>`) to add checks to, all the switched-on ones (`combo:*`), or a single check; none of those when it is left out. */
 export function pairStart(pairFirst, combos = []) {
-  if (!pairFirst) return { first: null, base: null, missing: false };
-  if (!pairFirst.startsWith('combo:')) return { first: pairFirst, base: null, missing: false };
-  const c = combos.find((x) => `combo:${x.id}` === pairFirst);
-  return { first: null, base: c ? { id: c.id, name: c.name, conds: c.conds } : null, missing: !c };
+  if (!pairFirst) return { first: null, bases: [], missing: false };
+  if (!pairFirst.startsWith('combo:')) return { first: pairFirst, bases: [], missing: false };
+  const pick = pairFirst === 'combo:*' ? combos.filter((c) => c.on !== false).slice(0, MAX_BASES) : combos.filter((x) => `combo:${x.id}` === pairFirst);
+  return { first: null, bases: pick.map((c) => ({ id: c.id, name: c.name, conds: c.conds })), missing: !pick.length };
 }
 
 const asAnchor = (c) => ({ key: c.key, label: c.label, group: c.group, conds: [c.key] });
+const asBase = (b) => ({ key: `combo:${b.id}`, label: b.name, group: 'My combination', conds: b.conds });
 
-/** The things to add checks to: your saved combination, the chosen check, or the best few that made money on their own with enough trades. */
-export function pickAnchors(indicators, have, first, base = null) {
-  if (base) return base.conds.every((k) => CONDITION_BY_KEY.has(k) && usable(CONDITION_BY_KEY.get(k), have)) ? [{ key: `combo:${base.id}`, label: base.name, group: 'My combination', conds: base.conds }] : [];
+/** The things to add checks to: your saved combinations, the chosen check, or the best few that made money on their own with enough trades. */
+export function pickAnchors(indicators, have, first, bases = []) {
+  if (bases.length) return bases.filter((b) => b.conds.every((k) => CONDITION_BY_KEY.has(k) && usable(CONDITION_BY_KEY.get(k), have))).map(asBase);
   if (first) {
     const c = CONDITION_BY_KEY.get(first);
     return c && usable(c, have) ? [asAnchor(c)] : [];
@@ -41,46 +44,79 @@ const keyOf = (conds) => [...conds].sort().join('+');
 const worthShowing = (r) => r && r.train.trades >= PAIR_MIN_TRAIN && r.train.net > 0 && r.test.trades >= PAIR_MIN_TEST && r.test.net > 0;
 const bestFirst = (x, y) => y.test.net - x.test.net || y.train.net - x.train.net;
 
+const DEEP_POOL = 8; // the best extra checks (by the older days) that are tried two at a time
+const DEEP_TRIPLES = 6; // and the best of those three at a time
+const SHOW_DEEP = 10; // results kept per starting point when going deeper
+
 /**
  * @param indicators  the single-check ranking of the same run (rows with key, trades, net)
  * @param have        what data the run had (see usable())
  * @param first       a check key to start from, or null for the best few
- * @param base        a saved combination { id, name, conds } to add one more check to (all its checks must hold), or null
+ * @param bases       saved combinations { id, name, conds } to add checks to (all of a combination's checks must hold)
+ * @param deep        also try the best extra checks two and three at a time, and keep up to 10 results per starting point
  * @param evaluateMany  async (list of check-key lists) => rows [{ conds, train, test, all }] in the same order; each of train/test/all is { trades, net, winRate }, all also has calls and puts { trades, net }
  */
-export async function findPairs({ indicators, have, first = null, base = null, studyDays, trainEnd, evaluateMany }) {
+export async function findPairs({ indicators, have, first = null, bases = [], deep = false, studyDays, trainEnd, evaluateMany }) {
   if (studyDays < PAIR_MIN_DAYS || trainEnd == null) return { skipped: `needs at least ${PAIR_MIN_DAYS} trading days, this run had ${studyDays}` };
-  const anchors = pickAnchors(indicators, have, first, base);
-  if (!anchors.length) return { skipped: base ? 'that combination needs data this run did not have' : first ? 'that check cannot be tested with the data this run had' : 'no single check made money on its own with enough trades, so choose one to start from' };
+  const anchors = pickAnchors(indicators, have, first, bases);
+  if (!anchors.length) return { skipped: bases.length ? 'that combination needs data this run did not have' : first ? 'that check cannot be tested with the data this run had' : 'no single check made money on its own with enough trades, so choose one to start from' };
   const partners = CONDITIONS.filter((c) => usable(c, have) && c.needs !== 'news');
-  const lists = [];
-  const seen = new Set();
-  const add = (conds) => {
-    if (!seen.has(keyOf(conds))) {
-      seen.add(keyOf(conds));
-      lists.push(conds);
+  const byKey = new Map();
+  let tried = 0;
+  const evaluateNew = async (lists) => {
+    const fresh = [];
+    const seen = new Set();
+    for (const conds of lists) {
+      const k = keyOf(conds);
+      if (!byKey.has(k) && !seen.has(k)) {
+        seen.add(k);
+        fresh.push(conds);
+      }
     }
+    if (!fresh.length) return;
+    const rows = await evaluateMany(fresh);
+    tried += rows.length;
+    for (const r of rows) byKey.set(keyOf(r.conds), r);
   };
-  for (const a of anchors) {
-    add(a.conds);
-    for (const p of partners) if (!a.conds.includes(p.key)) add([...a.conds, p.key]);
-  }
-  const rows = await evaluateMany(lists);
-  const byKey = new Map(rows.map((r) => [keyOf(r.conds), r]));
   const get = (conds) => byKey.get(keyOf(conds));
-  const out = anchors.map((a) => {
-    const alone = get(a.conds);
-    const found = partners
+  // level 1: every other check added to each starting point (all start points in one pass)
+  await evaluateNew(anchors.flatMap((a) => [a.conds, ...partners.filter((p) => !a.conds.includes(p.key)).map((p) => [...a.conds, p.key])]));
+  const top = (a, n) =>
+    partners
       .filter((p) => !a.conds.includes(p.key))
       .map((p) => ({ p, r: get([...a.conds, p.key]) }))
-      .filter((x) => worthShowing(x.r))
-      .sort((x, y) => bestFirst(x.r, y.r))
-      .slice(0, SHOW)
-      .map(({ p, r }) => ({ ...shown(r, labelOf, Math.round((r.all.net - alone.all.net) * 100) / 100), added: p.label, addedKey: p.key, skipped: alone.all.trades - r.all.trades }));
-    return { key: a.key, label: a.label, group: a.group, trades: alone.all.trades, winRate: alone.all.winRate, net: alone.all.net, train: alone.train, test: alone.test, found };
+      .filter((x) => x.r && x.r.train.trades >= PAIR_MIN_TRAIN && x.r.train.net > get(a.conds).train.net)
+      .sort((x, y) => y.r.train.net - x.r.train.net)
+      .slice(0, n)
+      .map((x) => x.p.key);
+  const pools = new Map(anchors.map((a) => [a.key, top(a, DEEP_POOL)]));
+  if (deep) {
+    // level 2: the best extra checks two at a time
+    const twos = (a) => pools.get(a.key).flatMap((x, i) => pools.get(a.key).slice(i + 1).map((y) => [...a.conds, x, y]));
+    await evaluateNew(anchors.flatMap(twos));
+    // level 3: the best of those, three at a time
+    const threes = (a) => {
+      const best = pools.get(a.key).slice(0, DEEP_TRIPLES);
+      return best.flatMap((x, i) => best.slice(i + 1).flatMap((y, j) => best.slice(i + j + 2).map((z) => [...a.conds, x, y, z])));
+    };
+    await evaluateNew(anchors.flatMap(threes));
+  }
+  const out = anchors.map((a) => {
+    const alone = get(a.conds);
+    const extra = (conds) => conds.filter((k) => !a.conds.includes(k));
+    const candidates = [...byKey.values()].filter((r) => r.conds.length > a.conds.length && a.conds.every((k) => r.conds.includes(k)));
+    const found = candidates
+      .filter(worthShowing)
+      .sort(bestFirst)
+      .slice(0, deep ? SHOW_DEEP : SHOW)
+      .map((r) => {
+        const added = extra(r.conds);
+        return { ...shown(r, labelOf, Math.round((r.all.net - alone.all.net) * 100) / 100), added: added.map(labelOf), addedKeys: added, depth: added.length, skipped: alone.all.trades - r.all.trades };
+      });
+    return { key: a.key, label: a.label, group: a.group, conds: a.conds, trades: alone.all.trades, winRate: alone.all.winRate, net: alone.all.net, calls: alone.all.calls, puts: alone.all.puts, train: alone.train, test: alone.test, found };
   });
   const trainDays = Math.floor((studyDays * 2) / 3);
-  return { tried: lists.length, auto: !first && !base, addOn: Boolean(base), trainDays, testDays: studyDays - trainDays, minTrain: PAIR_MIN_TRAIN, minTest: PAIR_MIN_TEST, anchors: out };
+  return { tried, auto: !first && !bases.length, addOn: bases.length > 0, deep, trainDays, testDays: studyDays - trainDays, minTrain: PAIR_MIN_TRAIN, minTest: PAIR_MIN_TEST, anchors: out };
 }
 
 const FINDER_POOL = 12; // the best single checks that are tried two and three at a time

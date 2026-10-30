@@ -1,4 +1,5 @@
 import { formatPnl } from './format.js';
+import { comboResearchText } from './research.js';
 
 const part = (p) => `${p.trades} trades, ${p.winRate ?? '-'}% win, ${formatPnl(p.net)}`;
 
@@ -9,8 +10,13 @@ export function pairsText(pf, callWord = 'Calls', putWord = 'Puts') {
   const lines = ['', `Pair finder (${pf.tried} pairs tried; learned on the older ${pf.trainDays} days, checked on the newer ${pf.testDays} days it had not seen):`];
   for (const a of pf.anchors) {
     lines.push(`Starting from ${a.label}: ${part(a)}; older ${part(a.train)}; newer ${part(a.test)}`);
+    if (a.research) lines.push(comboResearchText(a.research, a.label));
     if (!a.found.length) lines.push('  No partner made money on both the older and the newer days.');
-    for (const f of a.found) lines.push(`  + ${f.added ?? f.labels[1]}: ${f.trades} trades, ${f.winRate ?? '-'}% win, ${formatPnl(f.net)} (${formatPnl(f.lift)} against ${a.label} alone); ${callWord} ${formatPnl(f.calls.net)}, ${putWord} ${formatPnl(f.puts.net)}; older ${part(f.train)}; newer ${part(f.test)}`);
+    for (const f of a.found) {
+      const name = [].concat(f.added ?? f.labels[1]).join(' + ');
+      lines.push(`  + ${name}: ${f.trades} trades, ${f.winRate ?? '-'}% win, ${formatPnl(f.net)} (${formatPnl(f.lift)} against ${a.label} alone); ${callWord} ${formatPnl(f.calls.net)}, ${putWord} ${formatPnl(f.puts.net)}; older ${part(f.train)}; newer ${part(f.test)}`);
+      if (f.research) lines.push(comboResearchText(f.research, `${a.label} + ${name}`));
+    }
   }
   return lines.join('\n');
 }

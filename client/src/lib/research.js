@@ -4,6 +4,7 @@ const rs = (v) => `₹${Number(v).toLocaleString('en-IN')}`;
 
 export const GROUPS = [
   { value: 'stop', label: 'Stop amount' },
+  { value: 'stoprule', label: 'Where the stop goes' },
   { value: 'ladder', label: 'Profit ladder' },
   { value: 'trail', label: 'Trail / break-even' },
 ];
@@ -12,6 +13,9 @@ export const GROUPS = [
 export function applyText(apply) {
   if (!apply) return '';
   const parts = [];
+  const ruleWord = (r) => (r.mode === 'chart' ? 'at the chart level' : r.mode === 'cap' ? `at the chart level, pulled in to ${r.k} ATR` : r.mode === 'atr' ? `${r.k} ATR from the entry` : `${r.points} points from the entry`);
+  if (apply.patternStop) parts.push(`stop ${ruleWord(apply.patternStop)} for every entry`);
+  if (apply.comboStop) parts.push(`stop ${ruleWord(apply.comboStop)} for the combination "${apply.comboStop.name}" only`);
   if (apply.lossLimit != null) parts.push(`most one trade may lose ${rs(apply.lossLimit)}`);
   if (apply.steps) parts.push(`${apply.steps.length}-step profit ladder (${apply.steps.map((s) => `+${s.at} keeps ${s.keep}`).join(', ')})`);
   if (apply.breakEven) parts.push(`stop moves to your entry price after ${apply.breakEven} points`);
@@ -20,8 +24,13 @@ export function applyText(apply) {
 }
 
 /** The saves that apply an exit setting: the stop amount and the ladder go to the Account rules, the trailing stop to the options settings. */
-export function applyRequests(apply) {
+export function applyRequests(apply, { combos = [] } = {}) {
   const out = [];
+  if (apply?.patternStop) out.push({ path: '/options', body: { patternStopMode: apply.patternStop.mode, patternStopAtr: apply.patternStop.k, patternStopPoints: apply.patternStop.points } });
+  if (apply?.comboStop) {
+    const s = apply.comboStop;
+    out.push({ path: '/options', body: { combos: combos.map((c) => (c.id === s.id ? { ...c, stopMode: s.mode, stopAtr: s.k, stopPoints: s.points } : c)) } });
+  }
   const options = {};
   if (apply?.lossLimit != null) options.stopLoss = apply.lossLimit;
   if (apply?.steps) options.steps = apply.steps;
@@ -34,6 +43,18 @@ export function applyRequests(apply) {
 }
 
 const part = (p) => (p ? `${p.trades} trades ${formatPnl(p.net)}` : '–');
+
+/** One combination's research as plain text: where its stop should go, how far its winners went against it, and the best exits. */
+export function comboResearchText(r, label) {
+  if (!r) return '';
+  const part = (p) => (p ? `${p.trades} trades ${formatPnl(p.net)}` : '–');
+  const lines = [`  Stops and exits for ${label} (${r.signals} signals; your settings now: ${r.base.trades} trades, ${r.base.winRate ?? '-'}% win, ${formatPnl(r.base.net)}):`];
+  if (r.adverse) lines.push(`  Its ${r.adverse.winners} winners went against it by at most ${rs(r.adverse.p50)} half the time, ${rs(r.adverse.p80)} 80% of the time, ${rs(r.adverse.p90)} 90% of the time and ${rs(r.adverse.max)} at the worst, per lot, before they won.`);
+  for (const x of r.stops) lines.push(`  ${x.label}${x.current ? ' (now)' : ''}: ${x.trades} trades, ${x.winRate ?? '-'}% win, ${formatPnl(x.net)}, drawdown ${formatPnl(-x.maxDrawdown)}${r.split ? `; older ${part(x.train)}, newer ${part(x.test)}` : ''}`);
+  for (const x of r.exits) lines.push(`  ${x.label}: ${x.trades} trades, ${x.winRate ?? '-'}% win, ${formatPnl(x.net)}${r.split ? `; older ${part(x.train)}, newer ${part(x.test)}` : ''}`);
+  if (r.mix) lines.push(`  ${r.mix.label}: ${r.mix.text} Result: ${r.mix.trades} trades, ${formatPnl(r.mix.net)}${r.split ? `; older ${part(r.mix.train)}, newer ${part(r.mix.test)}` : ''}`);
+  return lines.join('\n');
+}
 
 /** The research as plain text, to paste into the chat. */
 export function researchText(r) {

@@ -189,6 +189,7 @@ export function OptionsStudy() {
   const { state, error, running, run } = useStudy('options');
   const time = useExitTime('options');
   const targetValue = Number(target);
+  const finderOn = pair || finder;
   const targetBad = exit === 'target' && !(targetValue >= 100 && targetValue <= 100000);
 
   async function copy() {
@@ -223,24 +224,25 @@ export function OptionsStudy() {
           <p className="text-[11px] leading-snug text-muted">
             <b className="text-fg">Also look for new combinations.</b> Tries each of the three best patterns with every other check, learns on the older two thirds of the days and keeps only what also made money on the newer third. Slower; needs 15 days or more.
           </p>
-          <Switch on={find} label="Look for new combinations" onClick={() => setFind((v) => !v)} />
+          <Switch on={find && !finderOn} disabled={finderOn} label="Look for new combinations" onClick={() => setFind((v) => !v)} />
         </div>
         <PairFinderControl on={pair} setOn={setPair} first={pairFirst} setFirst={setPairFirst} finder={finder} setFinder={setFinder} kind="options" />
         <div className="flex items-center justify-between gap-3">
           <p className="text-[11px] leading-snug text-muted">
             <b className="text-fg">Also research the stop and profit ladder.</b> Trades Breakout + Engulfing again with other stop amounts, profit ladders and trailing stops, and shows which pay. Needs 15 days or more for the older and newer split.
           </p>
-          <Switch on={research} label="Research the stop and profit ladder" onClick={() => setResearch((v) => !v)} />
+          <Switch on={research && !finderOn} disabled={finderOn} label="Research the stop and profit ladder" onClick={() => setResearch((v) => !v)} />
         </div>
         {targetBad && <p className="text-xs text-down">The target must be between ₹100 and ₹1,00,000.</p>}
         <Segmented className="w-full" size="sm" value={days} onChange={setDays} options={DAYS} />
         {days > 30 && <p className="text-[11px] leading-snug text-muted">Longer than 30 days reads the saved candles (Account, Studies, Data tab), so download them first.</p>}
         <div className="flex justify-end">
           <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin, autoFind: find, pairFind: pair, pairFirst: pairFirst || undefined, comboFind: finder, research, index })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
-            <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Run study'}
+            <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : finderOn ? 'Run finder' : 'Run study'}
           </button>
         </div>
-        {running && <p className="text-xs text-muted">{state.status.step}. This takes a minute or two.</p>}
+        {finderOn && <p className="rounded-lg bg-surface-2 p-2 text-[11px] leading-snug text-muted">A finder is on, so only the finder runs, not the normal study (the other two switches above are off for this run). It takes a few minutes. Turn the finders off to run the normal study.</p>}
+        {running && <p className="text-xs text-muted">{state.status.step}. {finderOn ? 'The finder takes a few minutes.' : 'This takes a minute or two.'}</p>}
         {state?.status?.state === 'failed' && <p className="text-xs text-down">{state.status.error}</p>}
         {error && <p className="text-xs text-down">{error}</p>}
       </Card>
@@ -267,8 +269,8 @@ export function OptionsStudy() {
           <PairFinder pf={r.pairs} />
           <AutoFound af={r.comboFound} title="Combinations found" />
           <IndicatorRanking rows={r.indicators} skipped={r.combosSkipped} />
-          <BotBreakdown cut={r.botBreakdown} />
-          <Breadth rows={r.breadth} />
+          {!r.finderOnly && <BotBreakdown cut={r.botBreakdown} />}
+          {!r.finderOnly && <Breadth rows={r.breadth} />}
           {!r.haveBreadth && <p className="text-center text-[11px] text-muted">The 50 stocks did not load, so breadth was left out.</p>}
           {!r.haveFlow && <p className="text-center text-[11px] text-muted">The 50 stocks had no volume, so the VWAP and volume patterns were left out.</p>}
           <p className="text-center text-[11px] leading-snug text-muted">{state.note}</p>

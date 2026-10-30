@@ -296,7 +296,7 @@ export class OptionTrader {
       const label = labelOf(hit);
       const spot = read.spot;
       const sideScore = read[hit.side === 'CE' ? 'ce' : 'pe']?.score;
-      let stop = ruleStop(hit, spot, stopRuleOf(settings));
+      let stop = ruleStop(hit, spot, hit.stopRule ?? stopRuleOf(settings));
       if (d * (spot - stop) < MIN_STOP_ATR * hit.atr) stop = spot - d * MIN_STOP_ATR * hit.atr;
       const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: sideScore, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique };
       if (minScore && !(sideScore >= minScore)) {

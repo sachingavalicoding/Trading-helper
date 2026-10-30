@@ -6,6 +6,7 @@ import { useApi } from '../../lib/useApi.js';
 import { formatPnl, pnlClass } from '../../lib/format.js';
 import { alreadySaved, canAdd, withFound } from '../../lib/autoFind.js';
 import { Badge, Card } from '../ui.jsx';
+import { ComboResearch } from './ComboResearch.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
 
 const part = (p) => `${p.trades} trades · ${p.winRate ?? '–'}% win · ${formatPnl(p.net)}`;
@@ -21,13 +22,13 @@ export function PairFinderControl({ on, setOn, first, setFirst, kind, finder, se
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
         <p className="text-[11px] leading-snug text-muted">
-          <b className="text-fg">Also find the best pair.</b> Takes one indicator, or one of your combinations, and tries every other check added to it, on the older two thirds of the days, and keeps only what also made money on the newer third. With one of your combinations it shows which extra check would have skipped its bad trades. Needs 10 days or more.
+          <b className="text-fg">Find the best pair.</b> Takes one indicator, or your combinations, and tries every other check added to it, then the best two and three together, on the older two thirds of the days, and keeps only what also made money on the newer third (up to 10 results each). It also researches the best stop and profit settings for each. With it on, only the finder runs, not the normal study, and it takes longer. Needs 10 days or more.
         </p>
         <Switch on={on} label="Find the best pair" onClick={() => setOn((v) => !v)} />
       </div>
       <div className="flex items-center justify-between gap-3">
         <p className="text-[11px] leading-snug text-muted">
-          <b className="text-fg">Also run the combination finder.</b> Takes the 12 best single indicators and tries every pair and every group of three, kept only if it also made money on the newer days.
+          <b className="text-fg">Combination finder.</b> Takes the 12 best single indicators and tries every pair and every group of three, kept only if it also made money on the newer days.
         </p>
         <Switch on={finder} label="Combination finder" onClick={() => setFinder((v) => !v)} />
       </div>
@@ -37,7 +38,8 @@ export function PairFinderControl({ on, setOn, first, setFirst, kind, finder, se
           <select className="field !w-auto max-w-[60%] !px-2 !py-1.5 !text-xs" value={first} onChange={(e) => setFirst(e.target.value)} aria-label="Indicator to start the pair from">
             <option value="">The best three on their own</option>
             {mine.length > 0 && (
-              <optgroup label="Add a check to one of my combinations">
+              <optgroup label="Add checks to my combinations">
+                <option value="combo:*">All my combinations that are on (up to 6)</option>
                 {mine.map((c) => (
                   <option key={c.id} value={`combo:${c.id}`}>{c.name}{c.on ? '' : ' (off)'}</option>
                 ))}
@@ -61,16 +63,16 @@ export function PairFinderControl({ on, setOn, first, setFirst, kind, finder, se
  * The best partner for an indicator: each starting check with the checks that did best beside it, learned on the older days and
  * checked on newer days it had not seen. "Add" saves a pair under My combinations, switched off. `endpoint` is '/options' or '/auto'.
  */
-export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putWord = 'Puts' }) {
+export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putWord = 'Puts', onApplied }) {
   const own = useApi(endpoint, []);
   const [busy, setBusy] = useState(null);
   if (!pf) return null;
   const saved = own.data?.settings?.combos;
 
-  async function add(f) {
+  async function add(f, stop = null) {
     setBusy(f.conds.join('+'));
     try {
-      await api(endpoint, { method: 'PUT', body: { combos: withFound(saved, f) } });
+      await api(endpoint, { method: 'PUT', body: { combos: withFound(saved, f, stop) } });
       own.reload?.();
       toast.success('Added, switched off. Turn it on under Account > Entries.');
     } catch (e) {
@@ -104,11 +106,12 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
             Alone: {part(a)} · older {formatPnl(a.train.net)} · newer {formatPnl(a.test.net)}
           </p>
           {a.found.length === 0 && <p className="text-[11px] text-muted">No partner made money on both the older and the newer days. That is a real answer: do not force a pair.</p>}
+          {a.research && <ComboResearch r={a.research} own={a.key.startsWith('combo:')} onApplied={onApplied} />}
           <ul className="divide-y divide-line">
             {a.found.map((f) => (
               <li key={f.conds.join('+')} className="space-y-1 py-2 text-xs">
                 <div className="flex items-start justify-between gap-2">
-                  <span className="min-w-0 font-semibold">+ {f.added}</span>
+                  <span className="min-w-0 font-semibold">+ {[].concat(f.added).join(' + ')} <Badge tone="muted">{f.depth > 1 ? `${f.depth} added` : '1 added'}</Badge></span>
                   <span className={`num shrink-0 text-sm font-bold ${pnlClass(f.net)}`}>{formatPnl(f.net)}</span>
                 </div>
                 <p className="num text-[11px] text-muted">
@@ -120,10 +123,18 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
                 {alreadySaved(saved, f) ? (
                   <Badge tone="muted">Already in My combinations</Badge>
                 ) : (
-                  <button type="button" className="btn btn-sm" disabled={busy != null || !saved || !canAdd(saved)} onClick={() => add(f)}>
-                    {canAdd(saved) ? 'Add to My combinations (off)' : 'My combinations is full (30)'}
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" className="btn btn-sm" disabled={busy != null || !saved || !canAdd(saved)} onClick={() => add(f)}>
+                      {canAdd(saved) ? 'Add to My combinations (off)' : 'My combinations is full (30)'}
+                    </button>
+                    {endpoint === '/options' && f.research?.mix?.apply?.comboStop && canAdd(saved) && (
+                      <button type="button" className="btn btn-sm" disabled={busy != null || !saved} onClick={() => add(f, f.research.mix.apply.comboStop)}>
+                        Add with its best stop
+                      </button>
+                    )}
+                  </div>
                 )}
+                {f.research && <ComboResearch r={f.research} own={false} />}
               </li>
             ))}
           </ul>
