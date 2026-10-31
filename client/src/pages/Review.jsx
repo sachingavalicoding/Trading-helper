@@ -10,6 +10,7 @@ import { INDEXES, indexOf, loadIndex, saveIndex } from '../lib/indexes.js';
 import { stopRuleText, whatIfText } from '../lib/stops.js';
 import { ReviewChart } from '../components/ReviewChart.jsx';
 import { PatternChart } from '../components/PatternChart.jsx';
+import { ImproveCombo } from '../components/ImproveCombo.jsx';
 import { ReviewStockSheet } from '../components/ReviewStockSheet.jsx';
 import { Badge, Card, EmptyState, Segmented, Skeleton } from '../components/ui.jsx';
 
@@ -309,10 +310,14 @@ function PatternsTab({ day }) {
   const idx = indexOf(index);
   const [watch, setWatch] = useState(loadWatch);
   const checks = checksOf(watch).join(',');
-  const { data, loading, error } = useApi(`/review/patterns?day=${day}&index=${index}${checks ? `&checks=${encodeURIComponent(checks)}` : ''}`, []);
+  const [trial, setTrial] = useState({ id: '', add: [] }); // the combination being improved and the indicators tried on it
+  const [model, setModel] = useState(false); // true: the model's estimated premiums even when real ones are saved for the day
+  const trialQ = trial.id ? `&trial=${encodeURIComponent(trial.id)}${trial.add.length ? `:${trial.add.join(',')}` : ''}` : '';
+  const { data, loading, error } = useApi(`/review/patterns?day=${day}&index=${index}${checks ? `&checks=${encodeURIComponent(checks)}` : ''}${trialQ}${model ? '&real=0' : ''}`, []);
   const [showChecks, setShowChecks] = useState(false);
   const [selected, setSelected] = useState(null);
   useEffect(() => setSelected(null), [day]);
+  useEffect(() => setTrial((t) => (t.add.length ? { ...t, add: [] } : t)), [day]);
   useEffect(() => {
     const offer = data && offerCombos(watch, loadSeen(), data.patterns);
     if (!offer) return;
@@ -320,7 +325,8 @@ function PatternsTab({ day }) {
     saveWatch(offer.watch);
     saveSeen(offer.seen);
   }, [data, watch]);
-  const chosen = useMemo(() => watched(data?.signals ?? [], watch), [data, watch]);
+  const watchAll = useMemo(() => (trial.id && trial.add.length ? [...watch, `combo:${trial.id}`, `trial:${trial.id}`] : watch), [watch, trial]);
+  const chosen = useMemo(() => watched(data?.signals ?? [], watchAll), [data, watchAll]);
   const totals = useMemo(() => dayTotals(chosen), [chosen]);
   const indexPicker = (
     <Segmented
@@ -359,8 +365,8 @@ function PatternsTab({ day }) {
   const statOf = new Map((data.checkStats || []).map((x) => [x.key, x]));
   const overlays = [
     ...data.patterns
-      .filter((p) => p.key !== 'doubleBottomMid' && !p.check)
-      .map((p) => ({ id: p.key, label: `${shortLabel(p.label)}${p.off ? ' (off)' : ''}`, group: p.combo ? 'My combinations' : 'Patterns', count: count(p.key), on: watch.includes(p.key) })),
+      .filter((p) => p.key !== 'doubleBottomMid' && !p.check && !p.trial)
+      .map((p) => ({ id: p.key, label: `${shortLabel(p.label)}${p.off ? ' (off)' : ''}`, group: p.combo ? 'My combinations' : 'Patterns', count: count(p.key), on: watchAll.includes(p.key) })),
     ...(data.checks || []).map((c) => ({ id: `check:${c.key}`, label: c.label, group: `Indicator: ${c.group}`, count: statOf.get(c.key)?.signals ?? 0, on: watch.includes(`check:${c.key}`) })),
   ];
   const stats = data.checkStats || [];
@@ -373,9 +379,9 @@ function PatternsTab({ day }) {
         <div className="text-xs font-semibold">Patterns and combinations to watch</div>
         <div className="flex flex-wrap gap-1.5">
           {data.patterns
-            .filter((p) => p.key !== 'doubleBottomMid')
+            .filter((p) => p.key !== 'doubleBottomMid' && !p.trial)
             .map((p) => (
-              <Chip key={p.key} on={watch.includes(p.key)} onClick={() => toggle(p.key)}>
+              <Chip key={p.key} on={watchAll.includes(p.key)} onClick={() => toggle(p.key)}>
                 {shortLabel(p.label)}{p.off ? ' (off)' : ''} <span className="num opacity-70">{count(p.key)}</span>
               </Chip>
             ))}
@@ -387,8 +393,28 @@ function PatternsTab({ day }) {
           </p>
         ))}
         <p className="text-[11px] text-muted">Stops on this screen follow your setting: {stopRuleText(data.stopRule)}. Your combinations (Account &gt; Entries) are the "Mine" chips.</p>
+        {data.pricing && (
+          <p className="text-[11px] text-muted">
+            Option prices: {data.pricing.mode === 'real' ? <b className="text-fg">real, from the premiums saved that evening</b> : 'estimated by the model (no real prices saved for this day)'}.{' '}
+            {(data.pricing.mode === 'real' || model) && (
+              <button type="button" className="underline" onClick={() => setModel((v) => !v)}>
+                {model ? 'Use the real prices' : 'Use the estimate instead'}
+              </button>
+            )}
+            {data.pricing.mode === 'real' && ' An entry whose contract was not saved cannot be priced and shows as skipped.'}
+          </p>
+        )}
         <p className="text-[11px] text-muted">The number is how many times it formed on this day. Arrows on the chart: up for a call, down for a put, grey when the bot would skip it.</p>
       </Card>
+
+      <ImproveCombo
+        combos={data.patterns.filter((p) => p.combo).map((p) => ({ id: p.key.slice(6), name: p.label.replace(/^Mine: /, ''), off: p.off }))}
+        trial={trial}
+        setTrial={(t) => { setTrial(t); setSelected(null); }}
+        improve={data.improve && data.improve.id === trial.id ? data.improve : null}
+        newEntries={trial.add.length ? data.signals.filter((s) => s.technique === `trial:${trial.id}`) : null}
+        loading={loading}
+      />
 
       {stats.length > 0 && (
         <Card className="space-y-2 p-3">

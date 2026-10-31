@@ -31,11 +31,11 @@ export class StudyService {
   }
 
   /** Starts a run and returns at once; poll status(). Only one run per user and kind at a time. */
-  start(userId, kind, { realPrices = false, days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch } = {}) {
+  start(userId, kind, { realPrices = false, days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch, pairParts } = {}) {
     if (this.status(userId, kind).state === 'running') throw conflict('A study is already running');
     const job = { state: 'running', step: 'Starting', startedAt: Date.now() };
     this.jobs.set(`${userId}|${kind}`, job);
-    const finder = { pairDepth, pairShow, pairGoal, pairResearch };
+    const finder = { pairDepth, pairShow, pairGoal, pairResearch, pairParts };
     const run = kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin, pairFind, pairFirst, comboFind, ...finder }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind, research, index, pairFind, pairFirst, comboFind, from, to, realPrices, ...finder });
     run.catch((e) => {
       logger.warn(`${kind} study failed: ${e.message}`);
@@ -65,7 +65,7 @@ export class StudyService {
     return { nifty1, calendar };
   }
 
-  async #runOptions(userId, job, { realPrices = false, days, iv, target = 0, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch }) {
+  async #runOptions(userId, job, { realPrices = false, days, iv, target = 0, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch, pairParts }) {
     // with the real prices on, the study covers only the days that were saved (inside any dates asked for), and takes only trades whose contract was saved
     let prices = null;
     if (realPrices) {
@@ -117,6 +117,7 @@ export class StudyService {
       pairShow,
       pairGoal,
       pairResearch,
+      pairParts,
       finderOnly: pairFind || comboFind, // with a finder on, only the finders run, not the normal study
       research,
       lossLimit: rules.stopLoss ?? 0,
@@ -130,7 +131,7 @@ export class StudyService {
     await this.#save(userId, 'options', result);
   }
 
-  async #runShares(userId, job, { days, target = 0, exitMin, pairFind = false, pairFirst = null, comboFind = false, pairDepth, pairShow, pairGoal }) {
+  async #runShares(userId, job, { days, target = 0, exitMin, pairFind = false, pairFirst = null, comboFind = false, pairDepth, pairShow, pairGoal, pairParts }) {
     const { nifty1, calendar } = await this.#nifty(job, days);
     const history = {};
     let failed = 0;
@@ -144,7 +145,7 @@ export class StudyService {
       }
     }
     const [rules, auto] = await Promise.all([loadRules(userId, 'EQ'), AutoSettings.findOne({ user: userId }).lean()]);
-    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, target, exitMin: exitMin ?? rules.exitMin, combos: normalizeCombos(auto?.combos), pairFind, pairFirst, comboFind, pairDepth, pairShow, pairGoal, finderOnly: pairFind || comboFind }, onProgress: (step) => { job.step = step; } });
+    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, target, exitMin: exitMin ?? rules.exitMin, combos: normalizeCombos(auto?.combos), pairFind, pairFirst, comboFind, pairDepth, pairShow, pairGoal, pairParts, finderOnly: pairFind || comboFind }, onProgress: (step) => { job.step = step; } });
     await this.#save(userId, 'shares', result);
   }
 }

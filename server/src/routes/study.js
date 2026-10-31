@@ -25,6 +25,7 @@ const runSchema = z.object({
   pairDepth: z.coerce.number().int().min(1).max(3).optional(), // finder: most checks added to a starting point (1, 2 or 3)
   pairShow: z.coerce.number().int().min(3).max(30).optional(), // finder: results kept per starting point
   pairGoal: z.enum(['profit', 'winrate']).optional(), // finder: order the results by newer-days profit or by win rate
+  pairParts: z.boolean().optional(), // finder: a combination's own checks (each alone, each pair) are searched for partners first, then the whole
   pairResearch: z.boolean().optional(), // finder, options: research stop and profit for each result (default on)
   research: z.boolean().default(false), // options only: also try other stop amounts, profit ladders and trailing stops on Breakout + Engulfing
   realPrices: z.boolean().default(false), // options only: price the trades from the real option candles saved each evening (only the days and contracts saved), not from the model

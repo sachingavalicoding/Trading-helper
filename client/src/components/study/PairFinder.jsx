@@ -106,7 +106,7 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
       {(pf.anchors || []).map((a) => (
         <div key={a.key} className="space-y-1 rounded-lg bg-surface-2 p-2">
           <div className="flex items-start justify-between gap-2 text-xs">
-            <span className="min-w-0 font-semibold">{a.label}</span>
+            <span className="min-w-0 font-semibold">{a.part && <Badge tone="muted">Part of {a.of}</Badge>} {a.label}</span>
             <span className={`num shrink-0 font-bold ${pnlClass(a.net)}`}>{formatPnl(a.net)}</span>
           </div>
           <p className="num text-[11px] text-muted">

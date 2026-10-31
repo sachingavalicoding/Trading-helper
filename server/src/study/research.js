@@ -30,19 +30,27 @@ export const STOP_TRIES = [
   { key: 'cap2', label: 'the chart level, pulled in to 2 ATR', rule: { mode: 'cap', k: 2 } },
   ...[20, 30, 40, 50, 60, 80].map((points) => ({ key: `fix${points}`, label: `${points} points from the entry`, rule: { mode: 'fixed', points } })),
 ];
+// The wider search used by the finder, per combination: every start and every room behind the best profit, and more stop distances
+export const GRID_STARTS = [1500, 2000, 2500, 3000, 3500, 4000, 5000, 6000];
+export const GRID_GAPS = [250, 500, 750, 1000, 1500];
+const GRID_SKIP = new Set(['3000|500', '3000|750', '3000|1000', '4000|750']); // already in LADDERS
+export const STOP_EXTRA = [
+  ...[1.25, 1.75].map((k) => ({ key: `atr${k}`, label: `${k} ATR from the entry`, rule: { mode: 'atr', k } })),
+  ...[25, 35, 45, 70].map((points) => ({ key: `fix${points}`, label: `${points} points from the entry`, rule: { mode: 'fixed', points } })),
+];
 const sameRule = (a, b) => (a?.mode ?? 'chart') === (b?.mode ?? 'chart') && (a?.mode === 'atr' || a?.mode === 'cap' ? a.k === b?.k : a?.mode === 'fixed' ? a.points === b?.points : true);
 const MIN_TRAIN = 10;
 
 const rs = (v) => `₹${Number(v).toLocaleString('en-IN')}`;
 
 /** The rows to try, as `{ key, group, label, text, set (what changes in params), apply (what a tap on Apply would save, or null when the live trader has no such setting) }`. */
-export function variants(params, { combo = null } = {}) {
+export function variants(params, { combo = null, grid = false } = {}) {
   const yours = Array.isArray(params.steps) ? params.steps : [];
   const out = [];
   for (const lossLimit of LOSS_LIMITS) {
     out.push({ key: `loss${lossLimit}`, group: 'stop', label: `Most one trade may lose: ${rs(lossLimit)}`, text: `The same entries and exits, but lots are sized so the loss at the stop stays within ${rs(lossLimit)} (up to ${params.maxLots} lots).`, set: { lossLimit }, apply: { lossLimit }, current: lossLimit === params.lossLimit });
   }
-  for (const t of STOP_TRIES) {
+  for (const t of grid ? [...STOP_TRIES, ...STOP_EXTRA] : STOP_TRIES) {
     const rule = { mode: t.rule.mode, k: t.rule.k ?? 2, points: t.rule.points ?? 30 };
     const apply = combo ? { comboStop: { id: combo.id, name: combo.name, ...rule } } : { patternStop: rule };
     out.push({ key: `stop-${t.key}`, group: 'stoprule', label: `Stop at ${t.label}`, text: `The same entries, but the first stop is ${t.label}${combo ? ' (the stop this combination would use)' : ''}. It still sits at least 0.8 ATR from the entry and a stop over 2.5 ATR away is skipped.`, set: { stopRule: t.rule }, apply, current: sameRule(t.rule, params.stopRule) });
@@ -50,6 +58,15 @@ export function variants(params, { combo = null } = {}) {
   out.push({ key: 'ladder-yours', group: 'ladder', label: 'Your ladder as it is', text: yours.length ? `${yours.length} steps from Account > Limits.` : 'Your current profit lock.', set: {}, apply: null, current: true });
   if (yours.length > 6) out.push({ key: 'ladder-yours6', group: 'ladder', label: `Your ladder, top ${yours.length - 6} steps dropped`, text: `Only the first 6 of your ${yours.length} steps.`, set: { steps: yours.slice(0, 6) }, apply: { steps: yours.slice(0, 6) } });
   for (const l of LADDERS) out.push({ key: `ladder-${l.key}`, group: 'ladder', label: l.label, text: l.text, set: { steps: l.steps }, apply: { steps: l.steps } });
+  if (grid) {
+    for (const start of GRID_STARTS) {
+      for (const gap of GRID_GAPS) {
+        if (GRID_SKIP.has(`${start}|${gap}`) || gap >= start) continue;
+        const l = roomLadder(`grid${start}-${gap}`, start, gap);
+        out.push({ key: `ladder-${l.key}`, group: 'ladder', label: l.label, text: l.text, set: { steps: l.steps }, apply: { steps: l.steps } });
+      }
+    }
+  }
   out.push({ key: 'ladder-none', group: 'ladder', label: 'No profit lock', text: 'Winners are left alone until the stop, the trailing stop or the closing time sells them.', set: { steps: [] }, apply: null });
   for (const t of TARGETS) out.push({ key: `target${t}`, group: 'ladder', label: `Sell at +${rs(t)} a lot`, text: `A fixed target of ${rs(t)} per lot and no profit lock. A study choice only: the live options trader does not sell at a fixed target.`, set: { target: t }, apply: null });
   for (const points of TRAIL_POINTS) {
@@ -69,7 +86,7 @@ export function variants(params, { combo = null } = {}) {
  * @param tradesFor  (signals, { params }) -> { trades, skippedWide }, the study's own trader
  * @param trainEnd   the first moment of the newest third of the days (null when the run is too short to split)
  */
-export async function runResearch({ signals, tradesFor, midTime, trainEnd, params: given, combo = null, onProgress = () => {}, yieldTurn = () => Promise.resolve() }) {
+export async function runResearch({ signals, tradesFor, midTime, trainEnd, params: given, combo = null, grid = false, onProgress = () => {}, yieldTurn = () => Promise.resolve() }) {
   const params = { ...given, target: 0 }; // the research always starts from the profit ladder, whatever exit the study screen used
   const run = async (set) => {
     const p = { ...params, ...set };
@@ -99,7 +116,7 @@ export async function runResearch({ signals, tradesFor, midTime, trainEnd, param
 
   const base = describe((await run({})).trades);
   const rows = [];
-  const list = variants(params, { combo });
+  const list = variants(params, { combo, grid });
   for (const [n, v] of list.entries()) {
     if (n % 6 === 0) onProgress(`Research: ${n + 1}/${list.length} exit settings tried`);
     const { trades } = await run(v.set);
@@ -113,7 +130,7 @@ export async function runResearch({ signals, tradesFor, midTime, trainEnd, param
     const pick = (group) => rows.filter((r) => r.group === group && r.apply && r.train?.trades >= MIN_TRAIN && r.train.net > base.train.net).sort((a, b) => b.train.net - a.train.net)[0]; // only a change that beat your settings on the older days
     const parts = ['stop', 'stoprule', 'ladder', 'trail'].map(pick).filter(Boolean);
     if (parts.length) {
-      const set = Object.assign({}, ...parts.map((r) => variants(params, { combo }).find((v) => v.key === r.key).set));
+      const set = Object.assign({}, ...parts.map((r) => list.find((v) => v.key === r.key).set));
       const { trades } = await run(set);
       const whole = describe(trades);
       const apply = Object.assign({}, ...parts.map((r) => r.apply));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { afterText, dayTotals, exitLine, shortLabel, skipText, watched } from './patternReview.js';
+import { afterText, codeOf, dayTotals, exitLine, improveLine, shortLabel, skipText, watched } from './patternReview.js';
 
 const sig = (technique, lock, target, skipped) => ({ technique, skipped, lock: lock == null ? null : { net: lock }, target: target == null ? null : { net: target } });
 
@@ -70,5 +70,18 @@ describe('indicator keys', () => {
     expect(checksOf(['breakout', 'check:rsiAbove50', 'combo:x', 'check:macdZero'])).toEqual(['rsiAbove50', 'macdZero']);
     expect(codeOf('check:rsiAbove50')).toBe('IND');
     expect(offerCombos([], [], [{ key: 'combo:a', combo: true, off: true }, { key: 'combo:b', combo: true }]).watch).toEqual(['combo:b']);
+  });
+});
+
+
+describe('improving a combination', () => {
+  const x = { key: 'ema', label: 'EMA 9 above EMA 21', kept: { trades: 4, wins: 4, net: 9000 }, skipped: { trades: 2, losers: 2, losersNet: -4100, winners: 0, winnersNet: 0 }, added: { trades: 1, net: 900 }, gain: 5000 };
+  it('says what an added indicator skips, keeps and adds', () => {
+    expect(improveLine(x)).toBe('skips 2 entries (2 losers -₹4,100.00), keeps 4, adds 1 (+₹900.00)');
+    expect(improveLine({ ...x, skipped: { trades: 0, losers: 0, losersNet: 0, winners: 0, winnersNet: 0 }, added: { trades: 0, net: 0 } })).toBe('skips nothing, keeps 4');
+  });
+  it('labels the trial combination', () => {
+    expect(shortLabel('Trial: Mine + EMA 9 above EMA 21')).toBe('Trial: Mine + EMA 9 above EMA 21');
+    expect(codeOf('trial:abc')).toBe('NEW');
   });
 });

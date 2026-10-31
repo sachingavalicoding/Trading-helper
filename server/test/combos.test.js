@@ -518,6 +518,33 @@ test('Review lists every check, scores each for the day, draws the ones asked fo
   assert.ok(r.patterns.some((p) => p.key === 'combo:idle' && p.off), 'a combination that is off is still listed, marked off');
 });
 
+test('Review can try a check on top of one of your combinations: which entries it skips or adds on the day, best first, and the new combination drawn', async () => {
+  const { reviewPatterns } = await import('../src/review/patterns.js');
+  const c1 = minutes(8);
+  const dayOf = (t) => new Date(t * 1000 + 19800_000).toISOString().slice(0, 10);
+  const day = [...new Set(c1.map((b) => dayOf(b.time)))].at(-1);
+  const mine = { id: 'm', name: 'Mine', conds: ['rsiAbove50'], need: 1, window: 3, on: true };
+  const params = { ...PARAMS, lossLimit: 3000, maxLots: 2 };
+  const plain = reviewPatterns({ c1, day, params, combos: [mine], trial: { id: 'm', add: [] } });
+  const im = plain.improve;
+  assert.equal(im.id, 'm');
+  assert.ok(im.rows.length > 0 && im.rows.every((x, i) => i === 0 || x.gain <= im.rows[i - 1].gain), 'best gain first');
+  for (const x of im.rows) {
+    assert.ok(x.skipped.losers <= x.skipped.trades && x.skipped.winners + x.skipped.losers === x.skipped.trades);
+    assert.ok(x.skipped.trades + x.added.trades > 0);
+    assert.equal(x.gain, Math.round((-(x.skipped.losersNet + x.skipped.winnersNet) + x.added.net) * 100) / 100);
+  }
+  assert.ok(!plain.patterns.some((p) => p.trial), 'nothing is drawn until a check is added');
+  const key = im.rows[0].key;
+  const drawn = reviewPatterns({ c1, day, params, combos: [mine], trial: { id: 'm', add: [key, 'nope', 'rsiAbove50'] } });
+  assert.deepEqual(drawn.improve.add, [key], 'unknown checks and ones already in the combination are ignored');
+  const p = drawn.patterns.find((x) => x.key === 'trial:m');
+  assert.ok(p && p.trial && p.label.startsWith('Trial: Mine + '));
+  assert.ok(drawn.signals.every((s) => s.technique !== 'trial:m' || s.why?.length === 2));
+  const gone = reviewPatterns({ c1, day, params, combos: [mine], trial: { id: 'zzz', add: [] } });
+  assert.equal(gone.improve.missing, true);
+});
+
 test('a combination can carry a stop of its own, which its signals use in place of the shared one, and a bad stop is dropped', async () => {
   const { comboStopRule } = await import('../src/combos/combos.js');
   const own = normalizeCombo({ name: 'Own', conds: ['rsiAbove50'], stopMode: 'fixed', stopPoints: 45 });
@@ -553,12 +580,12 @@ test('finder-only run: only the finders run, up to 10 results per starting combi
     }
     assert.ok(a.found.every((f, i) => i === 0 || f.test.net <= a.found[i - 1].test.net));
     if (a.research) {
-      assert.equal(a.research.stops.length, 12, 'every stop placement is tried');
+      assert.equal(a.research.stops.length, 18, 'every stop placement is tried');
       assert.ok(a.research.stops.every((x) => x.apply.comboStop && x.apply.comboStop.id === a.key.replace('combo:', '')));
       assert.ok(a.research.base && Array.isArray(a.research.exits));
       if (a.research.adverse) assert.ok(a.research.adverse.p50 <= a.research.adverse.p80 && a.research.adverse.p80 <= a.research.adverse.p90 && a.research.adverse.p90 <= a.research.adverse.max);
     }
-    for (const f of a.found.slice(0, 5)) assert.ok(f.research === undefined || f.research === null || f.research.stops.length === 12);
+    for (const f of a.found.slice(0, 5)) assert.ok(f.research === undefined || f.research === null || f.research.stops.length === 18);
   }
   const gone = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, combos: mine, pairFind: true, pairFirst: 'combo:zzz' } });
   assert.match(gone.pairs.skipped, /no longer saved/);
@@ -600,6 +627,29 @@ test('the finder can order by win rate, stop at one added check, skip the stop r
   assert.equal(cut.period.days, 1);
   assert.equal(cut.period.to, from);
   await assert.rejects(runOptionsStudy({ nifty1: minutes(24), params: { ...base, from: '2001-01-01', to: '2001-01-05', pairFind: true } }), /No saved candles/);
+});
+
+test('the finder can start from the parts of a combination (each check, each pair) before the whole one, and researches every ladder start and room', async () => {
+  const { variants, GRID_STARTS, GRID_GAPS } = await import('../src/study/research.js');
+  const plain = variants({ steps: [], maxLots: 2, lossLimit: 3000 }).filter((v) => v.group === 'ladder').length;
+  const grid = variants({ steps: [], maxLots: 2, lossLimit: 3000 }, { grid: true });
+  assert.ok(grid.filter((v) => v.group === 'ladder').length >= plain + GRID_STARTS.length * (GRID_GAPS.length - 1), 'every start with every room behind');
+  assert.ok(new Set(grid.map((v) => v.key)).size === grid.length, 'no row twice');
+  assert.ok(grid.some((v) => v.key === 'stop-fix35') && grid.some((v) => v.key === 'stop-atr1.25'), 'more stop distances');
+  const base = { ...PARAMS, lossLimit: 3000, maxLots: 2, finderOnly: true };
+  const mine = normalizeCombos([{ id: 'abc', name: 'A B C', conds: ['rsiAbove50', 'macdZero', 'supertrendUp'], need: 3 }]);
+  const r = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, combos: mine, pairFind: true, pairFirst: 'combo:abc', pairParts: true, pairDepth: 1, pairResearch: false } });
+  const keys = r.pairs.anchors.map((a) => a.key);
+  assert.equal(keys.length, 7, 'three single checks, three pairs, then the whole combination');
+  assert.equal(keys.at(-1), 'combo:abc');
+  assert.ok(keys.slice(0, 6).every((k) => k.startsWith('part:abc~')));
+  const part = r.pairs.anchors[0];
+  assert.equal(part.part, true);
+  assert.equal(part.of, 'A B C');
+  assert.equal(part.conds.length, 1);
+  assert.ok(r.pairs.anchors[3].conds.length === 2 && r.pairs.anchors[6].conds.length === 3);
+  const off = await runOptionsStudy({ nifty1: minutes(24), params: { ...base, days: 20, combos: mine, pairFind: true, pairFirst: 'combo:abc', pairDepth: 1, pairResearch: false } });
+  assert.deepEqual(off.pairs.anchors.map((a) => a.key), ['combo:abc'], 'without the parts, only the whole combination');
 });
 
 // ---------- Review: day story, warm-up bars, minute bars ----------

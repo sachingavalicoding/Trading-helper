@@ -80,6 +80,7 @@ export function FinderStudy() {
   const [show, setShow] = useState(10);
   const [goal, setGoal] = useState('profit');
   const [research, setResearch] = useState(true);
+  const [parts, setParts] = useState(true);
   const [realPrices, setRealPrices] = useState(false);
   const { state, error, running, run } = useStudy(kind);
   const options = kind === 'options';
@@ -99,6 +100,7 @@ export function FinderStudy() {
       pairShow: show,
       pairGoal: goal,
       pairResearch: options ? research : undefined,
+      pairParts: what !== 'new' ? parts : undefined,
       realPrices: options ? realPrices : undefined,
     });
   }
@@ -124,6 +126,14 @@ export function FinderStudy() {
         {options && <Segmented className="w-full" size="sm" value={index} onChange={(k) => { setIndex(k); saveIndex(k); }} options={INDEXES.map((i) => ({ value: i.key, label: i.short }))} />}
         <Segmented className="w-full" size="sm" value={what} onChange={setWhat} options={WHAT} />
         {what !== 'new' && <StartFromSelect kind={kind} value={first} onChange={setFirst} />}
+        {what !== 'new' && (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] leading-snug text-muted">
+              <b className="text-fg">Try its parts first.</b> For a combination like Breakout + RSI + Bullish bar it searches Breakout + anything, RSI + anything, Bullish bar + anything, each pair + anything, then the whole combination + anything. Slower.
+            </p>
+            <Switch on={parts} label="Try the parts of a combination first" onClick={() => setParts((v) => !v)} />
+          </div>
+        )}
         <div className="space-y-1">
           <div className="text-[11px] text-muted">Extra checks to add to each starting point</div>
           <Segmented className="w-full" size="sm" value={depth} onChange={setDepth} options={[{ value: 1, label: '1' }, { value: 2, label: 'Up to 2' }, { value: 3, label: 'Up to 3' }]} />
@@ -139,7 +149,7 @@ export function FinderStudy() {
         {options && (
           <div className="flex items-center justify-between gap-3">
             <p className="text-[11px] leading-snug text-muted">
-              <b className="text-fg">Find the best stop and profit setting</b> for each result, and how far its winners went against it. A little slower.
+              <b className="text-fg">Find the best stop and profit setting</b> for each result: about 18 stop distances, every ladder start and room behind (₹1,500 to ₹6,000 start, ₹250 to ₹1,500 behind), trails and break-even, and how far its winners went against it. Slower.
             </p>
             <Switch on={research} label="Research the stop and profit" onClick={() => setResearch((v) => !v)} />
           </div>

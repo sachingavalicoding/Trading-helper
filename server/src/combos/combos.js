@@ -63,22 +63,29 @@ const tradeableIndex = (time) => {
   return minutes >= FIRST_ENTRY_MIN && minutes < LAST_ENTRY_MIN;
 };
 
-/** How many of the combination's conditions hold on bar i: states on the bar, events anywhere in the last `window` bars. */
-function score(chart, conds, d, i, window) {
-  let n = 0;
-  for (const cond of conds) {
-    if (cond.kind === 'state') {
-      if (holds(chart, cond, d, i)) n += 1;
-    } else {
-      for (let k = Math.max(0, i - window + 1); k <= i; k++) {
-        if (holds(chart, cond, d, k)) {
-          n += 1;
-          break;
-        }
-      }
+const HELD = new WeakMap(); // chart -> Map(`${cond}|${d}|${window}` -> Uint8Array)
+
+/** For every bar, whether `cond` holds there (a state) or held on one of the last `window` bars (an event). Made once per chart, so trying many combinations only adds up arrays. */
+function heldArray(chart, cond, d, window) {
+  let cache = HELD.get(chart);
+  if (!cache) HELD.set(chart, (cache = new Map()));
+  const key = `${cond.key}|${d}|${cond.kind === 'state' ? 0 : window}`;
+  let arr = cache.get(key);
+  if (arr) return arr;
+  const n = chart.bars.length;
+  holds(chart, cond, d, 0); // fills the per-chart truth array
+  const truth = chart.truths.get(`${cond.key}|${d}`);
+  if (cond.kind === 'state') arr = truth;
+  else {
+    arr = new Uint8Array(n);
+    let last = -Infinity; // the latest bar on which it held
+    for (let i = 0; i < n; i++) {
+      if (truth[i]) last = i;
+      arr[i] = i - last < window ? 1 : 0;
     }
   }
-  return n;
+  cache.set(key, arr);
+  return arr;
 }
 
 /**
@@ -95,10 +102,16 @@ export function comboSignals(chart, combo, { from = 15, windows = true, when = n
   const stopRule = comboStopRule(combo);
   for (const d of [1, -1]) {
     const view = chart.views[d];
+    const arrs = conds.map((c) => heldArray(chart, c, d, window));
+    const score = (i) => {
+      let n = 0;
+      for (const a of arrs) n += a[i];
+      return n;
+    };
     let lastFire = -99;
-    let before = from > 0 ? score(chart, conds, d, from - 1, window) >= need : false;
+    let before = from > 0 ? score(from - 1) >= need : false;
     for (let i = Math.max(from, 1); i < chart.bars.length; i++) {
-      const now = score(chart, conds, d, i, window) >= need;
+      const now = score(i) >= need;
       const fresh = now && !before;
       before = now;
       const a = chart.atr[i];
