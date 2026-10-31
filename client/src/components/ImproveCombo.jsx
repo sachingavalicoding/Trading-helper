@@ -6,9 +6,51 @@ import { useApi } from '../lib/useApi.js';
 import { formatPnl, pnlClass } from '../lib/format.js';
 import { canAdd, withFound } from '../lib/autoFind.js';
 import { dayTotals, improveLine } from '../lib/patternReview.js';
-import { Badge, Card } from './ui.jsx';
+import { Badge, Card, Fold, Segmented } from './ui.jsx';
 
 const MAX_ADD = 3;
+const TRY_GROUPS = [
+  { value: 'stoprule', label: 'Stop loss' },
+  { value: 'ladder', label: 'Profit ladder' },
+  { value: 'trail', label: 'Trail / break-even' },
+];
+
+/** The same entries traded with other stops, profit ladders, trailing stops and break-even, best first, each against what is set now. */
+function TryExits({ tries }) {
+  const [group, setGroup] = useState('stoprule');
+  const [all, setAll] = useState(false);
+  const rows = tries.rows.filter((r) => r.group === group).sort((a, b) => b.net - a.net);
+  const shown = all ? rows : rows.slice(0, 6);
+  const best = rows[0];
+  return (
+    <Fold plain id="improve-exits" title="Stop loss and profit ladder" summary={best ? `Now ${formatPnl(tries.now.net)}. Best here: ${best.label}, ${formatPnl(best.net)}.` : 'Other stops and profit settings on the same entries'}>
+      <p className="text-[11px] leading-snug text-muted">The same {tries.now.trades} entries{tries.of === 'picks' ? ' (with your picks added)' : ''}, traded again with one setting changed at a time. "Now" is what Account &gt; Limits sets today.</p>
+      <Segmented className="w-full" size="sm" value={group} onChange={(g) => { setGroup(g); setAll(false); }} options={TRY_GROUPS} />
+      <ul className="divide-y divide-line">
+        {shown.map((r) => (
+          <li key={r.key} className="flex items-start justify-between gap-3 py-2 text-xs">
+            <span className="min-w-0">
+              <span className="block font-medium">{r.label}</span>
+              <span className="num block text-[11px] text-muted">
+                {r.trades} entries, {r.wins} won · worst {formatPnl(r.worst)}
+              </span>
+            </span>
+            <span className="shrink-0 text-right">
+              <span className={`num block font-semibold ${pnlClass(r.net)}`}>{formatPnl(r.net)}</span>
+              <span className={`num block text-[11px] ${r.gain === 0 ? 'text-muted' : pnlClass(r.gain)}`}>{r.gain === 0 ? 'same as now' : `${r.gain > 0 ? '+' : '-'}${formatPnl(Math.abs(r.gain))}`}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {rows.length > 6 && (
+        <button type="button" className="btn btn-sm w-full" onClick={() => setAll((v) => !v)}>
+          {all ? 'Show fewer' : `Show all ${rows.length}`}
+        </button>
+      )}
+      <p className="text-[11px] leading-snug text-muted">One day is a small sample, and a setting that suits it can lose on others. Nothing here changes your live settings; the Finder tests them over 30 days or more and can add a combination with its best stop.</p>
+    </Fold>
+  );
+}
 
 /**
  * Review > Patterns: pick one of your combinations, see which indicator, added to it, would have skipped that day's bad entries (or added good
@@ -110,7 +152,8 @@ export function ImproveCombo({ combos, trial, setTrial, improve, newEntries, loa
               </button>
             </div>
           )}
-          <p className="text-[11px] leading-snug text-muted">One day proves little: an indicator that skipped today's losers may also skip tomorrow's winners. To check it over 30 days or more, use Research use Account &gt; Studies &gt; Findergt; Finder and start from this combination.</p>
+          {improve.tries && improve.tries.now.trades > 0 && <TryExits tries={improve.tries} />}
+          <p className="text-[11px] leading-snug text-muted">One day proves little: an indicator that skipped today's losers may also skip tomorrow's winners. To check it over 30 days or more, use Research &gt; Finder and start from this combination.</p>
         </>
       )}
     </Card>

@@ -6,6 +6,7 @@ import { buildChart, CONDITIONS, CONDITION_BY_KEY, usable } from '../combos/cond
 import { comboSignals, describeCombo, heldConditions, missingData, singleCombo } from '../combos/combos.js';
 import { simulateTrade, EXIT_MIN } from '../study/simulate.js';
 import { round2 } from '../utils/money.js';
+import { variants } from '../study/research.js';
 
 // One day of the Nifty chart, with every pattern that formed on it and what a one-lot option buy at that moment would have done.
 // It is a look back at history: nothing here places an order. Premiums are estimated (Black-Scholes), the index moves are real.
@@ -114,7 +115,7 @@ export function biggestMoves(c1, day, signals, exitMin) {
 const entryKey = (s) => `${s.time}|${s.side}`;
 
 /** What adding one check to a combination would have changed on this day: the entries it skips (how many were losers) and the ones it adds. Draws the combination with the checks in `trial.add` as a pattern. */
-function improveCombo({ chart, combos, trial, day, lockNet, patterns, found }) {
+function improveCombo({ chart, combos, trial, day, lockNet, patterns, found, c1, byTime, params, stopRule, exitMin }) {
   const base = combos.find((c) => c.id === trial.id);
   if (!base || missingData(base, chart.have).length) return { id: trial.id, missing: true };
   const all = (conds) => ({ id: 'trial', name: base.name, conds, need: conds.length, window: base.window, stopMode: base.stopMode, stopAtr: base.stopAtr, stopPoints: base.stopPoints });
@@ -143,7 +144,32 @@ function improveCombo({ chart, combos, trial, day, lockNet, patterns, found }) {
     patterns.push({ key, label: `Trial: ${base.name} + ${add.map((k) => CONDITION_BY_KEY.get(k).label).join(' + ')}`, text: describeCombo(all(conds)), trial: true });
     for (const x of entriesOf(all(conds))) found.push({ ...x, technique: key, why: heldConditions(chart, all(conds), x.side === 'CE' ? 1 : -1, x.i) });
   }
-  return { id: base.id, name: base.name, conds: base.conds, add, base: { trades: baseNets.length, wins: baseNets.filter((n) => n > 0).length, net: sum(baseNets) }, rows: rows.slice(0, 40) };
+  // The same entries (with the picks added) traded again with other stops, profit ladders, trailing stops and break-even: only one thing changes per row
+  const picked = [...base.conds, ...add];
+  const tradedWith = (sigs, rule, set) => {
+    const nets = sigs
+      .map((x) => {
+        const at = byTime.get(x.time);
+        if (at == null || istParts(new Date(x.time * 1000)).minutes >= exitMin) return null;
+        const { stop, wide } = fitStop(x, c1[at].open, rule);
+        if (wide) return null;
+        const t = simulateTrade({ c1, byTime, signal: { ...x, stop }, params: { ...params, ...set, target: 0 } });
+        return t && !t.skipped ? t.net : null;
+      })
+      .filter((n) => n != null);
+    return { trades: nets.length, wins: nets.filter((n) => n > 0).length, net: sum(nets), worst: nets.length ? round2(Math.min(...nets)) : 0 };
+  };
+  const pickedSigs = entriesOf(all(picked));
+  const now = tradedWith(pickedSigs, stopRule, {});
+  const tries = {
+    of: add.length ? 'picks' : 'combination',
+    now,
+    rows: variants(params, { combo: base })
+      .filter((v) => ['stoprule', 'ladder', 'trail'].includes(v.group) && !v.key.startsWith('target') && v.key !== 'ladder-yours')
+      .map((v) => ({ key: v.key, group: v.group, label: v.label.replace(/^Stop at /, 'Stop '), ...tradedWith(pickedSigs, v.set.stopRule ?? stopRule, v.set) }))
+      .map((r) => ({ ...r, gain: round2(r.net - now.net) })),
+  };
+  return { id: base.id, name: base.name, conds: base.conds, add, tries, base: { trades: baseNets.length, wins: baseNets.filter((n) => n > 0).length, net: sum(baseNets) }, rows: rows.slice(0, 40) };
 }
 
 const WARM_BARS = 150; // earlier 5-minute bars sent with a day, so the chart's indicators have context from its first candle
@@ -281,7 +307,7 @@ export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], s
     })
     .filter((x) => x.signals > 0)
     .sort((a, b) => b.net - a.net);
-  const improve = trial ? improveCombo({ chart, combos, trial, day, lockNet, patterns, found }) : null;
+  const improve = trial ? improveCombo({ chart, combos, trial, day, lockNet, patterns, found, c1, byTime, params, stopRule, exitMin }) : null;
   const signals = [];
   for (const s of found.sort((a, b) => a.time - b.time || a.technique.localeCompare(b.technique))) {
     const startIdx = byTime.get(s.time);

@@ -34,4 +34,15 @@ describe('ImproveCombo', () => {
     expect(screen.getByText('2 entries, 2 won, 0 lost')).toBeTruthy();
     expect(screen.getByText('Save as a new combination (off)')).toBeTruthy();
   });
+  it('lists other stops, ladders and trails against what is set now, best first, one group at a time', () => {
+    const row = (key, group, label, net, gain) => ({ key, group, label, trades: 6, wins: 4, net, worst: -900, gain });
+    const tries = { of: 'combination', now: { trades: 6, wins: 4, net: 3000, worst: -900 }, rows: [row('s1', 'stoprule', 'Stop 30 points from the entry', 1000, -2000), row('s2', 'stoprule', 'Stop 50 points from the entry', 4500, 1500), row('l1', 'ladder', 'Wide room, 6 steps', 3800, 800)] };
+    render(<ImproveCombo combos={[{ id: 'm', name: 'Breakout + RSI' }]} trial={{ id: 'm', add: [] }} setTrial={() => {}} improve={{ ...improve, tries }} newEntries={null} loading={false} />);
+    fireEvent.click(screen.getByText('Stop loss and profit ladder'));
+    const labels = screen.getAllByText(/^Stop \d+ points/).map((n) => n.textContent);
+    expect(labels).toEqual(['Stop 50 points from the entry', 'Stop 30 points from the entry']);
+    expect(screen.queryByText('Wide room, 6 steps')).toBeNull();
+    fireEvent.click(screen.getByText('Profit ladder'));
+    expect(screen.getByText('Wide room, 6 steps')).toBeTruthy();
+  });
 });
