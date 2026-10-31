@@ -86,7 +86,7 @@ export default function News() {
           Nifty <span className="text-accent2">news</span>
         </h1>
         <div className="flex items-center gap-2">
-          <Link to="/review" className="btn btn-secondary btn-sm">
+          <Link to="/research" className="btn btn-secondary btn-sm">
             <ScanSearch className="h-4 w-4" /> Review
           </Link>
           <button type="button" onClick={reload} aria-label="Refresh news" className="btn btn-ghost !p-2">

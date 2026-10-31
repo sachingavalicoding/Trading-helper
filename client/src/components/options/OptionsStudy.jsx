@@ -212,7 +212,7 @@ export function OptionsStudy() {
           </div>
         </div>
         <Segmented className="w-full" size="sm" value={index} onChange={(k) => { setIndex(k); saveIndex(k); }} options={INDEXES.map((i) => ({ value: i.key, label: i.short }))} />
-        {index === 'SENSEX' && <p className="text-[11px] leading-snug text-muted">The Sensex candles are downloaded with the rest in Account, Studies, Data (press Download once after this update). Lot size and expiry day are the Sensex's own.</p>}
+        {index === 'SENSEX' && <p className="text-[11px] leading-snug text-muted">The Sensex candles are downloaded with the rest in Research, Data (press Download once after this update). Lot size and expiry day are the Sensex's own.</p>}
         <Segmented className="w-full" size="sm" value={exit} onChange={setExit} options={[{ value: 'lock', label: 'Profit lock (your Account rule)' }, { value: 'target', label: 'Fixed target' }]} />
         {exit === 'target' && (
           <label className="flex items-center justify-between gap-3 text-xs text-muted">
@@ -238,7 +238,7 @@ export function OptionsStudy() {
         <RealPricesSwitch on={realPrices} setOn={setRealPrices} />
         {targetBad && <p className="text-xs text-down">The target must be between ₹100 and ₹1,00,000.</p>}
         <Segmented className="w-full" size="sm" value={days} onChange={setDays} options={DAYS} />
-        {days > 30 && <p className="text-[11px] leading-snug text-muted">Longer than 30 days reads the saved candles (Account, Studies, Data tab), so download them first.</p>}
+        {days > 30 && <p className="text-[11px] leading-snug text-muted">Longer than 30 days reads the saved candles (Research, Data tab), so download them first.</p>}
         <div className="flex justify-end">
           <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin, autoFind: find, pairFind: pair, pairFirst: pairFirst || undefined, comboFind: finder, research, index, realPrices })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : finderOn ? 'Run finder' : 'Run study'}

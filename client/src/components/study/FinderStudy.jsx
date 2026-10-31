@@ -172,7 +172,7 @@ export function FinderStudy() {
           ) : (
             <Segmented className="w-full" size="sm" value={options ? days : Math.min(days, 15)} onChange={setDays} options={options ? OPTION_DAYS : SHARE_DAYS} />
           )}
-          <p className="text-[11px] leading-snug text-muted">Needs 10 trading days or more, at most 65 for options. Longer than 30 days reads the saved candles (Account, Studies, Data), so download them first.{!options && ' Shares can read the last 15 days, and have no stop research.'}</p>
+          <p className="text-[11px] leading-snug text-muted">Needs 10 trading days or more, at most 65 for options. Longer than 30 days reads the saved candles (Research, Data), so download them first.{!options && ' Shares can read the last 15 days, and have no stop research.'}</p>
         </div>
         <div className="flex justify-end">
           <button type="button" onClick={start} disabled={running || datesBad} className="btn btn-primary btn-sm shrink-0">

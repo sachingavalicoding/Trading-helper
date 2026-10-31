@@ -153,7 +153,7 @@ export function DayChart({ candles, warm = [], minutes = [], isIndex = false, ma
   }, [fullscreen]);
 
   if (!candles?.length) {
-    return <div style={{ height: height / 2 }} className="flex items-center justify-center rounded-xl bg-surface-2 px-6 text-center text-xs text-muted">No minute chart for this day. The broker keeps only the last few sessions, and a day you saved under Studies &gt; Data shows here.</div>;
+    return <div style={{ height: height / 2 }} className="flex items-center justify-center rounded-xl bg-surface-2 px-6 text-center text-xs text-muted">No minute chart for this day. The broker keeps only the last few sessions, and a day you saved under Research &gt; Data shows here.</div>;
   }
   const toggle = (id) => setIndicators((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
   const panes = active.filter((id) => INDICATORS.find((i) => i.id === id)?.pane).length;

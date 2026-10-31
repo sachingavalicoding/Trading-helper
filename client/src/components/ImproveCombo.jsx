@@ -110,7 +110,7 @@ export function ImproveCombo({ combos, trial, setTrial, improve, newEntries, loa
               </button>
             </div>
           )}
-          <p className="text-[11px] leading-snug text-muted">One day proves little: an indicator that skipped today's losers may also skip tomorrow's winners. To check it over 30 days or more, use Account &gt; Studies &gt; Finder and start from this combination.</p>
+          <p className="text-[11px] leading-snug text-muted">One day proves little: an indicator that skipped today's losers may also skip tomorrow's winners. To check it over 30 days or more, use Research use Account &gt; Studies &gt; Findergt; Finder and start from this combination.</p>
         </>
       )}
     </Card>

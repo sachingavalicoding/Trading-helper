@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronDown, ChevronRight, LayoutDashboard, ListOrdered, LogOut, Plus, RotateCcw, ScanSearch, SlidersHorizontal, Sun, Moon, Trash2, Wallet } from 'lucide-react';
+import { ChevronDown, ChevronRight, LayoutDashboard, ListOrdered, LogOut, Plus, RotateCcw, FlaskConical, SlidersHorizontal, Sun, Moon, Trash2, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
@@ -14,7 +14,7 @@ import { Card, Skeleton, Disclaimer, PopupTile, Sheet, useFold } from '../compon
 import { AutoLimits } from '../components/AutoCard.jsx';
 import { OptionsLimits, StopPlacement, Switch } from '../components/options/OptionsAutoCard.jsx';
 import { TrailStop } from '../components/options/TrailStop.jsx';
-import { EntryChoices, ReportsAndStudies } from '../components/study/ReportsStudies.jsx';
+import { EntryChoices } from '../components/study/ReportsStudies.jsx';
 
 function Row({ label, value, className = '' }) {
   return (
@@ -238,7 +238,7 @@ export default function Account() {
         {[
           { to: '/dashboard', label: 'P&L', hint: 'Profit and loss', icon: LayoutDashboard },
           { to: '/orders', label: 'Orders', hint: 'Every order', icon: ListOrdered },
-          { to: '/review', label: 'Review', hint: 'Calls vs results', icon: ScanSearch },
+          { to: '/research', label: 'Research', hint: 'Review, studies, finder', icon: FlaskConical },
         ].map(({ to, label, hint, icon: Icon }) => (
           <Link key={to} to={to} className="card-shadow flex flex-col items-start gap-1 rounded-2xl border border-line bg-surface p-3 transition-colors hover:border-accent2">
             <Icon className="h-5 w-5 text-accent2" />
@@ -250,7 +250,6 @@ export default function Account() {
         ))}
         <TradingRules />
         <EntryChoices />
-        <ReportsAndStudies />
       </div>
 
 
