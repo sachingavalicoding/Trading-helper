@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Segmented, Skeleton } from '../components/ui.jsx';
+import { CalendarSearch, Database, FlaskConical, ClipboardCopy, Search, TrendingUp } from 'lucide-react';
+import { Picker, Skeleton } from '../components/ui.jsx';
 import { DayReportButton } from '../components/DayReportButton.jsx';
 import { OptionsStudy } from '../components/options/OptionsStudy.jsx';
 import { SharesStudy } from '../components/study/SharesStudy.jsx';
@@ -10,22 +11,13 @@ import { HistoryData } from '../components/study/HistoryData.jsx';
 const Review = lazy(() => import('./Review.jsx'));
 
 export const RESEARCH_TABS = [
-  { value: 'review', label: 'Day review' },
-  { value: 'options', label: 'Options' },
-  { value: 'shares', label: 'Shares' },
-  { value: 'finder', label: 'Finder' },
-  { value: 'data', label: 'Data' },
-  { value: 'report', label: 'Report' },
+  { value: 'review', label: 'Day review', icon: CalendarSearch, hint: 'Every call against what happened, and improve a combination' },
+  { value: 'options', label: 'Options study', icon: TrendingUp, hint: 'Replay past candles: which option entries pay' },
+  { value: 'shares', label: 'Shares study', icon: FlaskConical, hint: 'Replay past candles: which share setups pay' },
+  { value: 'finder', label: 'Finder', icon: Search, hint: 'Extra checks that lift a combination, and its best stop and profit' },
+  { value: 'data', label: 'Saved data', icon: Database, hint: 'The candles and option prices the other sections read' },
+  { value: 'report', label: 'Day report', icon: ClipboardCopy, hint: 'Copy the day report to paste in the chat' },
 ];
-
-const HINTS = {
-  review: 'Pick a day and see every call against what happened. Improve a combination here too.',
-  options: 'Replay past candles to see which option entries pay.',
-  shares: 'Replay past candles to see which share setups pay.',
-  finder: 'Find the extra checks that make a combination win more, and its best stop and profit.',
-  data: 'The saved candles and option prices the other tabs read.',
-  report: 'Copy the day report to paste in the chat.',
-};
 
 /** Everything for looking back and improving, in one place: day review, studies, the finder, saved data and the day report. */
 export default function Research() {
@@ -39,15 +31,7 @@ export default function Research() {
   };
   return (
     <div className="space-y-3">
-      <div>
-        <h1 className="text-lg font-bold">
-          Re<span className="text-accent2">search</span>
-        </h1>
-        <p className="text-[11px] leading-snug text-muted">{HINTS[tab]}</p>
-      </div>
-      <div className="-mx-4 overflow-x-auto px-4">
-        <Segmented className="min-w-max" size="sm" value={tab} onChange={setTab} options={RESEARCH_TABS} />
-      </div>
+      <Picker title="Research section" value={tab} onChange={setTab} options={RESEARCH_TABS} />
       {tab === 'review' && (
         <Suspense fallback={<Skeleton className="h-64 w-full" />}>
           <Review embedded />
