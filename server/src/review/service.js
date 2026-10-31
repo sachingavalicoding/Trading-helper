@@ -9,6 +9,7 @@ import { summarizeLog } from '../auto/logSummary.js';
 import { INDEXES, DEFAULT_INDEX, UNDERLYING, lotSizeOf, optionLabel } from '../options/symbols.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { dayStory, reviewPatterns, warmBars } from './patterns.js';
+import { PriceBook } from '../study/priceBook.js';
 import { normalizeCombos } from '../combos/combos.js';
 import { stopRuleOf } from '../study/patterns.js';
 import { breakEvenOf, trailOf } from '../study/simulate.js';
@@ -172,7 +173,7 @@ export class ReviewService {
   }
 
   /** The Nifty chart of one day with every pattern that formed on it, and what a one-lot option buy at each would have done. */
-  async patterns(userId, day, index = DEFAULT_INDEX, checks = []) {
+  async patterns(userId, day, index = DEFAULT_INDEX, checks = [], { trial = null, real = true } = {}) {
     const idx = INDEXES[index];
     const [c1, rules, settings] = await Promise.all([this.market.getMinutes(idx.symbol, day), loadRules(userId, 'OPT'), OptionSettings.findOne({ user: userId }).lean()]);
     const params = {
@@ -191,7 +192,16 @@ export class ReviewService {
       breakEven: breakEvenOf(settings),
     };
     if (!c1.length) return { day, index, candles: [], signals: [], patterns: [] };
-    return { index, ...reviewPatterns({ c1, day, params, stocks5: await this.#savedStocks5(day), combos: normalizeCombos(settings?.combos), stopRule: stopRuleOf(settings), checks }) };
+    // real option premiums when they were saved for this day (priced from each contract's own candles); the model's estimate otherwise
+    let pricing = { mode: 'estimated' };
+    if (real) {
+      const book = await PriceBook.load(index, { from: day, to: day });
+      if (book.hasDay(day)) {
+        params.prices = book;
+        pricing = { mode: 'real', contracts: book.expiries(day).length };
+      }
+    }
+    return { index, pricing, ...reviewPatterns({ c1, day, params, stocks5: await this.#savedStocks5(day), combos: normalizeCombos(settings?.combos), stopRule: stopRuleOf(settings), checks, trial }) };
   }
 
   /** One stock on one day: its 5-minute chart, the news with what the price did after each headline, the ideas and the user's trades. */

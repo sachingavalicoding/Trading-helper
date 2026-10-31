@@ -458,7 +458,7 @@ function compactResearch(r, adverse) {
   if (!r || r.skipped) return null;
   const best = (group, n) => r.rows.filter((x) => x.group === group).sort((a, b) => (b.test?.net ?? b.net) - (a.test?.net ?? a.net) || b.net - a.net).slice(0, n);
   const stops = r.rows.filter((x) => x.group === 'stoprule').sort((a, b) => b.net - a.net);
-  const exits = [...best('stop', 2), ...best('ladder', 3), ...best('trail', 3)];
+  const exits = [...best('stop', 2), ...best('ladder', 5), ...best('trail', 3)];
   const steady = (x) => !r.split || (x.train?.net > 0 && x.test?.net > 0); // paid on the older and the newer days
   return { signals: r.signals, split: r.split, base: r.base, stops, exits, mix: r.mix, adverse, bestStop: stops.find(steady) ?? null, bestExit: exits.filter(steady).sort((a, b) => b.net - a.net)[0] ?? null };
 }
@@ -494,13 +494,14 @@ async function finders({ chart, inStudy, trainEnd, midTime = null, studyDays, co
     return rows;
   };
   const common = { indicators, have: chart.have, studyDays, trainEnd, evaluateMany, goal: params.pairGoal === 'winrate' ? 'winrate' : 'profit' };
-  const { first, bases, missing } = pairStart(params.pairFirst, params.combos);
+  const { first, bases, missing } = pairStart(params.pairFirst, params.combos, { parts: params.pairParts });
   const pairs = params.pairFind ? (missing ? { skipped: 'that combination is no longer saved' } : await findPairs({ ...common, first, bases, depth: params.finderOnly ? params.pairDepth ?? 3 : 1, show: params.pairShow })) : null;
   if (pairs?.anchors && params.finderOnly && params.pairResearch !== false && midTime != null) {
     // the stop and exit research for each starting point and for its best additions
     const own = new Map(bases.map((b) => [`combo:${b.id}`, comboStopRule((params.combos || []).find((c) => c.id === b.id))]));
     let n = 0;
-    const total = pairs.anchors.reduce((s, a) => s + 1 + Math.min(a.found.length, RESEARCH_TOP), 0);
+    const researched = pairs.anchors.filter((a) => !a.part); // the parts of a combination are only searched for partners, not researched
+    const total = researched.reduce((s, a) => s + 1 + Math.min(a.found.length, RESEARCH_TOP), 0);
     const research = async (a, conds, label) => {
       onProgress(`Research on stops and exits: ${++n}/${total} (${label})`);
       const combo = { id: a.key.replace(/^combo:/, ''), name: a.label, conds, need: conds.length, window: 3 };
@@ -508,11 +509,11 @@ async function finders({ chart, inStudy, trainEnd, midTime = null, studyDays, co
       if (signals.length < 5) return null;
       const rule = own.get(a.key) ?? params.stopRule ?? null;
       const p = { ...params, stopRule: rule };
-      const r = await runResearch({ signals, tradesFor: (sigs, { params: q }) => tradesFor(sigs, { c1: complete, byTime, params: q }), midTime, trainEnd, params: p, combo: a.key.startsWith('combo:') ? combo : null, onProgress: () => {}, yieldTurn });
+      const r = await runResearch({ signals, tradesFor: (sigs, { params: q }) => tradesFor(sigs, { c1: complete, byTime, params: q }), midTime, trainEnd, params: p, combo: a.key.startsWith('combo:') ? combo : null, grid: true, onProgress: () => {}, yieldTurn });
       const wide = tradesFor(signals, { c1: complete, byTime, params: { ...params, lossLimit: 0, fixedLots: 1, steps: params.steps, stopRule: { mode: 'atr', k: 2.5 } } }).trades;
       return compactResearch(r, adverseOf(wide));
     };
-    for (const a of pairs.anchors) {
+    for (const a of researched) {
       a.research = await research(a, a.conds, a.label);
       for (const f of a.found.slice(0, RESEARCH_TOP)) f.research = await research(a, f.conds, `${a.label} + ${f.added.join(' + ')}`);
     }

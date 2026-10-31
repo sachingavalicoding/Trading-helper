@@ -4,9 +4,24 @@ export const OPEN_MIN = 9 * 60 + 15; // 09:15
 export const CLOSE_MIN = 15 * 60 + 30; // 15:30
 export const SQUARE_OFF_MIN = 15 * 60 + 15; // 15:15 MIS auto square-off
 
-// Returns IST wall-clock parts for a Date, using UTC getters on a shifted timestamp.
+const partsCache = new Map(); // studies ask for the parts of the same minutes again and again
+const PARTS_CACHE_MAX = 200000;
+
+// Returns IST wall-clock parts for a Date, using UTC getters on a shifted timestamp. A whole-second moment is remembered; the result is frozen.
 export function istParts(date = new Date()) {
-  const d = new Date(date.getTime() + IST_OFFSET_MIN * 60000);
+  const ms = date.getTime();
+  if (ms % 1000 !== 0) return computeParts(ms);
+  let parts = partsCache.get(ms);
+  if (!parts) {
+    if (partsCache.size >= PARTS_CACHE_MAX) partsCache.clear();
+    parts = Object.freeze(computeParts(ms));
+    partsCache.set(ms, parts);
+  }
+  return parts;
+}
+
+function computeParts(ms) {
+  const d = new Date(ms + IST_OFFSET_MIN * 60000);
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, '0');
   const day = String(d.getUTCDate()).padStart(2, '0');

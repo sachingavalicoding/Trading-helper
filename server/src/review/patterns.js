@@ -111,6 +111,41 @@ export function biggestMoves(c1, day, signals, exitMin) {
   return out;
 }
 
+const entryKey = (s) => `${s.time}|${s.side}`;
+
+/** What adding one check to a combination would have changed on this day: the entries it skips (how many were losers) and the ones it adds. Draws the combination with the checks in `trial.add` as a pattern. */
+function improveCombo({ chart, combos, trial, day, lockNet, patterns, found }) {
+  const base = combos.find((c) => c.id === trial.id);
+  if (!base || missingData(base, chart.have).length) return { id: trial.id, missing: true };
+  const all = (conds) => ({ id: 'trial', name: base.name, conds, need: conds.length, window: base.window, stopMode: base.stopMode, stopAtr: base.stopAtr, stopPoints: base.stopPoints });
+  const entriesOf = (combo) => comboSignals(chart, combo, { label: 'trial' }).filter((x) => dayOf(x.time - 300) === day);
+  const baseSigs = entriesOf(all(base.conds));
+  const net = new Map(baseSigs.map((x) => [entryKey(x), lockNet(x)]));
+  const sum = (xs) => round2(xs.reduce((a, n) => a + n, 0));
+  const baseNets = [...net.values()].filter((n) => n != null);
+  const rows = [];
+  for (const cond of CONDITIONS) {
+    if (base.conds.includes(cond.key) || !usable(cond, chart.have) || cond.needs === 'news') continue;
+    const sigs = entriesOf(all([...base.conds, cond.key]));
+    const keep = new Set(sigs.map(entryKey));
+    const skipped = baseSigs.filter((x) => !keep.has(entryKey(x))).map((x) => net.get(entryKey(x))).filter((n) => n != null);
+    const kept = baseSigs.filter((x) => keep.has(entryKey(x))).map((x) => net.get(entryKey(x))).filter((n) => n != null);
+    const added = sigs.filter((x) => !net.has(entryKey(x))).map(lockNet).filter((n) => n != null);
+    if (!skipped.length && !added.length) continue;
+    const losers = skipped.filter((n) => n <= 0);
+    rows.push({ key: cond.key, label: cond.label, group: cond.group, kept: { trades: kept.length, wins: kept.filter((n) => n > 0).length, net: sum(kept) }, skipped: { trades: skipped.length, losers: losers.length, losersNet: sum(losers), winners: skipped.length - losers.length, winnersNet: sum(skipped.filter((n) => n > 0)) }, added: { trades: added.length, net: sum(added) }, gain: round2(-sum(skipped) + sum(added)) });
+  }
+  rows.sort((a, b) => b.gain - a.gain);
+  const add = (trial.add || []).filter((k) => CONDITION_BY_KEY.has(k) && !base.conds.includes(k) && usable(CONDITION_BY_KEY.get(k), chart.have));
+  if (add.length) {
+    const key = `trial:${base.id}`;
+    const conds = [...base.conds, ...add];
+    patterns.push({ key, label: `Trial: ${base.name} + ${add.map((k) => CONDITION_BY_KEY.get(k).label).join(' + ')}`, text: describeCombo(all(conds)), trial: true });
+    for (const x of entriesOf(all(conds))) found.push({ ...x, technique: key, why: heldConditions(chart, all(conds), x.side === 'CE' ? 1 : -1, x.i) });
+  }
+  return { id: base.id, name: base.name, conds: base.conds, add, base: { trades: baseNets.length, wins: baseNets.filter((n) => n > 0).length, net: sum(baseNets) }, rows: rows.slice(0, 40) };
+}
+
 const WARM_BARS = 150; // earlier 5-minute bars sent with a day, so the chart's indicators have context from its first candle
 
 /** The 5-minute bars before `day`, newest last, for indicator warm-up. */
@@ -187,8 +222,9 @@ export function dayStory(bars5, { minSwing = 0 } = {}) {
  * @param combos  the user's own combinations (normalized), traded like patterns
  * @param stopRule the user's stop rule (see ruleStop), applied to every signal; the chart level when null
  * @param checks  keys of single checks (indicators) to draw as signals as well; every usable check is also listed in `checks` and scored for the day in `checkStats`
+ * @param trial   { id, add: [check keys] }: one of your combinations to improve. Every other check is tried added to it (all must hold) and the day's entries it would have skipped or added are counted (`improve`); with `add`, that new combination is drawn like a pattern
  */
-export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], stopRule = null, checks = [] }) {
+export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], stopRule = null, checks = [], trial = null }) {
   const exitMin = params.exitMin ?? EXIT_MIN;
   let bars5 = aggregateCandles(c1, '5m');
   if (bars5.length && bars5.at(-1).time + 300 > c1.at(-1).time + 60) bars5 = bars5.slice(0, -1); // the last bucket is still forming
@@ -245,6 +281,7 @@ export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], s
     })
     .filter((x) => x.signals > 0)
     .sort((a, b) => b.net - a.net);
+  const improve = trial ? improveCombo({ chart, combos, trial, day, lockNet, patterns, found }) : null;
   const signals = [];
   for (const s of found.sort((a, b) => a.time - b.time || a.technique.localeCompare(b.technique))) {
     const startIdx = byTime.get(s.time);
@@ -300,6 +337,7 @@ export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], s
     combosSkipped,
     checks: checkList,
     checkStats,
+    improve,
     stopRule: stopRule ?? { mode: 'chart' },
     exits: { lockStart: params.lockStart, lockGap: params.lockGap, steps: params.steps ?? [{ at: params.lockStart, keep: params.lockStart - params.lockGap }], lossLimit: params.lossLimit, target: TARGET_PER_LOT, exitMin },
   };

@@ -54,10 +54,10 @@ export function saveWatch(list) {
 }
 
 /** "Breakout of the last hour" -> "Breakout"; the long label is on the pattern's own text. */
-export const shortLabel = (label) => (String(label).startsWith('Mine: ') || String(label).startsWith('Check: ') ? String(label) : String(label).split(/ (?:of|at|in|\/)|,/)[0]);
+export const shortLabel = (label) => (String(label).startsWith('Mine: ') || String(label).startsWith('Check: ') || String(label).startsWith('Trial: ') ? String(label) : String(label).split(/ (?:of|at|in|\/)|,/)[0]);
 
 /** The tag drawn beside an arrow: the pattern's own code, or MY for one of your combinations. */
-export const codeOf = (technique) => CODE[technique] || (String(technique).startsWith('combo:') ? 'MY' : String(technique).startsWith('check:') ? 'IND' : technique);
+export const codeOf = (technique) => CODE[technique] || (String(technique).startsWith('combo:') ? 'MY' : String(technique).startsWith('check:') ? 'IND' : String(technique).startsWith('trial:') ? 'NEW' : technique);
 
 /** The indicator keys among the watched keys: they are asked for from the server, which draws only those. */
 export const checksOf = (watch) => watch.filter((k) => String(k).startsWith('check:')).map((k) => k.slice(6));
@@ -72,7 +72,7 @@ export function skipText(s, exits) {
   if (s.skipped === 'far') return 'Its stop is too far from the entry, so the bot skips it.';
   if (s.skipped === 'limit') return `Even one lot loses more than the ₹${exits?.lossLimit ?? ''} loss limit at its stop, so the bot skips it.`;
   if (s.skipped === 'late') return `It formed at or after the ${timeText(exits?.exitMin ?? DEFAULT_EXIT_MIN)} exit time, so no trade is taken.`;
-  if (s.skipped === 'price') return 'No option price could be worked out for that moment.';
+  if (s.skipped === 'price') return 'No option price could be worked out for that moment (with real prices on, that contract was not saved).';
   return '';
 }
 
@@ -114,4 +114,13 @@ const SKIP_SHORT = { far: 'stop too far', limit: 'over the loss limit', late: 'a
 export function whyText(why) {
   if (!why?.length) return '';
   return why.map((w) => (w.held ? `✓ ${w.label}` : `– ${w.label}`)).join('  ');
+}
+
+/** One tried check in words: "skips 2 entries (2 losers −₹4,100), keeps 4, adds 1 (+₹900)". */
+export function improveLine(x) {
+  const k = x.skipped;
+  const parts = [k.trades ? `skips ${k.trades} ${k.trades === 1 ? 'entry' : 'entries'} (${k.losers} ${k.losers === 1 ? 'loser' : 'losers'} ${formatPnl(k.losersNet)}${k.winners ? `, ${k.winners} ${k.winners === 1 ? 'winner' : 'winners'} ${formatPnl(k.winnersNet)}` : ''})` : 'skips nothing'];
+  parts.push(`keeps ${x.kept.trades}`);
+  if (x.added.trades) parts.push(`adds ${x.added.trades} (${formatPnl(x.added.net)})`);
+  return parts.join(', ');
 }

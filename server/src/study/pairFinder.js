@@ -14,15 +14,33 @@ const SHOW = 5; // partners kept per starting check
 const MAX_BASES = 6; // "all my combinations" starts from at most this many of the switched-on ones
 
 /** What `pairFirst` names: a saved combination (`combo:<id>`) to add checks to, all the switched-on ones (`combo:*`), or a single check; none of those when it is left out. */
-export function pairStart(pairFirst, combos = []) {
+export function pairStart(pairFirst, combos = [], { parts = false } = {}) {
   if (!pairFirst) return { first: null, bases: [], missing: false };
   if (!pairFirst.startsWith('combo:')) return { first: pairFirst, bases: [], missing: false };
   const pick = pairFirst === 'combo:*' ? combos.filter((c) => c.on !== false).slice(0, MAX_BASES) : combos.filter((x) => `combo:${x.id}` === pairFirst);
-  return { first: null, bases: pick.map((c) => ({ id: c.id, name: c.name, conds: c.conds })), missing: !pick.length };
+  const bases = [];
+  for (const c of pick) {
+    if (parts) bases.push(...partsOf(c));
+    bases.push({ id: c.id, name: c.name, conds: c.conds });
+  }
+  return { first: null, bases: bases.slice(0, MAX_ANCHORS), missing: !pick.length };
+}
+
+const MAX_ANCHORS = 14;
+const nameOf = (k) => CONDITION_BY_KEY.get(k)?.label ?? k;
+
+/** The parts of a combination of 2 or more checks, as starting points of their own: each check alone, then (for 3 or more) each pair of them. The whole combination follows. */
+function partsOf(c) {
+  if (c.conds.length < 2) return [];
+  const out = c.conds.map((k) => ({ id: `${c.id}~${k}`, name: nameOf(k), conds: [k], part: true, of: c.name }));
+  if (c.conds.length >= 3) {
+    for (let i = 0; i < c.conds.length; i++) for (let j = i + 1; j < c.conds.length; j++) out.push({ id: `${c.id}~${c.conds[i]}+${c.conds[j]}`, name: `${nameOf(c.conds[i])} + ${nameOf(c.conds[j])}`, conds: [c.conds[i], c.conds[j]], part: true, of: c.name });
+  }
+  return out;
 }
 
 const asAnchor = (c) => ({ key: c.key, label: c.label, group: c.group, conds: [c.key] });
-const asBase = (b) => ({ key: `combo:${b.id}`, label: b.name, group: 'My combination', conds: b.conds });
+const asBase = (b) => ({ key: b.part ? `part:${b.id}` : `combo:${b.id}`, label: b.name, group: b.part ? `Part of ${b.of}` : 'My combination', conds: b.conds, ...(b.part ? { part: true, of: b.of } : {}) });
 
 /** The things to add checks to: your saved combinations, the chosen check, or the best few that made money on their own with enough trades. */
 export function pickAnchors(indicators, have, first, bases = []) {
@@ -132,7 +150,7 @@ export async function findPairs({ indicators, have, first = null, bases = [], de
         const added = extra(r.conds);
         return { ...shown(r, labelOf, Math.round((r.all.net - alone.all.net) * 100) / 100), added: added.map(labelOf), addedKeys: added, depth: added.length, skipped: alone.all.trades - r.all.trades, skips: skippedOf(alone, r), winRateLift: r.all.winRate == null || alone.all.winRate == null ? null : Math.round((r.all.winRate - alone.all.winRate) * 10) / 10 };
       });
-    return { key: a.key, label: a.label, group: a.group, conds: a.conds, trades: alone.all.trades, winRate: alone.all.winRate, net: alone.all.net, calls: alone.all.calls, puts: alone.all.puts, train: alone.train, test: alone.test, found };
+    return { key: a.key, label: a.label, group: a.group, ...(a.part ? { part: true, of: a.of } : {}), conds: a.conds, trades: alone.all.trades, winRate: alone.all.winRate, net: alone.all.net, calls: alone.all.calls, puts: alone.all.puts, train: alone.train, test: alone.test, found };
   });
   const trainDays = Math.floor((studyDays * 2) / 3);
   return { tried, auto: !first && !bases.length, addOn: bases.length > 0, deep, depth, goal, trainDays, testDays: studyDays - trainDays, minTrain: PAIR_MIN_TRAIN, minTest: PAIR_MIN_TEST, anchors: out };

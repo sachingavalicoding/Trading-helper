@@ -66,7 +66,15 @@ export function weeklyExpiries(now = new Date(), { count = 3, weekday = DEFAULT_
 }
 
 /** The moment a contract stops trading: 15:30 IST on its expiry date. */
-export const expiryInstant = (expiry) => istTimeOn(new Date(`${expiry}T06:00:00Z`), CLOSE_MIN);
+const instants = new Map(); // expiry date -> its closing Date: a study asks for the same few thousands of times
+export const expiryInstant = (expiry) => {
+  let at = instants.get(expiry);
+  if (!at) {
+    at = istTimeOn(new Date(`${expiry}T06:00:00Z`), CLOSE_MIN);
+    instants.set(expiry, at);
+  }
+  return at;
+};
 
 /** Years left to expiry, for the pricing model. Never zero, so a contract about to expire still prices. */
 export function yearsToExpiry(expiry, now = new Date()) {

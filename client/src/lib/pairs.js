@@ -40,7 +40,7 @@ export function pairsText(pf, callWord = 'Calls', putWord = 'Puts') {
   const win = winnerText(pf);
   const lines = ['', ...(win ? [win, ''] : []), `Pair finder (${pf.tried} pairs tried; learned on the older ${pf.trainDays} days, checked on the newer ${pf.testDays} days it had not seen):`];
   for (const a of pf.anchors) {
-    lines.push(`Starting from ${a.label}: ${part(a)}; older ${part(a.train)}; newer ${part(a.test)}`);
+    lines.push(`Starting from ${a.part ? `${a.label} (part of ${a.of})` : a.label}: ${part(a)}; older ${part(a.train)}; newer ${part(a.test)}`);
     if (a.research) lines.push(comboResearchText(a.research, a.label));
     if (!a.found.length) lines.push('  No partner made money on both the older and the newer days.');
     for (const f of a.found) {
