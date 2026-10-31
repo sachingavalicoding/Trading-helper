@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LineChart, Briefcase, UserRound, Radar, Sun, Moon, CandlestickChart, Newspaper } from 'lucide-react';
+import { LineChart, Briefcase, UserRound, FlaskConical, Sun, Moon, CandlestickChart, Newspaper } from 'lucide-react';
 import { IndexStrip } from './IndexStrip.jsx';
 import { MarketStatus } from './MarketStatus.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
@@ -7,7 +7,7 @@ import { Disclaimer } from './ui.jsx';
 
 const NAV = [
   { to: '/', label: 'Stocks', icon: LineChart, end: true },
-  { to: '/scanner', label: 'Scanner', icon: Radar },
+  { to: '/research', label: 'Research', icon: FlaskConical },
   { to: '/options', label: 'Options', icon: CandlestickChart },
   { to: '/news', label: 'News', icon: Newspaper },
   { to: '/positions', label: 'Trades', icon: Briefcase },

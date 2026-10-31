@@ -347,7 +347,7 @@ function PatternsTab({ day }) {
     return (
       <div className="space-y-3">
         {indexPicker}
-        <EmptyState title={`No ${idx.short} minute chart for this day`}>It may be a holiday, or older than the broker keeps minute candles{index === 'SENSEX' ? '. For the Sensex, press Download once in Account, Studies, Data so its candles are saved' : ''}.</EmptyState>
+        <EmptyState title={`No ${idx.short} minute chart for this day`}>It may be a holiday, or older than the broker keeps minute candles{index === 'SENSEX' ? '. For the Sensex, press Download once in Research, Data so its candles are saved' : ''}.</EmptyState>
       </div>
     );
   }
@@ -470,7 +470,7 @@ function PatternsTab({ day }) {
           <Money label={`Booking ₹${data.exits.target} a lot`} value={totals.target} />
         </div>
       )}
-      {chosen.length > 0 && <p className="text-center text-[11px] text-muted">If each one had been taken on its own. Several can overlap in time, so the bot would not take them all. One day proves nothing: check the Studies for 30 days.</p>}
+      {chosen.length > 0 && <p className="text-center text-[11px] text-muted">If each one had been taken on its own. Several can overlap in time, so the bot would not take them all. One day proves nothing: check the Options study for 30 days.</p>}
 
       {picked && <SignalDetail s={picked} pattern={patternOf(picked.technique)} exits={data.exits} name={idx.short} />}
 
@@ -706,7 +706,7 @@ function TechniquesTab() {
 }
 
 /** Look back at the calls: what the morning news and the scanner said against what each stock did, and which techniques paid. */
-export default function Review() {
+export default function Review({ embedded = false }) {
   const [params] = useSearchParams();
   const [tab, setTab] = useState('stocks');
   const today = istToday();
@@ -715,14 +715,16 @@ export default function Review() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-lg font-bold">
-          Calls <span className="text-accent2">vs results</span>
-        </h1>
-        <Link to="/news" className="btn btn-secondary btn-sm">
-          News
-        </Link>
-      </div>
+      {!embedded && (
+        <div className="flex items-center justify-between gap-2">
+          <h1 className="text-lg font-bold">
+            Calls <span className="text-accent2">vs results</span>
+          </h1>
+          <Link to="/news" className="btn btn-secondary btn-sm">
+            News
+          </Link>
+        </div>
+      )}
       <Segmented className="w-full" value={tab} onChange={setTab} options={TABS} />
 
       {tab !== 'techniques' && (

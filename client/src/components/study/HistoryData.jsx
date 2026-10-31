@@ -9,7 +9,7 @@ import { Badge, Card, Skeleton } from '../ui.jsx';
 const JOB_TONE = { running: 'accent', done: 'up', partial: 'warn', failed: 'down' };
 const JOB_WORD = { running: 'Downloading', done: 'Finished', partial: 'Finished, some failed', failed: 'Failed' };
 
-/** Account > Studies > Data: the three months of 1-minute candles saved in the database, which the studies and Review read. */
+/** Research > Data: the three months of 1-minute candles saved in the database, which the studies and Review read. */
 export function HistoryData() {
   const { data, error, reload } = useApi('/history');
   const [starting, setStarting] = useState(false);
