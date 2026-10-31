@@ -117,9 +117,13 @@ export function FinderStudy() {
           <Search className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
           <div>
             <h3 className="text-sm font-semibold">Combination finder</h3>
-            <p className="text-[11px] leading-snug text-muted">
-              Pick a combination (or the best single indicators) and it tries every other check, then the best two and three together, to find the ones that raise the win rate and skip the bad entries. Each is learned on the older two thirds of the days and checked on the newer third it never saw, then the best stop and profit setting is found for it. Only this runs, so it takes a few minutes. Past candles only: no live setting changes.
-            </p>
+            <p className="text-[11px] leading-snug text-muted">Find the extra checks that make a combination win more and skip its bad entries.</p>
+            <details className="mt-1 text-[11px] leading-snug text-muted">
+              <summary className="cursor-pointer font-semibold text-accent">How it works</summary>
+              <p className="mt-1">
+                Pick a combination (or the best single indicators) and it tries every other check, then the best two and three together. Each is learned on the older two thirds of the days and checked on the newer third it never saw, then the best stop and profit setting is found for it. Only this runs, so it takes a few minutes. Past candles only: no live setting changes.
+              </p>
+            </details>
           </div>
         </div>
         <Segmented className="w-full" size="sm" value={kind} onChange={setKind} options={[{ value: 'options', label: 'Options' }, { value: 'shares', label: 'Shares' }]} />

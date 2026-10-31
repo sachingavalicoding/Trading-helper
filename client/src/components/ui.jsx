@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, X } from 'lucide-react';
 
 export function Skeleton({ className = '' }) {
   return <div className={`skeleton ${className}`} aria-hidden="true" />;
@@ -14,10 +14,12 @@ export function Card({ className = '', children, ...rest }) {
 }
 
 /** Pill-style segmented control. options: [{ value, label }] */
-export function Segmented({ options, value, onChange, className = '', size = 'md' }) {
+export function Segmented({ options, value, onChange, className = '', size = 'md', cols = 0 }) {
   const pad = size === 'sm' ? 'px-3 py-1 text-xs' : 'px-4 py-2 text-sm';
+  // cols: lay the choices out in a grid of that many columns, so they wrap onto rows and never run off the screen
+  const layout = cols ? `grid gap-1 ${cols === 2 ? 'grid-cols-2' : 'grid-cols-3'}` : 'inline-flex';
   return (
-    <div role="tablist" className={`inline-flex rounded-xl border border-line bg-surface-2 p-1 ${className}`}>
+    <div role="tablist" className={`${layout} rounded-xl border border-line bg-surface-2 p-1 ${className}`}>
       {options.map((o) => (
         <button
           key={o.value}
@@ -181,5 +183,64 @@ export function Sheet({ title, subtitle, onClose, children }) {
         <div className="px-4 pb-4">{children}</div>
       </div>
     </div>
+  );
+}
+
+
+/**
+ * One button that shows the current choice and opens a bottom sheet to change it. Fits any number of choices on a phone,
+ * where a row of tabs would run off the edge. Each option is { value, label, hint, icon }.
+ */
+export function Picker({ title, options, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const cur = options.find((o) => o.value === value) || options[0];
+  const Icon = cur.icon;
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} aria-haspopup="dialog" className="card-shadow flex w-full items-center gap-3 rounded-2xl border border-line bg-surface px-3 py-2.5 text-left transition-colors hover:border-accent2">
+        {Icon && (
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent2-soft text-accent2">
+            <Icon className="h-[18px] w-[18px]" />
+          </span>
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="block text-[10px] font-semibold uppercase tracking-wider text-muted">{title}</span>
+          <span className="block truncate text-[15px] font-semibold">{cur.label}</span>
+        </span>
+        <span className="flex items-center gap-1 text-xs font-semibold text-accent">
+          Change <ChevronDown className="h-4 w-4" />
+        </span>
+      </button>
+      {open && (
+        <Sheet title={title} onClose={() => setOpen(false)}>
+          <ul className="space-y-1.5">
+            {options.map((o) => {
+              const OIcon = o.icon;
+              const on = o.value === value;
+              return (
+                <li key={o.value}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChange(o.value);
+                      setOpen(false);
+                    }}
+                    aria-current={on}
+                    className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left ${on ? 'border-accent bg-accent-soft' : 'border-line bg-surface-2 hover:border-accent2'}`}
+                  >
+                    {OIcon && <OIcon className="h-5 w-5 shrink-0 text-accent2" />}
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold">{o.label}</span>
+                      {o.hint && <span className="block text-[11px] leading-snug text-muted">{o.hint}</span>}
+                    </span>
+                    {on && <Check className="h-4 w-4 shrink-0 text-accent" />}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </Sheet>
+      )}
+    </>
   );
 }

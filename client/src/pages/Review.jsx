@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Children, cloneElement, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Lightbulb } from 'lucide-react';
 import { useApi } from '../lib/useApi.js';
@@ -12,7 +12,7 @@ import { ReviewChart } from '../components/ReviewChart.jsx';
 import { PatternChart } from '../components/PatternChart.jsx';
 import { ImproveCombo } from '../components/ImproveCombo.jsx';
 import { ReviewStockSheet } from '../components/ReviewStockSheet.jsx';
-import { Badge, Card, EmptyState, Segmented, Skeleton } from '../components/ui.jsx';
+import { Badge, Card, EmptyState, Fold, Segmented, Skeleton } from '../components/ui.jsx';
 
 const TABS = [
   { value: 'stocks', label: 'Stocks' },
@@ -69,7 +69,7 @@ function StocksTab({ day, onPick }) {
           <EmptyState title="No calls on this day">Nothing was tagged in the morning news and the scanner raised no ideas.</EmptyState>
         ) : (
           <div className="overflow-x-auto">
-            <table className="grid-table">
+            <table className="grid-table stack-table cols-4">
               <thead>
                 <tr>
                   <th scope="col" className="sticky left-0 z-20 bg-surface">
@@ -88,14 +88,14 @@ function StocksTab({ day, onPick }) {
                     <tr key={r.symbol} tabIndex={0} onClick={() => onPick(r.symbol)} onKeyDown={(e) => e.key === 'Enter' && onPick(r.symbol)} aria-label={`${r.symbol}, tap for the day`}>
                       <td className="sticky left-0 z-10 bg-surface">
                         <div className="text-sm font-semibold">{r.symbol}</div>
-                        <div className="max-w-[6rem] truncate text-[11px] text-muted">
+                        <div className="truncate text-[11px] text-muted sm:max-w-[6rem]">
                           {call.text} · {call.sub}
                         </div>
                       </td>
-                      <td className={`num font-semibold ${pnlClass(r.move?.openToClosePct)}`}>{pctText(r.move?.openToClosePct)}</td>
-                      <td className="num text-up">{pctText(r.move?.openToHighPct)}</td>
-                      <td className="num text-down">{pctText(r.move?.openToLowPct)}</td>
-                      <td>
+                      <td data-label="Day" className={`num font-semibold ${pnlClass(r.move?.openToClosePct)}`}>{pctText(r.move?.openToClosePct)}</td>
+                      <td data-label="High" className="num text-up">{pctText(r.move?.openToHighPct)}</td>
+                      <td data-label="Dip" className="num text-down">{pctText(r.move?.openToLowPct)}</td>
+                      <td data-label="Result">
                         <Verdict result={call.result} />
                         {r.news && r.ideas.length > 0 && <div className="mt-0.5 text-[10px] text-muted">idea: {r.ideas[0].status === 'TARGET_HIT' ? 'target' : r.ideas[0].status === 'STOPPED' ? 'stopped' : r.ideas[0].status.toLowerCase()}</div>}
                       </td>
@@ -500,10 +500,14 @@ function PatternsTab({ day }) {
   );
 }
 
+/** Wide table on a big screen; on a phone each row is a small card with every value labelled (see .stack-table). */
 function Table({ head, rows }) {
+  const labelled = (rows || []).map((tr) =>
+    tr?.props ? cloneElement(tr, {}, Children.toArray(tr.props.children).map((td, i) => (i > 0 && td?.props ? cloneElement(td, { 'data-label': head[i] }) : td))) : tr,
+  );
   return (
     <div className="overflow-x-auto">
-      <table className="grid-table">
+      <table className="grid-table stack-table">
         <thead>
           <tr>
             {head.map((h) => (
@@ -513,7 +517,7 @@ function Table({ head, rows }) {
             ))}
           </tr>
         </thead>
-        <tbody className="[&_tr]:cursor-default">{rows}</tbody>
+        <tbody className="[&_tr]:cursor-default">{labelled}</tbody>
       </table>
     </div>
   );
@@ -547,8 +551,7 @@ function TechniquesTab() {
         </p>
       </Card>
 
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold">Technique families (scanner ideas, in risk units)</h2>
+      <Fold plain id="tech1" title="Technique families (scanner ideas, in risk units)" defaultOpen={true}>
         <Card className="overflow-hidden">
           <Table
             head={['Family', 'Ideas', 'Hit target 1', 'Avg R', 'Total R']}
@@ -580,11 +583,10 @@ function TechniquesTab() {
             ))}
           />
         </Card>
-      </section>
+      </Fold>
 
       {scanner.byCheck.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="text-sm font-semibold">Which chart checks helped (RSI, VWAP, volume ...)</h2>
+        <Fold plain id="tech2" title="Which chart checks helped (RSI, VWAP, volume ...)" defaultOpen={true}>
           <Card className="overflow-hidden">
             <Table
               head={['Check', 'With it', 'Without', 'Lift']}
@@ -603,11 +605,10 @@ function TechniquesTab() {
             />
           </Card>
           <p className="text-[11px] text-muted">Average result of ideas where the check earned at least half its points, against ideas where it did not. Lift is the difference.</p>
-        </section>
+        </Fold>
       )}
 
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold">How stocks followed each kind of news</h2>
+      <Fold plain id="tech3" title="How stocks followed each kind of news" defaultOpen={false}>
         <Card className="overflow-hidden">
           {news.byCategory.length === 0 ? (
             <EmptyState title="No finished news calls yet">Needs headlines from before an open and that day's close.</EmptyState>
@@ -627,10 +628,9 @@ function TechniquesTab() {
             />
           )}
         </Card>
-      </section>
+      </Fold>
 
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold">Your paper trades</h2>
+      <Fold plain id="tech4" title="Your paper trades" defaultOpen={false}>
         <Card className="overflow-hidden">
           {trades.equity.closed === 0 && trades.options.closed === 0 ? (
             <EmptyState title="No closed auto trades in this period" />
@@ -680,11 +680,10 @@ function TechniquesTab() {
             </>
           )}
         </Card>
-      </section>
+      </Fold>
 
       {scanner.byHour.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="text-sm font-semibold">By hour the idea was raised</h2>
+        <Fold plain id="tech5" title="By hour the idea was raised" defaultOpen={false}>
           <Card className="overflow-hidden">
             <Table
               head={['Hour', 'Ideas', 'Hit', 'Avg R']}
@@ -698,7 +697,7 @@ function TechniquesTab() {
               ))}
             />
           </Card>
-        </section>
+        </Fold>
       )}
       <p className="text-center text-[11px] leading-snug text-muted">{data.disclaimer}</p>
     </div>
@@ -725,7 +724,7 @@ export default function Review({ embedded = false }) {
           </Link>
         </div>
       )}
-      <Segmented className="w-full" value={tab} onChange={setTab} options={TABS} />
+      <Segmented className="w-full" cols={2} value={tab} onChange={setTab} options={TABS} />
 
       {tab !== 'techniques' && (
         <div className="flex items-center justify-between gap-2">
