@@ -535,6 +535,11 @@ test('Review can try a check on top of one of your combinations: which entries i
     assert.equal(x.gain, Math.round((-(x.skipped.losersNet + x.skipped.winnersNet) + x.added.net) * 100) / 100);
   }
   assert.ok(!plain.patterns.some((p) => p.trial), 'nothing is drawn until a check is added');
+  const tr = im.tries;
+  assert.equal(tr.of, 'combination');
+  assert.equal(tr.now.net, im.base.net, 'the baseline row is the combination as it trades now');
+  for (const g of ['stoprule', 'ladder', 'trail']) assert.ok(tr.rows.some((r) => r.group === g), `${g} rows are tried`);
+  assert.ok(tr.rows.every((r) => r.gain === Math.round((r.net - tr.now.net) * 100) / 100 && r.wins <= r.trades));
   const key = im.rows[0].key;
   const drawn = reviewPatterns({ c1, day, params, combos: [mine], trial: { id: 'm', add: [key, 'nope', 'rsiAbove50'] } });
   assert.deepEqual(drawn.improve.add, [key], 'unknown checks and ones already in the combination are ignored');
