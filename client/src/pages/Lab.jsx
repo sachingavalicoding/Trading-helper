@@ -5,11 +5,13 @@ import { api } from '../lib/api.js';
 import { useApi } from '../lib/useApi.js';
 import { formatPnl as rawPnl, formatPrice, pnlClass } from '../lib/format.js';
 import { canAdd, withFound } from '../lib/autoFind.js';
-import { LAB_DAYS, LAB_PRICES, addonLine, dayWord, entryStory, exitStory, entryMarkers, equityPath, equityRange, exitWord, fixLine, labPath, togglePick, whenText } from '../lib/lab.js';
+import { LAB_DAYS, LAB_PRICES, addonLine, exitsPath, dayWord, entryStory, exitStory, entryMarkers, equityPath, equityRange, exitWord, fixLine, labPath, togglePick, whenText } from '../lib/lab.js';
 import { VERDICT } from '../lib/combos.js';
 import { whyText } from '../lib/patternReview.js';
 import { LabChart } from '../components/LabChart.jsx';
 import { TradeChart } from '../components/TradeChart.jsx';
+import { ComboResearch } from '../components/study/ComboResearch.jsx';
+import { bestOf } from '../lib/research.js';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { Badge, Card, EmptyState, Fold, Segmented, Skeleton } from '../components/ui.jsx';
 
@@ -173,6 +175,57 @@ function EntryDetail({ r, e, entries, onPick, onClose }) {
           ) : (
             <p className="text-[11px] text-muted">No single check skips this entry on these days. It looked like the winners on every check tried.</p>
           )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** The best stop, profit ladder, trailing stop and break-even for the start (and the picked checks), tried on the same days. Asked for on its own: it takes a few seconds. */
+function BestExits({ path, own, onApplied }) {
+  const [state, setState] = useState({ key: null, loading: false, data: null, error: null });
+  const mine = state.key === path ? state : { key: path, loading: false, data: null, error: null };
+  async function find() {
+    setState({ key: path, loading: true, data: null, error: null });
+    try {
+      const d = await api(path);
+      setState({ key: path, loading: false, data: d.research, error: null });
+    } catch (e) {
+      setState({ key: path, loading: false, data: null, error: e.message || 'Could not run it' });
+    }
+  }
+  const r = mine.data;
+  const best = r && !r.skipped ? bestOf(r) : null;
+  return (
+    <Card className="space-y-2 border-accent/40 p-3">
+      <h3 className="text-sm font-semibold text-accent">Best stop and profit ladder</h3>
+      <p className="text-[11px] leading-snug text-muted">Tries about 18 stops, 40 ladder shapes, trailing stops and break-even on the same entries (with your picked indicators), one change at a time. A setting counts only if it also paid on the newer days it was not chosen on.</p>
+      <button type="button" className="btn btn-primary w-full" disabled={mine.loading} onClick={find}>{mine.loading ? 'Trying the settings…' : r ? 'Run again' : 'Find the best stop and ladder'}</button>
+      {mine.error && <p className="text-xs text-down">{mine.error}</p>}
+      {r?.skipped && <p className="text-xs text-warn">{r.skipped}</p>}
+      {best && (
+        <div className="space-y-2">
+          <div className="grid grid-cols-1 gap-2 text-xs">
+            <div className="rounded-lg bg-surface-2 p-2.5">
+              <div className="text-[10px] text-muted">Your settings now</div>
+              <div className="num"><b className={pnlClass(r.base.net)}>{formatPnl(r.base.net)}</b> · {r.base.trades} entries · {r.base.winRate ?? '–'}% win</div>
+            </div>
+            {[['Best stop', best.stop], ['Best profit setting', best.exit]].map(([label, x]) => (
+              <div key={label} className="rounded-lg bg-surface-2 p-2.5">
+                <div className="text-[10px] text-muted">{label}</div>
+                {x ? (
+                  <>
+                    <div className="font-semibold">{x.label.replace(/^Stop at /, 'Stop ')}</div>
+                    <div className="num text-[11px]"><b className={pnlClass(x.net)}>{formatPnl(x.net)}</b> · {x.trades} entries · {x.winRate ?? '–'}% win · worst {formatPnl(x.worst)}</div>
+                    {x.text && <div className="text-[11px] leading-snug text-muted">{x.text}</div>}
+                  </>
+                ) : (
+                  <div className="text-[11px] text-muted">Nothing paid on both the older and the newer days.</div>
+                )}
+              </div>
+            ))}
+          </div>
+          <ComboResearch r={r} own={own} onApplied={onApplied} />
         </div>
       )}
     </Card>
@@ -394,6 +447,8 @@ export default function Lab({ embedded = false }) {
             )}
             <p className="text-[11px] text-muted">With about 100 indicators tried, a few will look good by luck. Prefer one that removes losers on both the older and the newer half, and paper-test it.</p>
           </Card>
+
+          <BestExits path={exitsPath({ base, add, days, prices })} own={comboBase} onApplied={own.reload} />
 
           <Card className="space-y-2 p-3">
             <h3 className="text-sm font-semibold">All entries ({r.entries.length})</h3>

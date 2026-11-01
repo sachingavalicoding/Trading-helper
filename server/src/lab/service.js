@@ -82,7 +82,19 @@ export class LabService {
   /**
    * @param prices 'mixed' (real premiums on the days they were saved, the model's estimate on the others), 'real' (only the saved days) or 'estimated'
    */
-  async run(userId, { base, add = [], from = null, to = null, days = 22, index = 'NIFTY', prices = 'mixed' }) {
+  async run(userId, opts) {
+    const { add = [] } = opts;
+    const { ctx, mode, params } = await this.#context(userId, opts);
+    return { index: opts.index ?? 'NIFTY', mode, savedDays: params.prices ? params.prices.days.length : 0, ...presentLab(ctx, add) };
+  }
+
+  /** The best stop, profit ladder, trailing stop and break-even for the start (and any picked checks). */
+  async exits(userId, opts) {
+    const { ctx } = await this.#context(userId, opts);
+    return researchLab(ctx, opts.add ?? []);
+  }
+
+  async #context(userId, { base, from = null, to = null, days = 22, index = 'NIFTY', prices = 'mixed' }) {
     const calendar = (from ? Math.ceil((Date.now() - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1 : Math.ceil((days * 7) / 5)) + WARMUP_DAYS;
     const [{ nifty1, stocks5 }, { params }] = await Promise.all([this.#data(index, calendar), this.#params(userId, index)]);
     let mode = 'estimated';
@@ -101,7 +113,6 @@ export class LabService {
       this.analyses.set(key, hit);
       for (const [k, v] of this.analyses) if (Date.now() - v.at >= CACHE_MS) this.analyses.delete(k);
     }
-    const out = presentLab(hit.ctx, add);
-    return { index, mode, savedDays: params.prices ? params.prices.days.length : 0, ...out };
+    return { ctx: hit.ctx, mode, params };
   }
 }

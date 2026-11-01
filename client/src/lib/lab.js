@@ -21,6 +21,9 @@ export function labPath({ base, add = [], days = 22, prices = 'mixed' }) {
   return `/lab?${q}`;
 }
 
+/** The request for the best stop and ladder: the same start, picks and period. */
+export const exitsPath = (o) => labPath(o).replace('/lab?', '/lab/exits?');
+
 /** Adds or removes a check from the picks, keeping the three most recent. */
 export const togglePick = (add, key, max = 3) => (add.includes(key) ? add.filter((k) => k !== key) : [...add, key].slice(-max));
 

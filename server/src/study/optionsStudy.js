@@ -454,7 +454,7 @@ const MAX_RANGE_DAYS = 65;
 const RESEARCH_TOP = 5; // the best added checks of each starting point that also get the stop and exit research
 
 /** What the research keeps of a combination: the stop rows and the best of the other groups, how far its winners went against it, and the best mix. */
-function compactResearch(r, adverse) {
+export function compactResearch(r, adverse) {
   if (!r || r.skipped) return null;
   const best = (group, n) => r.rows.filter((x) => x.group === group).sort((a, b) => (b.test?.net ?? b.net) - (a.test?.net ?? a.net) || b.net - a.net).slice(0, n);
   const stops = r.rows.filter((x) => x.group === 'stoprule').sort((a, b) => b.net - a.net);
@@ -464,7 +464,7 @@ function compactResearch(r, adverse) {
 }
 
 /** How far the winning trades of a set of entries went against them before they won, per lot in rupees (a wide stop, one lot, so nothing is cut short). */
-function adverseOf(trades) {
+export function adverseOf(trades) {
   const wins = trades.filter((t) => t.net > 0).map((t) => -t.worst).sort((a, b) => a - b);
   if (wins.length < 5) return null;
   const at = (q) => Math.round(wins[Math.min(wins.length - 1, Math.floor(q * wins.length))]);

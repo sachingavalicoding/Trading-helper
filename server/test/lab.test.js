@@ -96,3 +96,16 @@ test('the lab service reads the candles once and ranks the checks once, so picki
   await teardown(ctx);
   await closeDb();
 });
+
+import { researchLab, analyzeLab } from '../src/lab/lab.js';
+
+test('the lab finds the best stop and profit ladder for a combination, with the older and newer days', async () => {
+  const ctx = analyzeLab({ nifty1, params: { ...PARAMS, combos }, base: `combo:${combos[0].id}`, days: 14 });
+  const r = await researchLab(ctx, []);
+  assert.ok(!r.skipped, 'enough entries to research');
+  assert.ok(r.stops.length > 5 && r.exits.length > 5);
+  assert.ok(r.base.trades > 0);
+  assert.ok(r.exits.some((x) => x.apply?.comboExits), 'a profit row can be applied to the combination alone');
+  const tiny = analyzeLab({ nifty1: minutes(1), params: { ...PARAMS, combos }, base: `combo:${combos[0].id}`, days: 3 });
+  assert.match((await researchLab(tiny, [])).skipped ?? '', /Fewer than 5/);
+});

@@ -1,9 +1,10 @@
 import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { istParts } from '../market/marketHours.js';
 import { TECHNIQUES, available, prepare, findSignals, turnoverSeries } from '../study/patterns.js';
-import { breadthSeries, tradesFor } from '../study/optionsStudy.js';
+import { adverseOf, breadthSeries, compactResearch, tradesFor } from '../study/optionsStudy.js';
+import { runResearch } from '../study/research.js';
 import { buildChart, CONDITIONS, CONDITION_BY_KEY, usable } from '../combos/conditions.js';
-import { comboSignals, describeCombo, heldConditions, holdsAt, missingData } from '../combos/combos.js';
+import { comboSignals, comboStopRule, describeCombo, heldConditions, holdsAt, missingData } from '../combos/combos.js';
 import { summarize } from '../study/simulate.js';
 import { halvesOf, verdictOf } from '../combos/verdict.js';
 import { round2 } from '../utils/money.js';
@@ -147,7 +148,8 @@ export function analyzeLab({ nifty1, stocks5 = null, params, base, from = null, 
     });
   }
   rows.sort((a, b) => b.gain - a.gain);
-  return { kind, conds, chart, params, traded, baseRun, baseSignal, baseKeys, baseNet, rows, complete, bars5, studyDays, fromTime, midTime, base, name, text };
+  const combo = kind === 'combo' ? (params.combos || []).find((c) => c.id === id) : null;
+  return { kind, combo, byTime, conds, chart, params, traded, baseRun, baseSignal, baseKeys, baseNet, rows, complete, bars5, studyDays, fromTime, midTime, base, name, text };
 }
 
 /** The part that depends on the picked checks: which entries they skip, the new result, the day list. Cheap, so a tap on a check does not redo the ranking. */
@@ -238,3 +240,22 @@ export function presentLab(ctx, add = []) {
 
 /** Both steps at once. */
 export const runLab = (opts) => presentLab(analyzeLab(opts), opts.add);
+
+/**
+ * The best stop, profit ladder, trailing stop and break-even for the start (with `add` checks on it): the study's own research, on the same days.
+ * Each row changes one thing; the result says which rows paid on both the older and the newer days.
+ */
+export async function researchLab(ctx, add = []) {
+  const { kind, combo, byTime, chart, params, traded, baseRun, complete, studyDays, midTime, conds, name } = ctx;
+  const extra = [...new Set(add)].filter((k) => CONDITION_BY_KEY.has(k) && !conds.includes(k) && usable(CONDITION_BY_KEY.get(k), chart.have)).slice(0, MAX_ADD);
+  const signals = extra.length ? traded(extra).signals : baseRun.signals;
+  if (signals.length < 5) return { skipped: 'Fewer than 5 entries in these days: too few to say which stop or ladder is best. Use a longer period.' };
+  const dayAt = studyDays[Math.floor((studyDays.length * 2) / 3)];
+  const trainEnd = studyDays.length >= 10 ? complete.find((b) => DAY(b.time) === dayAt)?.time ?? null : null;
+  const own = combo ? comboStopRule(combo) : null;
+  const p = { ...params, stopRule: own ?? params.stopRule ?? null };
+  const asCombo = combo ? { ...combo, name: extra.length ? `${name} + ${extra.map((k) => CONDITION_BY_KEY.get(k).label).join(' + ')}` : name } : null;
+  const r = await runResearch({ signals, tradesFor: (sigs, { params: q }) => tradesFor(sigs, { c1: complete, byTime, params: q }), midTime, trainEnd, params: p, combo: asCombo, grid: true, onProgress: () => {}, yieldTurn: () => new Promise((res) => setImmediate(res)) });
+  const wide = tradesFor(signals, { c1: complete, byTime, params: { ...params, lossLimit: 0, fixedLots: 1, steps: params.steps, stopRule: { mode: 'atr', k: 2.5 } } }).trades;
+  return { kind, add: extra, ...compactResearch(r, adverseOf(wide)) };
+}

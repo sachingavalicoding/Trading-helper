@@ -28,5 +28,13 @@ export function labRoutes({ lab }) {
     res.json({ choices, note: LAB_NOTE, result: await lab.run(req.userId, { base: q.base, add, from: q.from, to: q.to, days: q.days, index: q.index, prices: q.prices }) });
   });
 
+  // The best stop and profit ladder for the start (with any picked checks): the study's research on the same days. Slower, so it is asked for on its own.
+  router.get('/exits', validate(query, 'query'), async (req, res) => {
+    const q = req.valid;
+    if (!q.base) return res.status(400).json({ error: { code: 'VALIDATION', message: 'base is required' } });
+    const add = (q.add ?? '').split(',').map((k) => k.trim()).filter(Boolean).slice(0, MAX_ADD);
+    res.json({ research: await lab.exits(req.userId, { base: q.base, add, from: q.from, to: q.to, days: q.days, index: q.index, prices: q.prices }), note: LAB_NOTE });
+  });
+
   return router;
 }

@@ -36,7 +36,7 @@ function Row({ x, split, onApply, busy, canApply }) {
  * The research on one combination (or one added check): where its stop should go, how far its winners went against it, and the best exits.
  * `own` is true for a saved combination, whose stop can be set from here; for an added check the stop comes with Add.
  */
-export function ComboResearch({ r, own = false, onApplied }) {
+export function ComboResearch({ r, own = false, onApplied, defaultOpen = false }) {
   const [busy, setBusy] = useState(false);
   if (!r) return null;
 
@@ -58,7 +58,7 @@ export function ComboResearch({ r, own = false, onApplied }) {
   const adv = r.adverse;
   const best = bestOf(r).stop;
   return (
-    <details className="rounded-lg border border-line">
+    <details open={defaultOpen || undefined} className="rounded-lg border border-line">
       <summary className="cursor-pointer px-2 py-1.5 text-[11px] font-semibold text-accent">Stop and exits for this ({r.signals} signals){best ? ` · best stop: ${best.label.replace(/^Stop at /, '')}` : ''}</summary>
       <div className="space-y-2 p-2">
         {adv ? (
