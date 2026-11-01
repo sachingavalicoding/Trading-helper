@@ -562,7 +562,7 @@ export class OrderEngine extends EventEmitter {
         });
         // Every new position gets the user's stop and profit lock for its segment, whoever placed it: the stop is a fixed rupee loss
         // (unless the order brought its own), and the lock is the user's ladder: one row follows its gap behind the best profit, several rows hand over to each other as the profit climbs.
-        const d = rulesFor(await TradeDefaults.findOne({ user: userId }).lean(), segment);
+        const d = rulesFor(await TradeDefaults.findOne({ user: userId }).lean(), segment, { index: parseOptionSymbol(symbol)?.index });
         if (d.steps.length === 1) {
           position.lockTrigger = d.steps[0].at;
           position.lockAmount = d.steps[0].keep;

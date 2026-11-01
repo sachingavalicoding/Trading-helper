@@ -1,6 +1,7 @@
 import { StudyRun, OptionSettings, AutoSettings } from '../models/index.js';
 import { normalizeCombos } from '../combos/combos.js';
 import { stopRuleOf } from './patterns.js';
+import { entryWindowOf } from '../options/signal.js';
 import { breakEvenOf, trailOf } from './simulate.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { NIFTY50 } from '../market/instruments.js';
@@ -89,7 +90,8 @@ export class StudyService {
         if (failed >= 5 && !Object.keys(stocks5).length) break; // the broker is refusing: stop asking
       }
     }
-    const [rules, settings] = await Promise.all([loadRules(userId, 'OPT'), OptionSettings.findOne({ user: userId }).lean()]);
+    const [rules, settings] = await Promise.all([loadRules(userId, 'OPT', { index }), OptionSettings.findOne({ user: userId }).lean()]);
+    const window = entryWindowOf(settings);
     const params = {
       days,
       iv,
@@ -104,7 +106,9 @@ export class StudyService {
       strikeStep: INDEXES[index].strikeStep,
       minScore: settings?.minScore ?? 80,
       combos: normalizeCombos(settings?.combos),
-      stopRule: stopRuleOf(settings),
+      stopRule: stopRuleOf(settings, index),
+      entryFrom: window.from,
+      entryTo: window.to,
       trail: trailOf(settings),
       breakEven: breakEvenOf(settings),
       autoFind,

@@ -20,6 +20,7 @@ const tradeDefaultsSchema = new mongoose.Schema(
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
     shares: rules(200, 250, 80),
     options: rules(1500, 1000, 250),
+    sensex: { own: { type: Boolean, default: false }, ...rules(1500, 1000, 250) }, // Sensex option trades: used only while `own` is on, else the options rules above
   },
   { timestamps: true },
 );
@@ -27,12 +28,12 @@ const tradeDefaultsSchema = new mongoose.Schema(
 export const DEFAULT_EXIT_MIN = 15 * 60 + 15;
 export const MIN_EXIT_MIN = 9 * 60 + 30;
 
-export const TRADE_DEFAULTS = { shares: { stopLoss: 200, lockStart: 250, lockGap: 80 }, options: { stopLoss: 1500, lockStart: 1000, lockGap: 250 } };
+export const TRADE_DEFAULTS = { shares: { stopLoss: 200, lockStart: 250, lockGap: 80 }, options: { stopLoss: 1500, lockStart: 1000, lockGap: 250 }, sensex: { stopLoss: 1500, lockStart: 1000, lockGap: 250 } };
 export const TradeDefaults = mongoose.model('TradeDefaults', tradeDefaultsSchema);
 
 /** The stop and lock rules for one segment ('EQ' or 'OPT'), with anything unset falling back to the built-in values. */
-export function rulesFor(doc, segment, { raw = false } = {}) {
-  const key = segment === 'OPT' ? 'options' : 'shares';
+export function rulesFor(doc, segment, { raw = false, index = null } = {}) {
+  const key = segment !== 'OPT' ? 'shares' : index === 'SENSEX' && doc?.sensex?.own ? 'sensex' : 'options';
   const base = TRADE_DEFAULTS[key];
   const d = doc?.[key] ?? {};
   const out = { stopLoss: d.stopLoss ?? base.stopLoss, lockStart: d.lockStart ?? base.lockStart, lockGap: d.lockGap ?? base.lockGap, exitMin: d.exitMin ?? DEFAULT_EXIT_MIN, lockOn: d.lockOn !== false };
@@ -65,6 +66,6 @@ export function ladderText(steps) {
 }
 
 /** The same rules for the segment of a user, read from the database. */
-export async function loadRules(userId, segment) {
-  return rulesFor(await TradeDefaults.findOne({ user: userId }).lean(), segment);
+export async function loadRules(userId, segment, opts = {}) {
+  return rulesFor(await TradeDefaults.findOne({ user: userId }).lean(), segment, opts);
 }

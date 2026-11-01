@@ -1,11 +1,11 @@
 import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { istParts } from '../market/marketHours.js';
-import { readNifty, FIRST_ENTRY_MIN, LAST_ENTRY_MIN } from '../options/signal.js';
+import { readNifty, FIRST_ENTRY_MIN, LAST_ENTRY_MIN, entryTest } from '../options/signal.js';
 import { round2 } from '../utils/money.js';
 import { TECHNIQUES, available, prepare, findSignals, turnoverSeries, ruleStop, MIN_STOP_ATR, MAX_STOP_ATR } from './patterns.js';
 import { simulateTrade, summarize } from './simulate.js';
 import { CONDITIONS, CONDITION_BY_KEY, buildChart, usable } from '../combos/conditions.js';
-import { comboSignals, singleCombo, missingData, describeCombo } from '../combos/combos.js';
+import { comboSignals, singleCombo, missingData, describeCombo, comboFitsIndex } from '../combos/combos.js';
 import { verdictOf, halvesOf } from '../combos/verdict.js';
 import { runResearch } from './research.js';
 import { comboStopRule } from '../combos/combos.js';
@@ -155,6 +155,12 @@ function confluenceSignals(signals, { min = 2, key = 'confluence' } = {}) {
 }
 
 /** The chart read the live trader uses, asked at every 5-minute close, and the trades it would have taken. */
+/** The combinations a study runs: those for this index, whether or not they are switched on for live trading (a study may try a combination before it is used). */
+export const studyCombos = (combos, index) => (combos || []).filter((c) => comboFitsIndex(c, index));
+
+/** The entry hours of this run: Account > Limits, else 09:15 to 15:15. */
+const whenOf = (params) => entryTest({ from: params.entryFrom ?? FIRST_ENTRY_MIN, to: params.entryTo ?? LAST_ENTRY_MIN });
+
 async function botSignals({ prep, c1, byTime, breadth, fromTime, minScore }) {
   const out = [];
   const scores = new Map(); // bar index -> the live score of each side at that close, whether or not the bot would buy
@@ -264,7 +270,7 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   if (params.finderOnly) return finderOnlyRun({ complete, byTime, bars5, breadth, flow, prep, studyDays, fromTime, midTime, params, onProgress });
 
   onProgress('Looking for each pattern on the chart');
-  const found = findSignals(prep).filter((s) => s.time - 300 >= fromTime);
+  const found = findSignals(prep, { when: whenOf(params) }).filter((s) => s.time - 300 >= fromTime);
   const groups = Object.fromEntries(TECHNIQUES.filter((t) => available(t, { breadth: Boolean(breadth), flow: Boolean(flow) })).map((t) => [t.key, found.filter((s) => s.technique === t.key)]));
   groups.confluence = confluenceSignals(found.filter((x) => x.technique !== 'doubleBottomMid' && !EXTRA.has(x.technique))); // the tighter-stop copy is the same pattern, not a second opinion
   const agreeBase = found.filter((x) => AGREE_PATTERNS.includes(x.technique));
@@ -285,16 +291,21 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   const inStudy = (s) => s.time - 300 >= fromTime;
   const mine = {};
   const combosSkipped = [];
-  for (const combo of params.combos || []) {
-    if (combo.on === false) continue;
+  for (const combo of studyCombos(params.combos, params.index)) {
     const key = `combo:${combo.id}`;
     const missing = missingData(combo, chart.have);
     if (missing.length) {
       combosSkipped.push({ id: combo.id, name: combo.name, reason: `needs ${[...new Set(missing)].map((m) => (m === 'flow' ? 'volume of the 50 stocks' : m === 'breadth' ? 'the 50-stock breadth' : m)).join(' and ')}, which this run did not have` });
       continue;
     }
-    mine[key] = { key, label: `My combination: ${combo.name}`, text: describeCombo(combo), combo: true };
-    groups[key] = comboSignals(chart, combo).filter(inStudy);
+    mine[key] = { key, label: `My combination: ${combo.name}${combo.on === false ? ' (off for live, study only)' : ''}`, text: describeCombo(combo), combo: true };
+    groups[key] = comboSignals(chart, combo, { when: whenOf(params) }).filter(inStudy);
+  }
+  // all of them together: one trade at a time, so when two fire close together the first one is taken
+  const together = Object.keys(mine);
+  if (together.length > 1) {
+    mine.combosTogether = { key: 'combosTogether', label: `My combinations together (${together.length})`, text: 'Every combination above run as one set: the first signal to fire is taken, and the next only once that trade is closed.', combo: true };
+    groups.combosTogether = together.flatMap((k) => groups[k]).sort((a, b) => a.time - b.time);
   }
 
   onProgress('Trading every signal on paper');
@@ -371,7 +382,7 @@ async function autoFind({ chart, inStudy, trainEnd, studyDays, complete, byTime,
     const key = [...conds].sort().join('+');
     if (cache.has(key)) return cache.get(key);
     const combo = { id: key, name: key, conds, need: conds.length, window: 3 };
-    const { trades } = tradesFor(comboSignals(chart, combo).filter(inStudy), { c1: complete, byTime, params });
+    const { trades } = tradesFor(comboSignals(chart, combo, { when: whenOf(params) }).filter(inStudy), { c1: complete, byTime, params });
     const row = { conds, train: part(trades.filter((t) => t.entryTime < trainEnd)), test: part(trades.filter((t) => t.entryTime >= trainEnd)), all: summarize(trades) };
     cache.set(key, row);
     tried += 1;
@@ -482,7 +493,7 @@ async function finders({ chart, inStudy, trainEnd, midTime = null, studyDays, co
     const rows = [];
     for (const conds of lists) {
       const combo = { id: conds.join('+'), name: conds.join('+'), conds, need: conds.length, window: 3 };
-      const { trades } = tradesFor(comboSignals(chart, combo).filter(inStudy), { c1: complete, byTime, params });
+      const { trades } = tradesFor(comboSignals(chart, combo, { when: whenOf(params) }).filter(inStudy), { c1: complete, byTime, params });
       const all = summarize(trades);
       rows.push({ conds, train: part(trades.filter((t) => t.entryTime < trainEnd)), test: part(trades.filter((t) => t.entryTime >= trainEnd)), all: { trades: all.trades, net: all.net, winRate: all.winRate, calls: all.bySide.CE, puts: all.bySide.PE }, list: trades.map((t) => [t.entryTime, t.net]) });
       tried += 1;
@@ -505,7 +516,7 @@ async function finders({ chart, inStudy, trainEnd, midTime = null, studyDays, co
     const research = async (a, conds, label) => {
       onProgress(`Research on stops and exits: ${++n}/${total} (${label})`);
       const combo = { id: a.key.replace(/^combo:/, ''), name: a.label, conds, need: conds.length, window: 3 };
-      const signals = comboSignals(chart, combo).filter(inStudy);
+      const signals = comboSignals(chart, combo, { when: whenOf(params) }).filter(inStudy);
       if (signals.length < 5) return null;
       const rule = own.get(a.key) ?? params.stopRule ?? null;
       const p = { ...params, stopRule: rule };
@@ -527,7 +538,7 @@ async function rankIndicators({ chart, inStudy, midTime, complete, byTime, param
   const usableNow = CONDITIONS.filter((c) => usable(c, chart.have));
   for (const [n, cond] of usableNow.entries()) {
     if (n % 8 === 0) onProgress(`Ranking the indicators (${n + 1}/${usableNow.length})`);
-    const signals = comboSignals(chart, singleCombo(cond.key)).filter(inStudy);
+    const signals = comboSignals(chart, singleCombo(cond.key), { when: whenOf(params) }).filter(inStudy);
     const { trades } = tradesFor(signals, { c1: complete, byTime, params });
     const m = summarize(trades);
     const halves = halvesOf(trades, midTime);

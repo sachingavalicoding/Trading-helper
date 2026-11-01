@@ -3,6 +3,7 @@ import { istParts } from '../market/marketHours.js';
 import { TECHNIQUES, available, prepare, findSignals, turnoverSeries, ruleStop } from '../study/patterns.js';
 import { fitStop, breadthSeries } from '../study/optionsStudy.js';
 import { buildChart, CONDITIONS, CONDITION_BY_KEY, usable } from '../combos/conditions.js';
+import { entryTestOf } from '../options/signal.js';
 import { comboSignals, describeCombo, heldConditions, missingData, singleCombo } from '../combos/combos.js';
 import { simulateTrade, EXIT_MIN } from '../study/simulate.js';
 import { round2 } from '../utils/money.js';
@@ -119,7 +120,7 @@ function improveCombo({ chart, combos, trial, day, lockNet, patterns, found, c1,
   const base = combos.find((c) => c.id === trial.id);
   if (!base || missingData(base, chart.have).length) return { id: trial.id, missing: true };
   const all = (conds) => ({ id: 'trial', name: base.name, conds, need: conds.length, window: base.window, stopMode: base.stopMode, stopAtr: base.stopAtr, stopPoints: base.stopPoints, exits: base.exits });
-  const entriesOf = (combo) => comboSignals(chart, combo, { label: 'trial' }).filter((x) => dayOf(x.time - 300) === day);
+  const entriesOf = (combo) => comboSignals(chart, combo, { label: 'trial', when: entryTestOf(params) }).filter((x) => dayOf(x.time - 300) === day);
   const baseSigs = entriesOf(all(base.conds));
   const net = new Map(baseSigs.map((x) => [entryKey(x), lockNet(x)]));
   const sum = (xs) => round2(xs.reduce((a, n) => a + n, 0));
@@ -263,7 +264,7 @@ export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], s
 
   const byTime = new Map(c1.map((b, i) => [b.time, i]));
   const breadth = breadthSeries(bars5, stocks5);
-  const found = findSignals(prepare(bars5, null, flow)).filter((s) => dayOf(s.time - 300) === day && s.technique !== 'doubleBottomMid');
+  const found = findSignals(prepare(bars5, null, flow), { when: entryTestOf(params) }).filter((s) => dayOf(s.time - 300) === day && s.technique !== 'doubleBottomMid');
   // The user's own combinations, drawn and traded like patterns; `why` says which of their checks held.
   const chart = buildChart(bars5, { breadth, flow });
   const combosSkipped = [];
@@ -277,14 +278,14 @@ export function reviewPatterns({ c1, day, params, stocks5 = null, combos = [], s
     const key = `combo:${combo.id}`;
     patterns.push({ key, label: `Mine: ${combo.name}`, text: describeCombo(combo), combo: true, ...(combo.on === false ? { off: true } : {}) });
     comboInfo.set(key, combo);
-    for (const s of comboSignals(chart, combo, { label: key }).filter((x) => dayOf(x.time - 300) === day)) {
+    for (const s of comboSignals(chart, combo, { label: key, when: entryTestOf(params) }).filter((x) => dayOf(x.time - 300) === day)) {
       found.push({ ...s, why: heldConditions(chart, combo, s.side === 'CE' ? 1 : -1, s.i) });
     }
   }
   // every check on its own: listed so any can be picked, scored for the day, and drawn like a pattern when asked for
   const usableChecks = CONDITIONS.filter((c) => usable(c, chart.have));
   const checkList = usableChecks.map(({ key, label, group, text }) => ({ key, label, group, text }));
-  const checkSignals = new Map(usableChecks.map((c) => [c.key, comboSignals(chart, singleCombo(c.key), { label: `check:${c.key}` }).filter((x) => dayOf(x.time - 300) === day)]));
+  const checkSignals = new Map(usableChecks.map((c) => [c.key, comboSignals(chart, singleCombo(c.key), { label: `check:${c.key}`, when: entryTestOf(params) }).filter((x) => dayOf(x.time - 300) === day)]));
   for (const key of checks) {
     const cond = CONDITION_BY_KEY.get(key);
     if (!cond || !checkSignals.has(key)) continue;

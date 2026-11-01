@@ -50,7 +50,10 @@ export function ruleStop(signal, entry, rule) {
 }
 
 /** The stop rule a user's options settings describe (Account > Entries > Stop). */
-export const stopRuleOf = (settings) => ({ mode: settings?.patternStopMode ?? 'chart', k: settings?.patternStopAtr ?? 2, points: settings?.patternStopPoints ?? 30 });
+export const stopRuleOf = (settings, index = null) =>
+  index === 'SENSEX' && settings?.sensexOwn
+    ? { mode: settings.sensexStopMode ?? 'chart', k: settings.sensexStopAtr ?? 2, points: settings.sensexStopPoints ?? 100 }
+    : { mode: settings?.patternStopMode ?? 'chart', k: settings?.patternStopAtr ?? 2, points: settings?.patternStopPoints ?? 30 };
 
 /** Techniques that can be tested with the data at hand: the ones that need the 50 stocks' volume wait until it is known. */
 export const available = (t, { breadth = false, flow = false } = {}) => (t.key !== 'breadth' || breadth) && (t.needs !== 'flow' || flow);
@@ -333,11 +336,11 @@ const DETECTORS = { doubleBottom: (v, i, ds, a) => doubleBottom(v, i, ds, a), do
  * `time` is when the bar closed. Only bars that close between 09:15 and 15:15 count, like the live trader (`windows: false` lifts that).
  * `from` is the first bar index to look at, so the live trader can look at the newest bar only.
  */
-export function findSignals(prep, { only = null, from = 15, windows = true } = {}) {
+export function findSignals(prep, { only = null, from = 15, windows = true, when = null } = {}) {
   const out = [];
   for (let i = Math.max(15, from); i < prep.bars.length; i++) {
     const a = prep.atrAt[i];
-    if (!a || (windows && !tradeable(prep.bars[i].time))) continue;
+    if (!a || (when ? !when(prep.bars[i].time) : windows && !tradeable(prep.bars[i].time))) continue;
     const ds = prep.dayStart[i];
     for (const d of [1, -1]) {
       const v = prep.views[d];

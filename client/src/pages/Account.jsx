@@ -10,7 +10,7 @@ import { api } from '../lib/api.js';
 import { DEFAULT_EXIT_MIN, MAX_ROWS, ladderLines, ladderSummary, minOfTime, nextRow, rowsFromRules, rowsProblem, stepsOf, timeText } from '../lib/ladder.js';
 import { useStartingBalance } from '../lib/useStartingBalance.js';
 import { formatINR, formatPnl, pnlClass } from '../lib/format.js';
-import { Card, Skeleton, Disclaimer, PopupTile, Sheet, useFold } from '../components/ui.jsx';
+import { Card, Segmented, Skeleton, Disclaimer, PopupTile, Sheet, useFold } from '../components/ui.jsx';
 import { AutoLimits } from '../components/AutoCard.jsx';
 import { OptionsLimits, StopPlacement, Switch } from '../components/options/OptionsAutoCard.jsx';
 import { TrailStop } from '../components/options/TrailStop.jsx';
@@ -96,6 +96,131 @@ function RulesForm({ title, rules, onSave, onLock, saved, stopLabel = 'Stop loss
 
 const rs = (v) => `₹${Number(v).toLocaleString('en-IN')}`;
 
+const clockOf = (min) => timeText(min);
+
+/** Account > Limits: the hours new option trades may be taken (09:15 to 15:15 unless changed). */
+function EntryHours({ data, reload }) {
+  const s = data.settings;
+  const [from, setFrom] = useState(clockOf(s.entryFrom ?? 555));
+  const [to, setTo] = useState(clockOf(s.entryTo ?? 915));
+  const a = minOfTime(from);
+  const b = minOfTime(to);
+  const bad = a == null || b == null || a < 555 || b > 915 || a + 15 > b;
+  const changed = a !== (s.entryFrom ?? 555) || b !== (s.entryTo ?? 915);
+  async function put() {
+    try {
+      await api('/options', { method: 'PUT', body: { entryFrom: a, entryTo: b } });
+      toast.success('Saved. The bot, studies, Review and the Lab use these hours.');
+      reload();
+    } catch (e) {
+      toast.error(e.message || 'Could not save');
+    }
+  }
+  return (
+    <div className="space-y-2 border-t border-line pt-3">
+      <h4 className="text-sm font-semibold">Options: when new trades may start</h4>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block text-xs text-muted">
+          First entry (09:15 or later)
+          <input type="time" min="09:15" max="15:00" className={NUM} value={from} onChange={(e) => setFrom(e.target.value)} />
+        </label>
+        <label className="block text-xs text-muted">
+          Last entry (up to 15:15)
+          <input type="time" min="09:30" max="15:15" className={NUM} value={to} onChange={(e) => setTo(e.target.value)} />
+        </label>
+      </div>
+      {bad && <p className="text-xs text-down">Pick times between 09:15 and 15:15, at least 15 minutes apart.</p>}
+      <button type="button" disabled={bad || !changed} onClick={put} className="btn btn-primary w-full">
+        {changed ? 'Save entry hours' : 'Saved'}
+      </button>
+      <p className="text-[11px] leading-snug text-muted">Applies to the bot, the studies, Review and the Lab alike, so a study shows what these hours would have done. Trades you open by hand, and the time the bot closes its trades, are not affected.</p>
+    </div>
+  );
+}
+
+const SENSEX_STOPS = [
+  { value: 'chart', label: 'Chart' },
+  { value: 'cap', label: 'Capped' },
+  { value: 'atr', label: 'ATR' },
+  { value: 'fixed', label: 'Points' },
+];
+
+/** Account > Limits: the Sensex can have its own loss limit, profit ladder and stop placement. Off, it uses the Nifty ones. */
+function SensexSetup({ data, options, save, lock, saved }) {
+  const sx = data.sensex;
+  const s = options.data?.settings;
+  const [busy, setBusy] = useState(false);
+  const on = sx.own === true;
+  async function toggle() {
+    setBusy(true);
+    try {
+      await api('/trade-defaults', { method: 'PUT', body: { sensex: { own: !on } } });
+      await api('/options', { method: 'PUT', body: { sensexOwn: !on } });
+      toast.success(!on ? 'The Sensex now has its own stop and ladder.' : 'The Sensex uses the Nifty setup again.');
+      options.reload();
+    } catch (e) {
+      toast.error(e.message || 'Could not save');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function putStop(patch) {
+    try {
+      await api('/options', { method: 'PUT', body: patch });
+      options.reload();
+    } catch (e) {
+      toast.error(e.message || 'Could not save');
+    }
+  }
+  return (
+    <div className="space-y-2 border-t border-line pt-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-semibold">Sensex: its own setup</h4>
+          <p className="text-[11px] leading-snug text-muted">The Sensex moves about three times as many points as the Nifty and its lots are priced differently, so it can have its own loss limit, profit ladder and stop. Off: it uses the Nifty ones above.</p>
+        </div>
+        <Switch on={on} disabled={busy} label="Sensex has its own setup" onClick={toggle} />
+      </div>
+      {on && (
+        <div className="space-y-3">
+          <RulesForm key={`x${JSON.stringify(sx)}`} title="Sensex" rules={sx} onSave={(r) => save('sensex')({ ...r, own: true })} onLock={lock('sensex')} saved={saved === 'sensex'} stopLabel="Most one Sensex trade may lose (₹)" stopNote={Number(sx.stopLoss) > 0 ? `Lots are sized so a Sensex trade at its chart stop loses at most ₹${sx.stopLoss}.` : 'No loss limit.'} />
+          {s && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold">Sensex: where the stop goes</div>
+              <Segmented className="w-full" size="sm" value={s.sensexStopMode} onChange={(v) => putStop({ sensexStopMode: v })} options={SENSEX_STOPS} />
+              {(s.sensexStopMode === 'cap' || s.sensexStopMode === 'atr') && (
+                <label className="flex items-center justify-between gap-3 text-xs text-muted">
+                  <span>{s.sensexStopMode === 'cap' ? 'Never further than' : 'Always'} (ATRs from the entry)</span>
+                  <select className="field num !w-24 !px-2 !py-1.5 !text-sm" value={s.sensexStopAtr} onChange={(e) => putStop({ sensexStopAtr: Number(e.target.value) })} aria-label="Sensex stop distance in ATRs">
+                    {[0.8, 1, 1.5, 2, 2.5].map((k) => (
+                      <option key={k} value={k}>
+                        {k} ATR
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {s.sensexStopMode === 'fixed' && (
+                <label className="flex items-center justify-between gap-3 text-xs text-muted">
+                  <span>Sensex points from the entry</span>
+                  <select className="field num !w-24 !px-2 !py-1.5 !text-sm" value={s.sensexStopPoints} onChange={(e) => putStop({ sensexStopPoints: Number(e.target.value) })} aria-label="Sensex stop distance in points">
+                    {[...new Set([50, 80, 100, 150, 200, 300, 400, s.sensexStopPoints])].sort((x, y) => x - y).map((p) => (
+                      <option key={p} value={p}>
+                        {p} pts
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <p className="text-[11px] leading-snug text-muted">The trailing stop and break-even above are in index points and apply to both indexes as set. Give a combination its own exits to tune them for the Sensex.</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The limits in one short card. Tap "Set limits" for the forms, the ladder tables and the auto-trader limits. */
 function TradingRules() {
   const { data, reload } = useApi('/trade-defaults', []);
@@ -140,6 +265,8 @@ function TradingRules() {
         <p className="text-xs text-muted">One set of rules for auto and manual trades, for new trades from the moment you save. A trade placed with its own stop keeps that stop. Type the ladder you want, change it any time.</p>
         <RulesForm key={`s${JSON.stringify(data.shares)}`} title="Shares" rules={data.shares} onSave={save('shares')} onLock={lock('shares')} saved={saved === 'shares'} />
         <RulesForm key={`o${JSON.stringify(data.options)}`} title="Options" rules={data.options} onSave={save('options')} onLock={lock('options')} saved={saved === 'options'} stopLabel="Most one trade may lose (₹)" stopNote={Number(data.options.stopLoss) > 0 ? `The bot sells when the Nifty chart level breaks, and buys only as many lots as keep that loss within ₹${data.options.stopLoss}. A hard stop sits behind it for a fast fall.` : 'No loss limit.'} />
+        {options.data && <EntryHours data={options.data} reload={options.reload} />}
+        <SensexSetup data={data} options={options} save={save} lock={lock} saved={saved} />
         {options.data && <StopPlacement data={options.data} reload={options.reload} />}
         {options.data && <TrailStop data={options.data} reload={options.reload} />}
         <div className="space-y-2 border-t border-line pt-3">

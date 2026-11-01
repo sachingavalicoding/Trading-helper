@@ -3,6 +3,7 @@ import { istParts } from '../market/marketHours.js';
 import { TECHNIQUES, available, prepare, findSignals, turnoverSeries } from '../study/patterns.js';
 import { breadthSeries, tradesFor } from '../study/optionsStudy.js';
 import { buildChart, CONDITIONS, CONDITION_BY_KEY, usable } from '../combos/conditions.js';
+import { entryTestOf } from '../options/signal.js';
 import { comboSignals, describeCombo, heldConditions, holdsAt, missingData } from '../combos/combos.js';
 import { summarize } from '../study/simulate.js';
 import { halvesOf, verdictOf } from '../combos/verdict.js';
@@ -96,13 +97,13 @@ export function analyzeLab({ nifty1, stocks5 = null, params, base, from = null, 
     if (missing.length) throw badRequest(`That combination needs ${[...new Set(missing)].join(' and ')}, which is not saved.`, 'NO_DATA');
     ({ name, conds } = combo);
     text = describeCombo(combo);
-    signalsWith = (extra) => comboSignals(chart, extra.length ? { ...combo, also: extra } : combo).filter(inRange);
+    signalsWith = (extra) => comboSignals(chart, extra.length ? { ...combo, also: extra } : combo, { when: entryTestOf(params) }).filter(inRange);
   } else if (kind === 'pattern') {
     const t = TECHNIQUES.find((x) => x.key === id && available(x, { breadth: Boolean(breadth), flow: Boolean(flow) }));
     if (!t) throw badRequest('That pattern is not available on this data.', 'NOT_FOUND');
     name = t.label;
     text = t.text;
-    const fired = findSignals(prep, { only: [id] }).filter(inRange);
+    const fired = findSignals(prep, { only: [id], when: entryTestOf(params) }).filter(inRange);
     signalsWith = (extra) => fired.filter((s) => extra.every((k) => holdsAt(chart, k, s.side === 'CE' ? 1 : -1, s.i)));
   } else throw badRequest('Pick a combination or a pattern.', 'VALIDATION');
 

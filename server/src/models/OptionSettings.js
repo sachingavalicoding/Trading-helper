@@ -17,6 +17,12 @@ const optionSettingsSchema = new mongoose.Schema(
     patternEntries: { type: Boolean, default: true }, // buy when one of the chosen chart patterns shows (see study/patterns.js)
     patterns: { type: [String], default: () => ['breakout', 'insideBar', 'emaCross'] }, // the 30-day study's winners: more than 12 trades and a profit
     patternStopMode: { type: String, enum: ['chart', 'cap', 'atr', 'fixed'], default: 'chart' }, // where an entry puts its stop: the chart level, the chart level pulled in to patternStopAtr, always patternStopAtr from the entry, or always patternStopPoints Nifty points from it
+    entryFrom: { type: Number, default: 555, min: 555, max: 914 }, // minutes after midnight IST: no new trade before it (555 = 09:15)
+    entryTo: { type: Number, default: 915, min: 556, max: 915 }, // ...and none from it on (915 = 15:15)
+    sensexOwn: { type: Boolean, default: false }, // true: Sensex trades use their own stop below (the profit ladder is in Trade defaults); false: the Nifty setup
+    sensexStopMode: { type: String, enum: ['chart', 'cap', 'atr', 'fixed'], default: 'chart' },
+    sensexStopAtr: { type: Number, default: 2, min: 0.8, max: 2.5 },
+    sensexStopPoints: { type: Number, default: 100, min: 20, max: 600 }, // Sensex points, for the 'fixed' stop
     patternStopAtr: { type: Number, default: 2, min: 0.8, max: 2.5 }, // in 5-minute ATRs
     patternStopPoints: { type: Number, default: 30, min: 10, max: 150 }, // Nifty points, for the 'fixed' stop
     trailMode: { type: String, enum: ['off', 'points'], default: 'off' }, // 'points': once the index has moved trailStart points your way, the chart stop follows the best price trailPoints behind it and never moves back

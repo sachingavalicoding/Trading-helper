@@ -26,6 +26,12 @@ const patch = z
     patternStopMode: z.enum(['chart', 'cap', 'atr', 'fixed']),
     patternStopAtr: z.coerce.number().min(0.8).max(2.5),
     patternStopPoints: z.coerce.number().min(10).max(150),
+    entryFrom: z.coerce.number().int().min(555).max(914),
+    entryTo: z.coerce.number().int().min(556).max(915),
+    sensexOwn: z.boolean(),
+    sensexStopMode: z.enum(['chart', 'cap', 'atr', 'fixed']),
+    sensexStopAtr: z.coerce.number().min(0.8).max(2.5),
+    sensexStopPoints: z.coerce.number().min(20).max(600),
     comboEntries: z.boolean(),
     trailMode: z.enum(['off', 'points']),
     trailPoints: z.coerce.number().min(5).max(200),
@@ -48,8 +54,8 @@ export function optionRoutes({ optionTrader }) {
   const view = async (userId, doc) => {
     const s = doc || new OptionSettings({ user: userId });
     const { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct } = s;
-    const entries = { patternEntries: s.patternEntries !== false, patternMinScore: s.patternMinScore ?? 0, indexes: activeIndexes(s), mirror: s.mirror === true, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []), patternStopMode: s.patternStopMode ?? 'chart', patternStopAtr: s.patternStopAtr ?? 2, patternStopPoints: s.patternStopPoints ?? 30, comboEntries: s.comboEntries !== false, trailMode: s.trailMode ?? 'off', trailPoints: s.trailPoints ?? 25, trailStart: s.trailStart ?? 25, breakEvenPoints: s.breakEvenPoints ?? 0 };
-    return { settings: { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct, ...entries }, indexChoices: INDEX_KEYS.map((k) => ({ key: k, name: INDEXES[k].name, short: INDEXES[k].short })), patternChoices: LIVE_PATTERNS, rules: await loadRules(userId, 'OPT'), today: await optionTrader.todaySummary(userId), disclaimer: OPTIONS_DISCLAIMER };
+    const entries = { patternEntries: s.patternEntries !== false, patternMinScore: s.patternMinScore ?? 0, indexes: activeIndexes(s), mirror: s.mirror === true, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []), patternStopMode: s.patternStopMode ?? 'chart', patternStopAtr: s.patternStopAtr ?? 2, patternStopPoints: s.patternStopPoints ?? 30, comboEntries: s.comboEntries !== false, trailMode: s.trailMode ?? 'off', trailPoints: s.trailPoints ?? 25, trailStart: s.trailStart ?? 25, breakEvenPoints: s.breakEvenPoints ?? 0, entryFrom: s.entryFrom ?? 555, entryTo: s.entryTo ?? 915, sensexOwn: s.sensexOwn === true, sensexStopMode: s.sensexStopMode ?? 'chart', sensexStopAtr: s.sensexStopAtr ?? 2, sensexStopPoints: s.sensexStopPoints ?? 100 };
+    return { settings: { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct, ...entries }, indexChoices: INDEX_KEYS.map((k) => ({ key: k, name: INDEXES[k].name, short: INDEXES[k].short })), patternChoices: LIVE_PATTERNS, rules: await loadRules(userId, 'OPT'), sensexRules: await loadRules(userId, 'OPT', { index: 'SENSEX' }), today: await optionTrader.todaySummary(userId), disclaimer: OPTIONS_DISCLAIMER };
   };
 
   router.get('/', async (req, res) => {
@@ -57,6 +63,12 @@ export function optionRoutes({ optionTrader }) {
   });
 
   router.put('/', validate(patch), async (req, res) => {
+    if (req.body.entryFrom !== undefined || req.body.entryTo !== undefined) {
+      const cur = await OptionSettings.findOne({ user: req.userId }).lean();
+      const from = req.body.entryFrom ?? cur?.entryFrom ?? 555;
+      const to = req.body.entryTo ?? cur?.entryTo ?? 915;
+      if (!(from + 15 <= to)) return res.status(400).json({ error: { code: 'VALIDATION', message: 'The last time for a new trade must be at least 15 minutes after the first' } });
+    }
     const body = req.body.combos ? { ...req.body, combos: normalizeCombos(req.body.combos) } : req.body;
     const doc = await OptionSettings.findOneAndUpdate({ user: req.userId }, { $set: body, $setOnInsert: { user: req.userId } }, { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true });
     res.json(await view(req.userId, doc));

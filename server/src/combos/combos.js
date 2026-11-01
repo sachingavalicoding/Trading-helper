@@ -16,7 +16,7 @@ const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 
 /** What the settings routes accept; `normalizeCombos` then drops unknown conditions. */
 export const comboInput = z
-  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional(), stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(), stopAtr: z.coerce.number().min(0.8).max(2.5).optional(), stopPoints: z.coerce.number().min(10).max(150).optional(), exits: z.object({ steps: z.array(z.object({ at: z.coerce.number(), keep: z.coerce.number() })).max(12).optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional() }).nullish() }))
+  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional(), index: z.enum(['NIFTY', 'SENSEX']).nullish(), stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(), stopAtr: z.coerce.number().min(0.8).max(2.5).optional(), stopPoints: z.coerce.number().min(10).max(150).optional(), exits: z.object({ steps: z.array(z.object({ at: z.coerce.number(), keep: z.coerce.number() })).max(12).optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional() }).nullish() }))
   .max(MAX_COMBOS);
 
 /** Clean a combination from user input: known conditions only, no repeats, at most MAX_CONDITIONS, `need` between 1 and the count. */
@@ -27,6 +27,7 @@ export function normalizeCombo(raw, index = 0) {
   const need = Math.min(conds.length, Math.max(1, Math.round(Number(raw.need)) || conds.length));
   const window = Math.min(6, Math.max(1, Math.round(Number(raw.window)) || DEFAULT_WINDOW));
   const out = { id: slug(raw.id || name) || `combo-${index + 1}`, name, conds, need, window, on: raw.on !== false };
+  if (raw.index === 'NIFTY' || raw.index === 'SENSEX') out.index = raw.index; // unset = both indexes
   // an optional stop of its own: the combination's entries use it in place of the stop set for every entry in Account > Entries
   if (STOP_MODES.includes(raw.stopMode)) {
     out.stopMode = raw.stopMode;
@@ -86,6 +87,9 @@ export const normalizeCombos = (list) => {
 
 /** The conditions of a combination that the chart has the data for; a combination that needs data the chart lacks cannot be tested. */
 export const missingData = (combo, have) => combo.conds.map((k) => CONDITION_BY_KEY.get(k)).filter((c) => !usable(c, have)).map((c) => c.needs);
+
+/** Does a combination apply to this index? One with no index of its own is for both. */
+export const comboFitsIndex = (combo, index) => !combo.index || !index || combo.index === index;
 
 const tradeableIndex = (time) => {
   const { minutes } = istParts(new Date((time + 300) * 1000));

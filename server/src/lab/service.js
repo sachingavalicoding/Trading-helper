@@ -4,6 +4,7 @@ import { loadRules } from '../models/TradeDefaults.js';
 import { NIFTY50 } from '../market/instruments.js';
 import { INDEXES, lotSizeOf } from '../options/symbols.js';
 import { stopRuleOf } from '../study/patterns.js';
+import { entryWindowOf } from '../options/signal.js';
 import { breakEvenOf, trailOf } from '../study/simulate.js';
 import { PriceBook } from '../study/priceBook.js';
 import { badRequest } from '../utils/errors.js';
@@ -48,7 +49,7 @@ export class LabService {
   }
 
   async #params(userId, index) {
-    const [rules, settings] = await Promise.all([loadRules(userId, 'OPT'), OptionSettings.findOne({ user: userId }).lean()]);
+    const [rules, settings] = await Promise.all([loadRules(userId, 'OPT', { index }), OptionSettings.findOne({ user: userId }).lean()]);
     return {
       params: {
         iv: 0.14,
@@ -61,7 +62,7 @@ export class LabService {
         expiryWeekday: this.market.weekdayOf?.(index) ?? this.market.expiryWeekday,
         strikeStep: INDEXES[index].strikeStep,
         combos: normalizeCombos(settings?.combos),
-        stopRule: stopRuleOf(settings),
+        stopRule: stopRuleOf(settings, index),
         trail: trailOf(settings),
         breakEven: breakEvenOf(settings),
         lossLimit: rules.stopLoss ?? 0,
@@ -69,6 +70,8 @@ export class LabService {
         target: 0,
         fixedLots: 0,
         exitMin: rules.exitMin,
+        entryFrom: entryWindowOf(settings).from,
+        entryTo: entryWindowOf(settings).to,
       },
     };
   }

@@ -729,3 +729,28 @@ test('a combination can carry its own profit ladder, trail and break-even: clean
   }
   assert.ok(differ > 0, `a ladder of its own changes some trades (${differ} differ, ${same} same)`);
 });
+
+test('a study also tries combinations that are off for live trading, runs them together, and keeps to the entry hours it is given', async () => {
+  const combos = normalizeCombos([{ name: 'On one', conds: ['emaStack', 'rsiAbove50'] }, { name: 'Off one', conds: ['macdZero', 'rsiAbove50'], on: false }]);
+  const base = { ...PARAMS, days: 10, lossLimit: 1500, maxLots: 2, combos, rank: false };
+  const r = await runOptionsStudy({ nifty1: minutes(14), params: base });
+  const keys = r.techniques.filter((t) => t.combo).map((t) => t.key);
+  assert.deepEqual([...keys].sort(), ['combo:off-one', 'combo:on-one', 'combosTogether']);
+  assert.match(r.techniques.find((t) => t.key === 'combo:off-one').label, /off for live, study only/);
+  const [a, b, all] = ['combo:on-one', 'combo:off-one', 'combosTogether'].map((k) => r.techniques.find((t) => t.key === k));
+  assert.ok(all.trades <= a.trades + b.trades, 'one trade at a time can only take fewer');
+  // later start and earlier end: every entry falls inside the hours
+  const narrow = await runOptionsStudy({ nifty1: minutes(14), params: { ...base, entryFrom: 11 * 60, entryTo: 13 * 60 } });
+  for (const t of narrow.techniques.filter((x) => x.combo)) {
+    for (const trade of t.recent) {
+      const m = new Date((trade.entryTime + 19800) * 1000);
+      const min = m.getUTCHours() * 60 + m.getUTCMinutes();
+      assert.ok(min >= 11 * 60 && min <= 13 * 60, `entry at ${min}`);
+    }
+  }
+  assert.ok(narrow.techniques.find((t) => t.key === 'combo:on-one').trades <= a.trades);
+  // a combination for the other index is left out
+  const sensexOnly = normalizeCombos([{ name: 'Sensex only', conds: ['emaStack'], index: 'SENSEX' }]);
+  const n = await runOptionsStudy({ nifty1: minutes(14), params: { ...base, combos: sensexOnly, index: 'NIFTY' } });
+  assert.ok(!n.techniques.some((t) => t.combo));
+});

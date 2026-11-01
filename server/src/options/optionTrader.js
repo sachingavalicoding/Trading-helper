@@ -1,12 +1,12 @@
 import { AutoLog, OptionSettings, Order, Position, Trade } from '../models/index.js';
 import { getFunds } from '../services/walletService.js';
 import { INDEXES, DEFAULT_INDEX, INDEX_KEYS, indexKeyOf, isOptionSymbol, optionLabel, parseOptionSymbol } from './symbols.js';
-import { readNifty } from './signal.js';
+import { readNifty, entryWindowOf, entryTest } from './signal.js';
 import { breakEvenOf, trailOf } from '../study/simulate.js';
 import { TECHNIQUES, prepare, findSignals, turnoverSeries, ruleStop, stopRuleOf, MIN_STOP_ATR, MAX_STOP_ATR } from '../study/patterns.js';
 import { breadthSeries } from '../study/optionsStudy.js';
 import { buildChart } from '../combos/conditions.js';
-import { comboSignals, normalizeCombos } from '../combos/combos.js';
+import { comboSignals, normalizeCombos, comboFitsIndex } from '../combos/combos.js';
 import { roundToTick } from '../utils/money.js';
 import { planTrade } from './plan.js';
 import { loadRules } from '../models/TradeDefaults.js';
@@ -115,7 +115,7 @@ export class OptionTrader {
   /** What one lot (or the lots the settings allow) of each side would be, shown before you buy: the same plan the trader would place. */
   async preview(userId, read, contracts) {
     const settings = (await OptionSettings.findOne({ user: userId }).lean()) || new OptionSettings({ user: userId }).toObject();
-    const [today, funds, rules] = await Promise.all([this.todaySummary(userId), getFunds(userId, this.config.startingBalance), loadRules(userId, 'OPT')]);
+    const [today, funds, rules] = await Promise.all([this.todaySummary(userId), getFunds(userId, this.config.startingBalance), loadRules(userId, 'OPT', { index: read.index })]);
     const out = {};
     for (const type of ['CE', 'PE']) {
       const contract = contracts[type];
@@ -246,7 +246,7 @@ export class OptionTrader {
     const bars = read.market.done5;
     const last = bars.at(-1);
     if (!last || this.now() - (last.time + 300) * 1000 > PATTERN_FRESH_MS) return { skipped: 'no fresh bar' };
-    const hits = findSignals(prepare(bars), { only: keys, from: bars.length - 1, windows: this.config.enforceMarketHours }).sort((a, b) => keys.indexOf(a.technique) - keys.indexOf(b.technique));
+    const hits = findSignals(prepare(bars), { only: keys, from: bars.length - 1, windows: this.config.enforceMarketHours, when: this.config.enforceMarketHours ? entryTest(entryWindowOf(settings)) : null }).sort((a, b) => keys.indexOf(a.technique) - keys.indexOf(b.technique));
     return this.#actOn(settings, read, hits, last, (hit) => LIVE_PATTERNS.find((p) => p.key === hit.technique).label, { minScore: settings.patternMinScore ?? 0 });
   }
 
@@ -255,14 +255,14 @@ export class OptionTrader {
    * pattern: its own stop level, the same limits and lots. The 50-stock breadth and volume come from the live candles of the scanner.
    */
   async considerCombos(settings, read) {
-    const combos = normalizeCombos(settings.combos).filter((c) => c.on);
+    const combos = normalizeCombos(settings.combos).filter((c) => c.on && comboFitsIndex(c, read?.index ?? DEFAULT_INDEX));
     if (!combos.length) return { skipped: 'no combination is switched on' };
     if (!read?.ready) return { skipped: 'the chart is not ready yet' };
     const bars = read.market.done5;
     const last = bars.at(-1);
     if (!last || this.now() - (last.time + 300) * 1000 > PATTERN_FRESH_MS) return { skipped: 'no fresh bar' };
     const chart = this.#comboChart(read.index ?? DEFAULT_INDEX, bars);
-    const hits = combos.flatMap((combo) => comboSignals(chart, combo, { from: bars.length - 1, windows: this.config.enforceMarketHours, label: `combo:${combo.id}` }));
+    const hits = combos.flatMap((combo) => comboSignals(chart, combo, { from: bars.length - 1, windows: this.config.enforceMarketHours, when: this.config.enforceMarketHours ? entryTest(entryWindowOf(settings)) : null, label: `combo:${combo.id}` }));
     const names = new Map(combos.map((c) => [`combo:${c.id}`, c.name]));
     return this.#actOn(settings, read, hits, last, (hit) => `Combination: ${names.get(hit.technique)}`);
   }
@@ -296,7 +296,7 @@ export class OptionTrader {
       const label = labelOf(hit);
       const spot = read.spot;
       const sideScore = read[hit.side === 'CE' ? 'ce' : 'pe']?.score;
-      let stop = ruleStop(hit, spot, hit.stopRule ?? stopRuleOf(settings));
+      let stop = ruleStop(hit, spot, hit.stopRule ?? stopRuleOf(settings, read.index));
       if (d * (spot - stop) < MIN_STOP_ATR * hit.atr) stop = spot - d * MIN_STOP_ATR * hit.atr;
       const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: sideScore, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique, ...(hit.exits ? { exits: hit.exits } : {}) };
       if (minScore && !(sideScore >= minScore)) {
@@ -334,7 +334,7 @@ export class OptionTrader {
     const contract = await this.market.pickOption({ type: side.type, now: this.now(), index });
     if (!contract?.ltp) return stop('no option contract with a live price');
     const funds = await getFunds(userId, this.config.startingBalance);
-    const planned = planTrade({ read: side, market: read.market, contract, premium: contract.ltp, settings, rules: await loadRules(userId, 'OPT'), available: funds.available, spentBudget: today.spent, now: this.now(), lots });
+    const planned = planTrade({ read: side, market: read.market, contract, premium: contract.ltp, settings, rules: await loadRules(userId, 'OPT', { index }), available: funds.available, spentBudget: today.spent, now: this.now(), lots });
     if (planned.skipped) return stop(planned.skipped);
     const plan = planned.plan;
 

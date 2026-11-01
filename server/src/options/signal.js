@@ -12,6 +12,19 @@ export const OPTION_WEIGHTS = { trend5: 8, trend15: 8, emaStack: 6, mean: 8, sup
 export const OPTION_MIN_SCORE = 70;
 export const FIRST_ENTRY_MIN = 9 * 60 + 15; // the market opens: index options have no pre-market, so this is the earliest a buy can be priced
 export const LAST_ENTRY_MIN = 15 * 60 + 15; // the 15:15 square-off: no new trade after it
+/** The hours new trades may be taken: the user's own (Account > Limits) inside the market day, else 09:15 to 15:15. */
+export const entryWindowOf = (settings) => {
+  const from = Number(settings?.entryFrom);
+  const to = Number(settings?.entryTo);
+  return { from: from >= FIRST_ENTRY_MIN && from < LAST_ENTRY_MIN ? from : FIRST_ENTRY_MIN, to: to > FIRST_ENTRY_MIN && to <= LAST_ENTRY_MIN ? to : LAST_ENTRY_MIN };
+};
+/** (barTime) => whether a trade made when that 5-minute bar closes falls inside the window. */
+export const entryTest = ({ from, to }) => (time) => {
+  const { minutes } = istParts(new Date((time + 300) * 1000));
+  return minutes >= from && minutes < to;
+};
+/** The entry test for a run's params ({ entryFrom, entryTo }), or null (the usual hours) when it has none. */
+export const entryTestOf = (params) => (params?.entryFrom != null || params?.entryTo != null ? entryTest(entryWindowOf({ entryFrom: params.entryFrom, entryTo: params.entryTo })) : null);
 export const MIN_STOP_ATR = 0.8; // a stop closer than this to the price is hit by ordinary noise
 export const MAX_STOP_ATR = 2.0; // if the nearest chart level is further than this, the stop would be too wide to risk
 const MAX_SPENT = 1.5; // today's range already this many times the usual daily range: the move is mostly done

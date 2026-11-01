@@ -12,6 +12,7 @@ import { dayStory, reviewPatterns, warmBars } from './patterns.js';
 import { PriceBook } from '../study/priceBook.js';
 import { normalizeCombos } from '../combos/combos.js';
 import { stopRuleOf } from '../study/patterns.js';
+import { entryWindowOf } from '../options/signal.js';
 import { breakEvenOf, trailOf } from '../study/simulate.js';
 import { candleDay, candleOn, dirOf, judge, moveOf, morningWindow, prevCloseBefore, sessionAfter, tally } from './day.js';
 
@@ -175,7 +176,7 @@ export class ReviewService {
   /** The Nifty chart of one day with every pattern that formed on it, and what a one-lot option buy at each would have done. */
   async patterns(userId, day, index = DEFAULT_INDEX, checks = [], { trial = null, real = true } = {}) {
     const idx = INDEXES[index];
-    const [c1, rules, settings] = await Promise.all([this.market.getMinutes(idx.symbol, day), loadRules(userId, 'OPT'), OptionSettings.findOne({ user: userId }).lean()]);
+    const [c1, rules, settings] = await Promise.all([this.market.getMinutes(idx.symbol, day), loadRules(userId, 'OPT', { index }), OptionSettings.findOne({ user: userId }).lean()]);
     const params = {
       iv: 0.14,
       lockStart: rules.lockStart || 1000,
@@ -188,6 +189,8 @@ export class ReviewService {
       lossLimit: rules.stopLoss ?? 0,
       maxLots: settings?.maxLots ?? 2,
       exitMin: rules.exitMin,
+      entryFrom: entryWindowOf(settings).from,
+      entryTo: entryWindowOf(settings).to,
       trail: trailOf(settings),
       breakEven: breakEvenOf(settings),
     };
@@ -201,7 +204,7 @@ export class ReviewService {
         pricing = { mode: 'real', contracts: book.expiries(day).length };
       }
     }
-    return { index, pricing, ...reviewPatterns({ c1, day, params, stocks5: await this.#savedStocks5(day), combos: normalizeCombos(settings?.combos), stopRule: stopRuleOf(settings), checks, trial }) };
+    return { index, pricing, ...reviewPatterns({ c1, day, params, stocks5: await this.#savedStocks5(day), combos: normalizeCombos(settings?.combos), stopRule: stopRuleOf(settings, index), checks, trial }) };
   }
 
   /** One stock on one day: its 5-minute chart, the news with what the price did after each headline, the ideas and the user's trades. */

@@ -36,7 +36,7 @@ const rulesSchema = z.object({
   lockOn: z.boolean(), // false switches the profit lock off for new trades; the rows stay saved
   exitMin: z.coerce.number().int().min(9 * 60 + 30).max(15 * 60 + 15), // the time the auto trader closes its trades, in minutes after midnight IST
 }).partial();
-const defaultsSchema = z.object({ shares: rulesSchema.optional(), options: rulesSchema.optional() });
+const defaultsSchema = z.object({ shares: rulesSchema.optional(), options: rulesSchema.optional(), sensex: rulesSchema.extend({ own: z.boolean().optional() }).optional() });
 // Shares and Nifty options are kept apart on every list: shares by default, options with ?segment=OPT.
 const segment = z.enum(['EQ', 'OPT', 'ALL']).default('EQ');
 const bySegment = (seg) => (seg === 'OPT' ? { segment: 'OPT' } : seg === 'EQ' ? { segment: { $ne: 'OPT' } } : {});
@@ -110,7 +110,9 @@ export function tradingRoutes({ engine, market, config }) {
     res.json(await engine.setExits(req.userId, req.params.symbol.toUpperCase(), req.body));
   });
 
-  const defaultsView = (doc, opts) => ({ shares: rulesFor(doc, 'EQ', opts), options: rulesFor(doc, 'OPT', opts) });
+  // Sensex starts as a copy of the options rules; `own` says whether Sensex trades use the copy kept for them.
+  const sensexView = (doc, opts) => ({ own: doc?.sensex?.own === true, ...rulesFor({ options: doc?.sensex?.own ? doc.sensex : doc?.options }, 'OPT', opts) });
+  const defaultsView = (doc, opts) => ({ shares: rulesFor(doc, 'EQ', opts), options: rulesFor(doc, 'OPT', opts), sensex: sensexView(doc, opts) });
 
   router.get('/trade-defaults', async (req, res) => {
     res.json(defaultsView(await TradeDefaults.findOne({ user: req.userId }).lean()));
@@ -118,9 +120,10 @@ export function tradingRoutes({ engine, market, config }) {
 
   router.put('/trade-defaults', validate(defaultsSchema), async (req, res) => {
     const next = defaultsView(await TradeDefaults.findOne({ user: req.userId }).lean(), { raw: true });
-    for (const key of ['shares', 'options']) {
+    for (const key of ['shares', 'options', 'sensex']) {
       const body = req.body[key] ?? {};
       if (body.lockOn !== undefined) next[key].lockOn = body.lockOn;
+      if (key === 'sensex' && body.own !== undefined) next.sensex.own = body.own;
       if (body.exitMin !== undefined) next[key].exitMin = body.exitMin;
       if (body.steps) {
         const problem = ladderProblem(body.steps);
