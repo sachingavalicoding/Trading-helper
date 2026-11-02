@@ -1,6 +1,7 @@
 import { StudyRun, OptionSettings, AutoSettings } from '../models/index.js';
 import { normalizeCombos } from '../combos/combos.js';
 import { stopRuleOf } from './patterns.js';
+import { forIndex } from '../options/indexSettings.js';
 import { entryWindowOf } from '../options/signal.js';
 import { breakEvenOf, trailOf } from './simulate.js';
 import { loadRules } from '../models/TradeDefaults.js';
@@ -96,7 +97,7 @@ export class StudyService {
         if (failed >= 5 && !Object.keys(stocks5).length) break; // the broker is refusing: stop asking
       }
     }
-    const [rules, settings] = await Promise.all([loadRules(userId, 'OPT', { index }), OptionSettings.findOne({ user: userId }).lean()]);
+    const [rules, settings] = await Promise.all([loadRules(userId, 'OPT', { index }), OptionSettings.findOne({ user: userId }).lean().then((s) => forIndex(s, index))]);
     const window = entryWindowOf(settings);
     const params = {
       days,
@@ -135,6 +136,7 @@ export class StudyService {
       research,
       lossLimit: rules.stopLoss ?? 0,
       maxLots: settings?.maxLots ?? 2,
+      sideOnly: settings?.sideOnly ?? null,
       target,
       fixedLots,
       exitMin: exitMin ?? rules.exitMin,

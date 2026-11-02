@@ -146,6 +146,78 @@ const SENSEX_STOPS = [
   { value: 'fixed', label: 'Points' },
 ];
 
+const SX = (k, base) => (k === null || k === undefined ? base : k);
+
+/** The Sensex's own trail, break-even, hours, lots, side and patterns. A field left on "same" uses the Nifty value. */
+function SensexExits({ s, choices, put }) {
+  const trailMode = SX(s.sensexTrailMode, s.trailMode);
+  const [draft, setDraft] = useState({});
+  const val = (key, base) => (draft[key] !== undefined ? draft[key] : String(SX(s[key], base)));
+  const commit = (key, base, lo, hi) => {
+    const raw = draft[key];
+    if (raw === undefined) return;
+    setDraft((d) => ({ ...d, [key]: undefined }));
+    const n = Number(raw);
+    if (raw === '' || !Number.isFinite(n) || n < lo || n > hi) return toast.error(`Enter a number from ${lo} to ${hi}`);
+    if (n !== SX(s[key], base)) put({ [key]: n });
+  };
+  const num = (key, base, label, lo, hi) => (
+    <label className="block text-xs text-muted">
+      {label}
+      <input className={NUM} inputMode="numeric" value={val(key, base)} onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))} onBlur={() => commit(key, base, lo, hi)} />
+      {s[key] == null && <span className="text-[10px]">Same as Nifty ({base})</span>}
+    </label>
+  );
+  const patterns = SX(s.sensexPatterns, s.patterns) ?? [];
+  const togglePattern = (k) => put({ sensexPatterns: patterns.includes(k) ? patterns.filter((x) => x !== k) : [...patterns, k] });
+  const from = SX(s.sensexEntryFrom, s.entryFrom ?? 555);
+  const to = SX(s.sensexEntryTo, s.entryTo ?? 915);
+  return (
+    <div className="space-y-3 border-t border-line pt-3">
+      <div className="text-xs font-semibold">Sensex: exits, hours and entries</div>
+      <div>
+        <div className="mb-1 text-xs text-muted">Trailing stop (Sensex points)</div>
+        <Segmented className="w-full" size="sm" value={trailMode} onChange={(v) => put({ sensexTrailMode: v })} options={[{ value: 'off', label: 'Off' }, { value: 'points', label: 'Trail' }]} />
+        {trailMode === 'points' && (
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {num('sensexTrailStart', s.trailStart ?? 25, 'Starts after', 0, 1000)}
+            {num('sensexTrailPoints', s.trailPoints ?? 25, 'Stays behind by', 5, 1000)}
+          </div>
+        )}
+      </div>
+      {num('sensexBreakEven', s.breakEvenPoints ?? 0, 'Break-even after (Sensex points, 0 = off)', 0, 1000)}
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block text-xs text-muted">
+          First entry
+          <input type="time" className={NUM} value={timeText(from)} onChange={(e) => { const m = minOfTime(e.target.value); if (m != null && m >= 555 && m + 15 <= to) put({ sensexEntryFrom: m }); }} />
+        </label>
+        <label className="block text-xs text-muted">
+          Last entry
+          <input type="time" className={NUM} value={timeText(to)} onChange={(e) => { const m = minOfTime(e.target.value); if (m != null && m <= 915 && m >= from + 15) put({ sensexEntryTo: m }); }} />
+        </label>
+      </div>
+      {num('sensexMaxLots', s.maxLots ?? 2, 'Most lots in one Sensex trade', 1, 20)}
+      <div>
+        <div className="mb-1 text-xs text-muted">Sensex trades</div>
+        <Segmented className="w-full" size="sm" value={s.sensexSide ?? 'both'} onChange={(v) => put({ sensexSide: v })} options={[{ value: 'both', label: 'Both' }, { value: 'CE', label: 'Calls only' }, { value: 'PE', label: 'Puts only' }]} />
+      </div>
+      {choices.length > 0 && (
+        <div>
+          <div className="mb-1 text-xs text-muted">Chart patterns the Sensex buys on{s.sensexPatterns == null ? ' (same as Nifty until you change one)' : ''}</div>
+          <div className="flex flex-wrap gap-1.5">
+            {choices.map((c) => (
+              <button key={c.key} type="button" onClick={() => togglePattern(c.key)} aria-pressed={patterns.includes(c.key)} className={`rounded-full border px-2.5 py-1 text-[11px] ${patterns.includes(c.key) ? 'border-accent bg-accent/10 text-fg' : 'border-line text-muted'}`}>
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <p className="text-[11px] leading-snug text-muted">Used by the Sensex bot, the Sensex study, Review and the Lab. Each combination also has its own Sensex-only switch, score, side and exits in Account &gt; Entries.</p>
+    </div>
+  );
+}
+
 /** Account > Limits: the Sensex can have its own loss limit, profit ladder and stop placement. Off, it uses the Nifty ones. */
 function SensexSetup({ data, options, save, lock, saved }) {
   const sx = data.sensex;
@@ -213,7 +285,7 @@ function SensexSetup({ data, options, save, lock, saved }) {
                   </select>
                 </label>
               )}
-              <p className="text-[11px] leading-snug text-muted">The trailing stop and break-even above are in index points and apply to both indexes as set. Give a combination its own exits to tune them for the Sensex.</p>
+              <SensexExits s={s} choices={options.data.patternChoices ?? []} put={putStop} />
             </div>
           )}
         </div>

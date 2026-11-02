@@ -1,6 +1,7 @@
 import { AutoLog, OptionSettings, Order, Position, Trade } from '../models/index.js';
 import { getFunds } from '../services/walletService.js';
 import { INDEXES, DEFAULT_INDEX, INDEX_KEYS, indexKeyOf, isOptionSymbol, optionLabel, parseOptionSymbol } from './symbols.js';
+import { forIndex } from './indexSettings.js';
 import { readNifty, entryWindowOf, entryTest } from './signal.js';
 import { breakEvenOf, trailOf } from '../study/simulate.js';
 import { TECHNIQUES, prepare, findSignals, turnoverSeries, ruleStop, stopRuleOf, MIN_STOP_ATR, MAX_STOP_ATR } from '../study/patterns.js';
@@ -114,7 +115,7 @@ export class OptionTrader {
 
   /** What one lot (or the lots the settings allow) of each side would be, shown before you buy: the same plan the trader would place. */
   async preview(userId, read, contracts) {
-    const settings = (await OptionSettings.findOne({ user: userId }).lean()) || new OptionSettings({ user: userId }).toObject();
+    const settings = forIndex((await OptionSettings.findOne({ user: userId }).lean()) || new OptionSettings({ user: userId }).toObject(), read.index);
     const [today, funds, rules] = await Promise.all([this.todaySummary(userId), getFunds(userId, this.config.startingBalance), loadRules(userId, 'OPT', { index: read.index })]);
     const out = {};
     for (const type of ['CE', 'PE']) {
@@ -166,14 +167,15 @@ export class OptionTrader {
       for (const s of all) {
         try {
           if (this.config.enforceMarketHours && nowMin >= (await loadRules(s.user, 'OPT')).exitMin) continue; // past the time you close: no new trade
-          const modes = entryModes(s);
           for (const index of activeIndexes(s)) {
+            const si = forIndex(s, index); // the Sensex may have a setup of its own
+            const modes = entryModes(si);
             const read = await readOf(index);
             if (modes.patterns.length) {
-              const p = await this.considerPatterns(s, read);
+              const p = await this.considerPatterns(si, read);
               if (p.order) continue;
             }
-            if (modes.combos) await this.considerCombos(s, read);
+            if (modes.combos) await this.considerCombos(si, read);
           }
         } catch (e) {
           logger.warn(`options order failed: ${e.message}`);
@@ -289,6 +291,7 @@ export class OptionTrader {
   async #actOn(settings, read, hits, last, labelOf, { minScore = 0 } = {}) {
     let result = { skipped: 'no pattern' };
     for (const hit of hits) {
+      if (settings.sideOnly && hit.side !== settings.sideOnly) continue; // the Sensex setup takes calls only or puts only
       const seen = `${settings.user}|${read.index}|${hit.technique}|${last.time}`;
       if (this.patternSeen.has(seen)) continue;
       if (this.patternSeen.size > 500) this.patternSeen.clear();
@@ -390,7 +393,7 @@ export class OptionTrader {
     const read = await this.read(index);
     if (!read.ready) return { skipped: `the ${INDEXES[index].short} chart is not ready yet` };
     const side = type === 'CE' ? read.ce : read.pe;
-    const settings = { ...((await OptionSettings.findOne({ user: userId }).lean()) ?? new OptionSettings({ user: userId }).toObject()), user: userId };
+    const settings = forIndex({ ...((await OptionSettings.findOne({ user: userId }).lean()) ?? new OptionSettings({ user: userId }).toObject()), user: userId }, index);
     return this.#enter(settings, read, side, { manual: true, lots });
   }
 

@@ -7,6 +7,7 @@ import { INDEXES, INDEX_KEYS, DEFAULT_INDEX, optionLabel } from '../options/symb
 import { LIVE_PATTERNS, DEFAULT_PATTERNS, activeIndexes } from '../options/optionTrader.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { badRequest } from '../utils/errors.js';
+import { SENSEX_KEYS } from '../options/indexSettings.js';
 import { comboInput, normalizeCombos } from '../combos/combos.js';
 
 export const OPTIONS_DISCLAIMER = 'Options are paper (virtual) trades only. About 9 in 10 individual traders lose money in index options, so treat results here as a test, not a promise. Not investment advice.';
@@ -33,6 +34,15 @@ const patch = z
     sensexStopMode: z.enum(['chart', 'cap', 'atr', 'fixed']),
     sensexStopAtr: z.coerce.number().min(0.8).max(2.5),
     sensexStopPoints: z.coerce.number().min(20).max(600),
+    sensexTrailMode: z.enum(['off', 'points']).nullable(),
+    sensexTrailPoints: z.coerce.number().min(5).max(1000).nullable(),
+    sensexTrailStart: z.coerce.number().min(0).max(1000).nullable(),
+    sensexBreakEven: z.coerce.number().min(0).max(1000).nullable(),
+    sensexEntryFrom: z.coerce.number().int().min(555).max(914).nullable(),
+    sensexEntryTo: z.coerce.number().int().min(556).max(915).nullable(),
+    sensexMaxLots: z.coerce.number().int().min(1).max(20).nullable(),
+    sensexPatterns: z.array(z.enum(LIVE_PATTERNS.map((p) => p.key))).max(LIVE_PATTERNS.length).nullable(),
+    sensexSide: z.enum(['both', 'CE', 'PE']).nullable(),
     comboEntries: z.boolean(),
     trailMode: z.enum(['off', 'points']),
     trailPoints: z.coerce.number().min(5).max(200),
@@ -55,7 +65,7 @@ export function optionRoutes({ optionTrader }) {
   const view = async (userId, doc) => {
     const s = doc || new OptionSettings({ user: userId });
     const { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct } = s;
-    const entries = { patternEntries: s.patternEntries !== false, patternMinScore: s.patternMinScore ?? 0, comboMinScore: s.comboMinScore ?? 0, indexes: activeIndexes(s), mirror: s.mirror === true, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []), patternStopMode: s.patternStopMode ?? 'chart', patternStopAtr: s.patternStopAtr ?? 2, patternStopPoints: s.patternStopPoints ?? 30, comboEntries: s.comboEntries !== false, trailMode: s.trailMode ?? 'off', trailPoints: s.trailPoints ?? 25, trailStart: s.trailStart ?? 25, breakEvenPoints: s.breakEvenPoints ?? 0, entryFrom: s.entryFrom ?? 555, entryTo: s.entryTo ?? 915, sensexOwn: s.sensexOwn === true, sensexStopMode: s.sensexStopMode ?? 'chart', sensexStopAtr: s.sensexStopAtr ?? 2, sensexStopPoints: s.sensexStopPoints ?? 100 };
+    const entries = { patternEntries: s.patternEntries !== false, patternMinScore: s.patternMinScore ?? 0, comboMinScore: s.comboMinScore ?? 0, indexes: activeIndexes(s), mirror: s.mirror === true, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []), patternStopMode: s.patternStopMode ?? 'chart', patternStopAtr: s.patternStopAtr ?? 2, patternStopPoints: s.patternStopPoints ?? 30, comboEntries: s.comboEntries !== false, trailMode: s.trailMode ?? 'off', trailPoints: s.trailPoints ?? 25, trailStart: s.trailStart ?? 25, breakEvenPoints: s.breakEvenPoints ?? 0, entryFrom: s.entryFrom ?? 555, entryTo: s.entryTo ?? 915, sensexOwn: s.sensexOwn === true, sensexStopMode: s.sensexStopMode ?? 'chart', sensexStopAtr: s.sensexStopAtr ?? 2, sensexStopPoints: s.sensexStopPoints ?? 100, ...Object.fromEntries(SENSEX_KEYS.map((k) => [k, s[k] ?? null])) };
     return { settings: { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct, ...entries }, indexChoices: INDEX_KEYS.map((k) => ({ key: k, name: INDEXES[k].name, short: INDEXES[k].short })), patternChoices: LIVE_PATTERNS, rules: await loadRules(userId, 'OPT'), sensexRules: await loadRules(userId, 'OPT', { index: 'SENSEX' }), today: await optionTrader.todaySummary(userId), disclaimer: OPTIONS_DISCLAIMER };
   };
 
@@ -64,6 +74,12 @@ export function optionRoutes({ optionTrader }) {
   });
 
   router.put('/', validate(patch), async (req, res) => {
+    if (req.body.sensexEntryFrom != null || req.body.sensexEntryTo != null) {
+      const cur = await OptionSettings.findOne({ user: req.userId }).lean();
+      const from = req.body.sensexEntryFrom ?? cur?.sensexEntryFrom ?? cur?.entryFrom ?? 555;
+      const to = req.body.sensexEntryTo ?? cur?.sensexEntryTo ?? cur?.entryTo ?? 915;
+      if (!(from + 15 <= to)) return res.status(400).json({ error: { code: 'VALIDATION', message: 'For the Sensex, the last time for a new trade must be at least 15 minutes after the first' } });
+    }
     if (req.body.entryFrom !== undefined || req.body.entryTo !== undefined) {
       const cur = await OptionSettings.findOne({ user: req.userId }).lean();
       const from = req.body.entryFrom ?? cur?.entryFrom ?? 555;

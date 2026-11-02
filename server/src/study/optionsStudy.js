@@ -277,6 +277,7 @@ export function tradesFor(signals, { c1, byTime, params }) {
   const live = Boolean(params.live);
   const cap = params.maxTrades ?? MAX_PER_DAY;
   for (const s of [...signals].sort((a, b) => a.time - b.time)) {
+    if (params.sideOnly && s.side !== params.sideOnly) continue; // the Sensex setup takes calls only or puts only
     const day = dayKey(s.time);
     if (live) {
       const why = liveSkip(s, trades, { maxPerDay: cap, dailyLoss: params.dailyLoss ?? 0 });

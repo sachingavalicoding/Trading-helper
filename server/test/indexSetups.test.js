@@ -99,3 +99,38 @@ test('Sensex stop choices are saved and validated', async () => {
   await api().put('/api/options').set(user.auth).send({ sensexStopPoints: 5 }).expect(400);
   await api().put('/api/options').set(user.auth).send({ sensexStopMode: 'tight' }).expect(400);
 });
+
+test('with its own setup on, the Sensex takes its own trail, break-even, hours, lots, patterns and side; unset values keep the Nifty ones', async () => {
+  const { forIndex } = await import('../src/options/indexSettings.js');
+  const { trailOf, breakEvenOf } = await import('../src/study/simulate.js');
+  const base = { trailMode: 'points', trailPoints: 40, trailStart: 40, breakEvenPoints: 15, entryFrom: 555, entryTo: 915, maxLots: 2, patterns: ['breakout'] };
+  assert.equal(forIndex(base, 'SENSEX'), base, 'own setup off: unchanged');
+  assert.equal(forIndex({ ...base, sensexOwn: true, sensexTrailMode: 'off' }, 'NIFTY').trailMode, 'points');
+  const same = forIndex({ ...base, sensexOwn: true }, 'SENSEX');
+  assert.deepEqual([same.trailPoints, same.breakEvenPoints, same.maxLots, same.sideOnly], [40, 15, 2, null]);
+  const own = forIndex({ ...base, sensexOwn: true, sensexTrailMode: 'points', sensexTrailPoints: 130, sensexTrailStart: 130, sensexBreakEven: 50, sensexEntryFrom: 600, sensexMaxLots: 1, sensexPatterns: ['insideBar'], sensexSide: 'CE' }, 'SENSEX');
+  assert.deepEqual(trailOf(own), { points: 130, start: 130 });
+  assert.equal(breakEvenOf(own), 50);
+  assert.deepEqual([own.entryFrom, own.entryTo, own.maxLots, own.patterns, own.sideOnly], [600, 915, 1, ['insideBar'], 'CE']);
+  assert.equal(breakEvenOf(forIndex({ ...base, sensexOwn: true, sensexBreakEven: 0 }, 'SENSEX')), 0, '0 means off, not "same as Nifty"');
+  assert.equal(forIndex({ ...base, sensexOwn: true, sensexTrailMode: 'off' }, 'SENSEX').trailMode, 'off');
+
+  const sx = (await api().put('/api/options').set(user.auth).send({ sensexOwn: true, sensexTrailMode: 'off', sensexBreakEven: 50, sensexSide: 'CE', sensexPatterns: ['breakout'] }).expect(200)).body.settings;
+  assert.deepEqual([sx.sensexTrailMode, sx.sensexBreakEven, sx.sensexSide, sx.sensexPatterns, sx.sensexMaxLots], ['off', 50, 'CE', ['breakout'], null]);
+  const reset = (await api().put('/api/options').set(user.auth).send({ sensexTrailMode: null, sensexSide: null }).expect(200)).body.settings;
+  assert.deepEqual([reset.sensexTrailMode, reset.sensexSide], [null, null]);
+  await api().put('/api/options').set(user.auth).send({ sensexSide: 'BOTH' }).expect(400);
+  await api().put('/api/options').set(user.auth).send({ sensexEntryFrom: 600, sensexEntryTo: 605 }).expect(400);
+});
+
+test('a study with a side lock trades only that side', async () => {
+  const { tradesFor } = await import('../src/study/optionsStudy.js');
+  const c1 = [];
+  for (let k = 0; k < 400; k++) c1.push({ time: OPEN + k * 60, open: 24000, high: 24002, low: 23998, close: 24000, volume: 1 });
+  const byTime = new Map(c1.map((b, i) => [b.time, i]));
+  const sig = (side, k) => ({ side, time: OPEN + k * 300, close: 24000, stop: side === 'CE' ? 23950 : 24050, atr: 20, technique: 't', note: '' });
+  const params = { iv: 0.14, lockStart: 1000, lockGap: 250, lotSize: 20, holidays: [], expiryWeekday: 4, lossLimit: 3000, maxLots: 2 };
+  const both = tradesFor([sig('CE', 4), sig('PE', 20)], { c1, byTime, params }).trades;
+  const calls = tradesFor([sig('CE', 4), sig('PE', 20)], { c1, byTime, params: { ...params, sideOnly: 'CE' } }).trades;
+  assert.ok(calls.length <= both.length && calls.every((t) => t.side === 'CE'));
+});

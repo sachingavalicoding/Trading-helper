@@ -4,6 +4,7 @@ import { loadRules } from '../models/TradeDefaults.js';
 import { NIFTY50 } from '../market/instruments.js';
 import { INDEXES, lotSizeOf } from '../options/symbols.js';
 import { stopRuleOf } from '../study/patterns.js';
+import { forIndex } from '../options/indexSettings.js';
 import { entryWindowOf } from '../options/signal.js';
 import { breakEvenOf, trailOf } from '../study/simulate.js';
 import { PriceBook } from '../study/priceBook.js';
@@ -49,7 +50,7 @@ export class LabService {
   }
 
   async #params(userId, index) {
-    const [rules, settings] = await Promise.all([loadRules(userId, 'OPT', { index }), OptionSettings.findOne({ user: userId }).lean()]);
+    const [rules, settings] = await Promise.all([loadRules(userId, 'OPT', { index }), OptionSettings.findOne({ user: userId }).lean().then((s) => forIndex(s, index))]);
     return {
       params: {
         iv: 0.14,
@@ -67,6 +68,7 @@ export class LabService {
         breakEven: breakEvenOf(settings),
         lossLimit: rules.stopLoss ?? 0,
         maxLots: settings?.maxLots ?? 2,
+        sideOnly: settings?.sideOnly ?? null,
         target: 0,
         fixedLots: 0,
         exitMin: rules.exitMin,

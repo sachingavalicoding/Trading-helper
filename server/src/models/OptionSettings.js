@@ -20,6 +20,15 @@ const optionSettingsSchema = new mongoose.Schema(
     entryFrom: { type: Number, default: 555, min: 555, max: 914 }, // minutes after midnight IST: no new trade before it (555 = 09:15)
     entryTo: { type: Number, default: 915, min: 556, max: 915 }, // ...and none from it on (915 = 15:15)
     sensexOwn: { type: Boolean, default: false }, // true: Sensex trades use their own stop below (the profit ladder is in Trade defaults); false: the Nifty setup
+    sensexTrailMode: { type: String, enum: ['off', 'points'], default: undefined }, // the Sensex's own exits and entries; unset = the Nifty value (see options/indexSettings.js)
+    sensexTrailPoints: { type: Number, min: 5, max: 1000, default: undefined }, // Sensex points
+    sensexTrailStart: { type: Number, min: 0, max: 1000, default: undefined },
+    sensexBreakEven: { type: Number, min: 0, max: 1000, default: undefined }, // 0 = off
+    sensexEntryFrom: { type: Number, min: 555, max: 914, default: undefined },
+    sensexEntryTo: { type: Number, min: 556, max: 915, default: undefined },
+    sensexMaxLots: { type: Number, min: 1, max: 20, default: undefined },
+    sensexPatterns: { type: [String], default: undefined },
+    sensexSide: { type: String, enum: ['both', 'CE', 'PE'], default: undefined }, // calls only, puts only, or both
     sensexStopMode: { type: String, enum: ['chart', 'cap', 'atr', 'fixed'], default: 'chart' },
     sensexStopAtr: { type: Number, default: 2, min: 0.8, max: 2.5 },
     sensexStopPoints: { type: Number, default: 100, min: 20, max: 600 }, // Sensex points, for the 'fixed' stop
