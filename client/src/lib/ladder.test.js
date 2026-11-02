@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ladderSummary, minOfTime, nextRow, rowsFromRules, rowsProblem, stepsOf, timeText } from './ladder.js';
+import { fillRows, ladderSummary, minOfTime, nextRow, rowsFromRules, rowsProblem, stepsOf, timeText } from './ladder.js';
 
 const rows = (...pairs) => pairs.map(([at, keep]) => ({ at: String(at), keep: String(keep) }));
 
@@ -38,5 +38,22 @@ describe('exit time', () => {
     expect(minOfTime('15:16')).toBeNull();
     expect(minOfTime('09:29')).toBeNull();
     expect(minOfTime('')).toBeNull();
+  });
+});
+
+describe('filling the ladder from its first two rows', () => {
+  it('adds the same profit and lock steps as row 2 added to row 1, up to 8 rows', () => {
+    const rows = fillRows([{ at: '1000', keep: '750' }, { at: '2000', keep: '1400' }]);
+    expect(rows).toHaveLength(8);
+    expect(rows.slice(0, 4)).toEqual([{ at: '1000', keep: '750' }, { at: '2000', keep: '1400' }, { at: '3000', keep: '2050' }, { at: '4000', keep: '2700' }]);
+  });
+  it('is null with fewer than two rows or steps that do not rise', () => {
+    expect(fillRows([{ at: '1000', keep: '750' }])).toBeNull();
+    expect(fillRows([{ at: '2000', keep: '1500' }, { at: '1000', keep: '800' }])).toBeNull();
+  });
+  it('stops when a row would keep as much as it needs', () => {
+    const rows = fillRows([{ at: '1000', keep: '500' }, { at: '1500', keep: '1100' }]);
+    expect(rows.length).toBeLessThan(8);
+    expect(rows.every((r) => Number(r.at) > Number(r.keep))).toBe(true);
   });
 });

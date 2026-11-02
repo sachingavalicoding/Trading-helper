@@ -30,6 +30,28 @@ export function nextRow(rows) {
   return { at: String(last.at + gap * 2), keep: String(last.keep + gap * 2) };
 }
 
+/**
+ * The ladder carried on from its first two rows: each new row adds the same profit step and the same lock step as row 2 added to row 1
+ * (1,000 keeps 750 then 2,000 keeps 1,400 gives 3,000 keeps 2,050 ...). Up to `total` rows; stops early if a row would keep as much as it needs.
+ * Returns null when the first two rows are not usable.
+ */
+export function fillRows(rows, total = MAX_ROWS) {
+  const steps = stepsOf(rows);
+  if (steps.length < 2) return null;
+  const [a, b] = steps;
+  const dAt = b.at - a.at;
+  const dKeep = b.keep - a.keep;
+  if (!(dAt > 0) || !(dKeep > 0)) return null;
+  const out = [];
+  for (let i = 0; i < total; i++) {
+    const at = a.at + dAt * i;
+    const keep = a.keep + dKeep * i;
+    if (!(at > keep)) break;
+    out.push({ at: String(at), keep: String(keep) });
+  }
+  return out.length >= 2 ? out : null;
+}
+
 /** One line per row for the preview under the form. */
 export function ladderLines(steps) {
   return steps.map((s) => ({ at: s.at, keep: s.keep, gap: s.at - s.keep, text: `At +${rs(s.at)} the stop keeps ${rs(s.keep)}; every rupee more profit lifts it a rupee, ${rs(s.at - s.keep)} behind the best.` }));

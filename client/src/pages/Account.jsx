@@ -7,7 +7,7 @@ import { useTheme } from '../context/ThemeContext.jsx';
 import { useMarket } from '../context/MarketContext.jsx';
 import { useApi } from '../lib/useApi.js';
 import { api } from '../lib/api.js';
-import { DEFAULT_EXIT_MIN, MAX_ROWS, ladderLines, ladderSummary, minOfTime, nextRow, rowsFromRules, rowsProblem, stepsOf, timeText } from '../lib/ladder.js';
+import { DEFAULT_EXIT_MIN, MAX_ROWS, fillRows, ladderLines, ladderSummary, minOfTime, nextRow, rowsFromRules, rowsProblem, stepsOf, timeText } from '../lib/ladder.js';
 import { useStartingBalance } from '../lib/useStartingBalance.js';
 import { formatINR, formatPnl, pnlClass } from '../lib/format.js';
 import { Card, Segmented, Skeleton, Disclaimer, PopupTile, Sheet, useFold } from '../components/ui.jsx';
@@ -80,6 +80,12 @@ function RulesForm({ title, rules, onSave, onLock, saved, stopLabel = 'Stop loss
           <Plus className="h-4 w-4" /> Add a row
         </button>
       )}
+      {v.rows.length >= 2 && fillRows(v.rows) && (
+        <button type="button" onClick={() => edit({ rows: fillRows(v.rows) })} className="btn btn-secondary btn-sm w-full">
+          Fill the ladder from rows 1 and 2
+        </button>
+      )}
+      {v.rows.length >= 2 && fillRows(v.rows) && <p className="text-[11px] leading-snug text-muted">Carries on with the same steps as row 2 added to row 1, up to {MAX_ROWS} rows. Edit any row afterwards, then save.</p>}
       </div>
       {problem && <p className="text-xs text-down">{problem}</p>}
       <button type="button" disabled={bad || draft == null} onClick={async () => { if (await onSave({ stopLoss: Number(v.stopLoss), steps, exitMin })) setDraft(null); }} className="btn btn-primary w-full">
