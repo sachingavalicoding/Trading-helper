@@ -10,7 +10,7 @@ import { api } from '../lib/api.js';
 import { DEFAULT_EXIT_MIN, MAX_ROWS, ladderLines, ladderSummary, minOfTime, nextRow, rowsFromRules, rowsProblem, stepsOf, timeText } from '../lib/ladder.js';
 import { useStartingBalance } from '../lib/useStartingBalance.js';
 import { formatINR, formatPnl, pnlClass } from '../lib/format.js';
-import { Card, Segmented, Skeleton, Disclaimer, PopupTile, Sheet, useFold } from '../components/ui.jsx';
+import { Card, NumberBox, Segmented, Skeleton, Disclaimer, PopupTile, Sheet, useFold } from '../components/ui.jsx';
 import { AutoLimits } from '../components/AutoCard.jsx';
 import { OptionsLimits, StopPlacement, Switch } from '../components/options/OptionsAutoCard.jsx';
 import { TrailStop } from '../components/options/TrailStop.jsx';
@@ -264,25 +264,13 @@ function SensexSetup({ data, options, save, lock, saved }) {
               {(s.sensexStopMode === 'cap' || s.sensexStopMode === 'atr') && (
                 <label className="flex items-center justify-between gap-3 text-xs text-muted">
                   <span>{s.sensexStopMode === 'cap' ? 'Never further than' : 'Always'} (ATRs from the entry)</span>
-                  <select className="field num !w-24 !px-2 !py-1.5 !text-sm" value={s.sensexStopAtr} onChange={(e) => putStop({ sensexStopAtr: Number(e.target.value) })} aria-label="Sensex stop distance in ATRs">
-                    {[0.8, 1, 1.5, 2, 2.5].map((k) => (
-                      <option key={k} value={k}>
-                        {k} ATR
-                      </option>
-                    ))}
-                  </select>
+                  <NumberBox value={s.sensexStopAtr} min={0.8} max={2.5} decimal label="Sensex stop distance in ATRs" onSave={(n) => putStop({ sensexStopAtr: n })} />
                 </label>
               )}
               {s.sensexStopMode === 'fixed' && (
                 <label className="flex items-center justify-between gap-3 text-xs text-muted">
-                  <span>Sensex points from the entry</span>
-                  <select className="field num !w-24 !px-2 !py-1.5 !text-sm" value={s.sensexStopPoints} onChange={(e) => putStop({ sensexStopPoints: Number(e.target.value) })} aria-label="Sensex stop distance in points">
-                    {[...new Set([50, 80, 100, 150, 200, 300, 400, s.sensexStopPoints])].sort((x, y) => x - y).map((p) => (
-                      <option key={p} value={p}>
-                        {p} pts
-                      </option>
-                    ))}
-                  </select>
+                  <span>Sensex points from the entry (20 to 600)</span>
+                  <NumberBox value={s.sensexStopPoints} min={20} max={600} label="Sensex stop distance in points" onSave={(n) => putStop({ sensexStopPoints: n })} />
                 </label>
               )}
               <SensexExits s={s} choices={options.data.patternChoices ?? []} put={putStop} />

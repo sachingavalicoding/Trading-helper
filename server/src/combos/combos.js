@@ -16,7 +16,7 @@ const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 
 /** What the settings routes accept; `normalizeCombos` then drops unknown conditions. */
 export const comboInput = z
-  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional(), index: z.enum(['NIFTY', 'SENSEX']).nullish(), side: z.enum(['CE', 'PE']).nullish(), stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(), stopAtr: z.coerce.number().min(0.8).max(2.5).optional(), stopPoints: z.coerce.number().min(10).max(150).optional(), exits: z.object({ steps: z.array(z.object({ at: z.coerce.number(), keep: z.coerce.number() })).max(12).optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional() }).nullish() }))
+  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional(), index: z.enum(['NIFTY', 'SENSEX']).nullish(), side: z.enum(['CE', 'PE']).nullish(), stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(), stopAtr: z.coerce.number().min(0.8).max(2.5).optional(), stopPoints: z.coerce.number().min(10).max(600).optional(), exits: z.object({ steps: z.array(z.object({ at: z.coerce.number(), keep: z.coerce.number() })).max(12).optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional() }).nullish() }))
   .max(MAX_COMBOS);
 
 /** Clean a combination from user input: known conditions only, no repeats, at most MAX_CONDITIONS, `need` between 1 and the count. */
@@ -33,7 +33,7 @@ export function normalizeCombo(raw, index = 0) {
   if (STOP_MODES.includes(raw.stopMode)) {
     out.stopMode = raw.stopMode;
     out.stopAtr = Math.min(2.5, Math.max(0.8, Number(raw.stopAtr) || 2));
-    out.stopPoints = Math.min(150, Math.max(10, Math.round(Number(raw.stopPoints)) || 30));
+    out.stopPoints = Math.min(600, Math.max(10, Math.round(Number(raw.stopPoints)) || 30));
   }
   const exits = normalizeExits(raw.exits);
   if (exits) out.exits = exits;

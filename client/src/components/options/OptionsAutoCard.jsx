@@ -4,9 +4,9 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
 import { formatPrice, pnlClass } from '../../lib/format.js';
-import { Badge, Card, Segmented } from '../ui.jsx';
+import { Badge, Card, NumberBox, Segmented } from '../ui.jsx';
 import { resultLine, resultTone } from '../../lib/results.js';
-import { STOP_ATRS, STOP_MODES, STOP_POINTS } from '../../lib/stops.js';
+import { STOP_MODES } from '../../lib/stops.js';
 import { indexWords } from '../../lib/indexes.js';
 
 const FIELDS = [
@@ -150,25 +150,13 @@ export function StopPlacement({ data, reload }) {
         {(s.patternStopMode === 'cap' || s.patternStopMode === 'atr') && (
           <label className="flex items-center justify-between gap-3 text-xs text-muted">
             <span>{s.patternStopMode === 'cap' ? 'Never further than' : 'Always'} (ATRs from the entry)</span>
-            <select className="field num !w-24 !px-2 !py-1.5 !text-sm" value={s.patternStopAtr} disabled={busy} onChange={(e) => save({ patternStopAtr: Number(e.target.value) })} aria-label="Stop distance in ATRs">
-              {STOP_ATRS.map((k) => (
-                <option key={k} value={k}>
-                  {k} ATR
-                </option>
-              ))}
-            </select>
+            <NumberBox value={s.patternStopAtr} min={0.8} max={2.5} decimal label="Stop distance in ATRs" onSave={(n) => save({ patternStopAtr: n })} />
           </label>
         )}
         {s.patternStopMode === 'fixed' && (
           <label className="flex items-center justify-between gap-3 text-xs text-muted">
             <span>Index points from the entry</span>
-            <select className="field num !w-24 !px-2 !py-1.5 !text-sm" value={s.patternStopPoints} disabled={busy} onChange={(e) => save({ patternStopPoints: Number(e.target.value) })} aria-label="Stop distance in points">
-              {(STOP_POINTS.includes(s.patternStopPoints) ? STOP_POINTS : [...STOP_POINTS, s.patternStopPoints].sort((x, y) => x - y)).map((p) => (
-                <option key={p} value={p}>
-                  {p} pts
-                </option>
-              ))}
-            </select>
+            <NumberBox value={s.patternStopPoints} min={10} max={150} label="Stop distance in points" onSave={(n) => save({ patternStopPoints: n })} />
           </label>
         )}
         <p className="text-[11px] leading-snug text-muted">A stop over 2.5 ATR from the entry, or one that risks more than your loss limit for one lot, is still skipped. The study rows "Breakout + Engulfing, stop …" show what each choice would have earned. The profit lock after entry is the same for all.</p>
