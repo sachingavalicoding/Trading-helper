@@ -171,7 +171,7 @@ function Editor({ catalog, kind, verdicts, initial, onSave, onCancel, busy }) {
           )}
           {combo.stopMode === 'fixed' && (
             <label className="flex items-center justify-between gap-3 text-xs text-muted">
-              <span>Index points from the entry (10 to 150)</span>
+              <span>Index points from the entry (10 to 600; the Sensex needs about 3 times the Nifty)</span>
               <input className="field num !w-20 !px-2 !py-1.5 text-right !text-sm" inputMode="numeric" value={combo.stopPoints ?? 30} onChange={(e) => set({ stopPoints: Number(e.target.value) })} aria-label="Stop in points" />
             </label>
           )}

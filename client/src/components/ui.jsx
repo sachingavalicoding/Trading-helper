@@ -14,6 +14,33 @@ export function Card({ className = '', children, ...rest }) {
 }
 
 /** Pill-style segmented control. options: [{ value, label }] */
+/** A box you type a number into; it is saved when you leave the box or press Enter, and must be between min and max. */
+export function NumberBox({ value, onSave, min, max, label, className = '', decimal = false }) {
+  const [draft, setDraft] = useState(null);
+  const shown = draft ?? String(value ?? '');
+  const problem = draft != null && (draft === '' || !Number.isFinite(Number(draft)) || Number(draft) < min || Number(draft) > max);
+  const commit = () => {
+    if (draft == null) return;
+    const n = Number(draft);
+    if (!problem && n !== Number(value)) onSave(n);
+    if (!problem) setDraft(null);
+  };
+  return (
+    <span className="inline-flex flex-col items-end">
+      <input
+        className={`field num !w-24 !px-2 !py-1.5 text-right !text-sm ${problem ? '!border-down' : ''} ${className}`}
+        inputMode={decimal ? 'decimal' : 'numeric'}
+        value={shown}
+        aria-label={label}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+      />
+      {problem && <span className="text-[10px] text-down">{min} to {max}</span>}
+    </span>
+  );
+}
+
 export function Segmented({ options, value, onChange, className = '', size = 'md', cols = 0 }) {
   const pad = size === 'sm' ? 'px-3 py-1 text-xs' : 'px-4 py-2 text-sm';
   // cols: lay the choices out in a grid of that many columns, so they wrap onto rows and never run off the screen
