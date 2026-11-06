@@ -102,7 +102,42 @@ export function OptionsEntries({ data, reload }) {
         <p className={`text-[11px] leading-snug ${triggers.length ? 'text-muted' : 'text-warn'}`}>{triggers.length ? `Buying on: ${triggers.join(', ')}.` : 'Nothing will be bought: switch on at least one trigger.'}</p>
       </div>
 
+      <SpeedSettings data={data} reload={reload} />
       <p className="text-[11px] leading-snug text-muted">Where the stop goes, the trailing stop and the profit lock are in Account &gt; Limits.</p>
+    </div>
+  );
+}
+
+/** Account > Entries: how fast the bot buys (5 min / 1 min / 1 sec) and sells the chart stop. */
+export function SpeedSettings({ data, reload }) {
+  async function save(patch) {
+    try {
+      await api('/options', { method: 'PUT', body: patch });
+      reload();
+    } catch (e) {
+      toast.error(e.message || 'Could not save');
+    }
+  }
+  const s = data.settings;
+  return (
+    <div className="space-y-2 rounded-lg bg-surface-2 p-2">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">How fast to buy and sell</p>
+      <div className="space-y-1">
+        <p className="text-[11px] leading-snug text-muted">
+          <b className="text-fg">Buy when.</b> 5 min: the 5-minute candle has closed with your pattern (the tested way). 1 min: your combination is read at each minute mark on the forming candle. 1 sec: it buys the second the combination turns true{s.entryClock === '1s' ? `, once it has stayed true for ${s.secondConfirm ?? 3} seconds` : ''}. Faster means earlier prices but more false signals, because a forming candle can still change.
+        </p>
+        <Segmented size="sm" className="w-full" value={s.entryClock ?? '5m'} onChange={(v) => save({ entryClock: v })} options={[{ value: '5m', label: '5 min' }, { value: '1m', label: '1 min' }, { value: '1s', label: '1 sec' }]} />
+        {s.entryClock === '1s' && (
+          <Segmented size="sm" className="w-full" value={String(s.secondConfirm ?? 3)} onChange={(v) => save({ secondConfirm: Number(v) })} options={[{ value: '0', label: 'At once' }, { value: '3', label: 'Held 3 s' }, { value: '8', label: 'Held 8 s' }]} />
+        )}
+      </div>
+      <div className="space-y-1">
+        <p className="text-[11px] leading-snug text-muted">
+          <b className="text-fg">Sell the chart stop when.</b> 5 min or 1 min: a candle of that size closes beyond the stop. 1 sec: the moment the index touches it, which limits the loss but also sells on a wick. Profit lock and the premium stop always work on every price.
+        </p>
+        <Segmented size="sm" className="w-full" value={s.exitClock ?? '1m'} onChange={(v) => save({ exitClock: v })} options={[{ value: '5m', label: '5 min' }, { value: '1m', label: '1 min' }, { value: '1s', label: '1 sec' }]} />
+      </div>
+      <p className="text-[11px] leading-snug text-muted">The study and Lab still replay closed candles; only 3 days of seconds are recorded, so the fast settings cannot be proven yet. Try them on paper and compare.</p>
     </div>
   );
 }
@@ -232,25 +267,6 @@ export function OptionsAutoCard({ data, reload }) {
           </p>
           <Segmented size="sm" className="w-full" value={String(s.comboStreak ?? 0)} onChange={(v) => save({ comboStreak: Number(v) })} options={[{ value: '0', label: 'Off' }, { value: '2', label: '2 in a row' }, { value: '3', label: '3 in a row' }]} />
         </div>
-      </div>
-      <div className="space-y-2 rounded-lg bg-surface-2 p-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">How fast to buy and sell</p>
-        <div className="space-y-1">
-          <p className="text-[11px] leading-snug text-muted">
-            <b className="text-fg">Buy when.</b> 5 min: the 5-minute candle has closed with your pattern (the tested way). 1 min: your combination is read at each minute mark on the forming candle. 1 sec: it buys the second the combination turns true{s.entryClock === '1s' ? `, once it has stayed true for ${s.secondConfirm ?? 3} seconds` : ''}. Faster means earlier prices but more false signals, because a forming candle can still change.
-          </p>
-          <Segmented size="sm" className="w-full" value={s.entryClock ?? '5m'} onChange={(v) => save({ entryClock: v })} options={[{ value: '5m', label: '5 min' }, { value: '1m', label: '1 min' }, { value: '1s', label: '1 sec' }]} />
-          {s.entryClock === '1s' && (
-            <Segmented size="sm" className="w-full" value={String(s.secondConfirm ?? 3)} onChange={(v) => save({ secondConfirm: Number(v) })} options={[{ value: '0', label: 'At once' }, { value: '3', label: 'Held 3 s' }, { value: '8', label: 'Held 8 s' }]} />
-          )}
-        </div>
-        <div className="space-y-1">
-          <p className="text-[11px] leading-snug text-muted">
-            <b className="text-fg">Sell the chart stop when.</b> 5 min or 1 min: a candle of that size closes beyond the stop. 1 sec: the moment the index touches it, which limits the loss but also sells on a wick. Profit lock and the premium stop always work on every price.
-          </p>
-          <Segmented size="sm" className="w-full" value={s.exitClock ?? '1m'} onChange={(v) => save({ exitClock: v })} options={[{ value: '5m', label: '5 min' }, { value: '1m', label: '1 min' }, { value: '1s', label: '1 sec' }]} />
-        </div>
-        <p className="text-[11px] leading-snug text-muted">The study and Lab still replay closed candles; only 3 days of seconds are recorded, so the fast settings cannot be proven yet. Try them on paper and compare.</p>
       </div>
       <p className="text-[11px] leading-snug text-muted">
         {s.movedText ? `${s.movedText}. ` : 'No limit on how far the market already moved. '}
