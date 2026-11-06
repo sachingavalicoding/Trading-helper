@@ -25,6 +25,16 @@ export function snapTime(times, t) {
   return hit;
 }
 
+/**
+ * The bar a marker is drawn on. A marker with `entry` has the moment the trade was bought as its time: the signal candle has just
+ * closed and the buy is at the next bar's open. On 1-minute bars it sits on that buying minute, whose open is the Entry line;
+ * on 5- and 15-minute bars it sits on the candle that closed and gave the signal (the buy is at its close).
+ */
+export function markerTime(times, m, tf, dayStart = 0) {
+  const t = toChartTime(m.time) - (m.entry && tf !== '1m' ? 1 : 0);
+  return snapTime(times, Math.max(t, dayStart));
+}
+
 /** The bars of one timeframe: the day's 1-minute bars as they are, 5-minute bars (with the earlier days before them for the indicators) and 15-minute bars folded from those. */
 export function barsFor(tf, { warm = [], candles = [], minutes = [] }) {
   const shift = (list) => list.map((c) => ({ ...c, time: toChartTime(c.time), volume: c.volume ?? 0 }));
@@ -36,7 +46,7 @@ export function barsFor(tf, { warm = [], candles = [], minutes = [] }) {
 /**
  * One day of the index or a stock as candles, with the same indicator picker, timeframes and fullscreen as the Options chart.
  * The earlier days (`warm`) sit to the left so slow indicators such as EMA 50 are already settled at the open; the view starts at the day.
- * `markers`: [{ id, time (epoch seconds), position, shape, color, text, size }]. `lines`: [{ price, color, title, style }]. `onPick(ids)` when a marker's bar is tapped.
+ * `markers`: [{ id, time (epoch seconds), position, shape, color, text, size, entry }] (see markerTime for `entry`). `lines`: [{ price, color, title, style }]. `onPick(ids)` when a marker's bar is tapped.
  * `overlays`: [{ id, label, group, count, on }] are patterns and combinations listed in the indicator picker beside the indicators; `onOverlay(id)` switches one.
  */
 export function DayChart({ candles, warm = [], minutes = [], isIndex = false, markers = [], lines = [], overlays = [], onOverlay, onPick, height = 320 }) {
@@ -108,10 +118,10 @@ export function DayChart({ candles, warm = [], minutes = [], isIndex = false, ma
     });
     chart.subscribeClick((p) => {
       if (p.time == null) return;
-      const hit = (live.current.markers ?? []).filter((m) => snapTime(times, m.time) === p.time).map((m) => m.id);
+      const hit = (live.current.markers ?? []).filter((m) => markerTime(times, m, live.current.tf, live.current.dayStart) === p.time).map((m) => m.id);
       if (hit.length) pickRef.current?.(hit);
     });
-    live.current = { ...live.current, chart, series, times, marks: createSeriesMarkers(series, []), priceLines: [] };
+    live.current = { ...live.current, chart, series, times, tf: shown, dayStart, marks: createSeriesMarkers(series, []), priceLines: [] };
     setLegend(null);
     return () => {
       chart.remove();
@@ -129,10 +139,10 @@ export function DayChart({ candles, warm = [], minutes = [], isIndex = false, ma
     live.current.priceLines = lines.filter((l) => l.price).map((l) => series.createPriceLine({ price: l.price, color: l.color, lineWidth: 1, lineStyle: l.style ?? LineStyle.Dashed, axisLabelVisible: true, title: l.title }));
     marks.setMarkers(
       markers
-        .map((m) => ({ time: snapTime(times, Math.max(toChartTime(m.time), dayStart)), position: m.position, shape: m.shape, color: m.color, size: m.size ?? 1, text: m.text }))
+        .map((m) => ({ time: markerTime(times, m, shown, dayStart), position: m.position, shape: m.shape, color: m.color, size: m.size ?? 1, text: m.text }))
         .sort((a, b) => a.time - b.time),
     );
-  }, [markers, lines, bars, theme, activeKey, dayStart]);
+  }, [markers, lines, bars, shown, theme, activeKey, dayStart]);
 
   useEffect(() => {
     if (!fullscreen) return undefined;
