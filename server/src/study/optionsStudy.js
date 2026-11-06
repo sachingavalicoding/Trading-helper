@@ -9,7 +9,7 @@ import { comboSignals, singleCombo, missingData, describeCombo, comboFitsIndex, 
 import { verdictOf, halvesOf } from '../combos/verdict.js';
 import { runResearch } from './research.js';
 import { comboStopRule } from '../combos/combos.js';
-import { findPairs, findCombos, pairStart } from './pairFinder.js';
+import { findPairs, findCombos, findWinners, pairStart } from './pairFinder.js';
 import { runLadderTest, MIN_SPLIT_DAYS } from './ladderTest.js';
 import { runMovedTest } from './movedTest.js';
 import { movedMeasures, movedSkip, istMinutes } from '../options/moved.js';
@@ -656,9 +656,9 @@ async function finderOnlyRun({ complete, byTime, bars5, breadth, flow, prep, stu
   const chart = buildChart(bars5, { breadth, flow, prep });
   const inStudy = (s) => s.time - 300 >= fromTime;
   const trainEnd = complete.find((b) => DAY(b.time) === studyDays[Math.floor((studyDays.length * 2) / 3)])?.time ?? null;
-  const needRank = (params.pairFind && !params.pairFirst) || params.comboFind;
+  const needRank = (params.pairFind && !params.pairFirst) || params.comboFind || params.winFind;
   const indicators = needRank ? await rankIndicators({ chart, inStudy, midTime, complete, byTime, params, onProgress }) : [];
-  const { pairs, combos: comboFound } = await finders({ chart, inStudy, trainEnd, midTime, studyDays: studyDays.length, complete, byTime, params, indicators, onProgress });
+  const { pairs, combos: comboFound, wins: winFound } = await finders({ chart, inStudy, trainEnd, midTime, studyDays: studyDays.length, complete, byTime, params, indicators, onProgress });
   return {
     generatedAt: new Date().toISOString(),
     finderOnly: true,
@@ -672,6 +672,7 @@ async function finderOnlyRun({ complete, byTime, bars5, breadth, flow, prep, stu
     autoFound: null,
     pairs,
     comboFound,
+    winFound: winFound ?? null,
     research: null,
     combosSkipped: [],
     breadth: null,
@@ -746,7 +747,8 @@ async function finders({ chart, inStudy, trainEnd, midTime = null, studyDays, co
       for (const f of a.found.slice(0, RESEARCH_TOP)) f.research = await research(a, f.conds, `${a.label} + ${f.added.join(' + ')}`);
     }
   }
-  return { pairs, combos: params.comboFind ? await findCombos({ ...common, show: params.pairShow ?? undefined }) : null };
+  const wins = params.winFind ? await findWinners({ indicators, have: chart.have, studyDays, evaluateMany, minWin: params.winMinWin ?? undefined, minTrades: params.winMinTrades ?? undefined }) : null;
+  return { pairs, combos: params.comboFind ? await findCombos({ ...common, show: params.pairShow ?? undefined }) : null, wins };
 }
 
 /** Every check of the combination builder on its own: how a trade taken each time it turns true would have done. The keepers are the ones to build combinations from. */

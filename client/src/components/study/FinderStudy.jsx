@@ -15,6 +15,7 @@ import { RealPricesSwitch } from './RealPricesSwitch.jsx';
 import { AutoFound } from './AutoFound.jsx';
 import { TrustBadge } from '../TrustBadge.jsx';
 import { PairFinder, StartFromSelect } from './PairFinder.jsx';
+import { WinFinder } from './WinFinder.jsx';
 
 const OPTION_DAYS = [
   { value: 10, label: '10d' },
@@ -88,7 +89,7 @@ export function FinderStudy() {
   const options = kind === 'options';
   const dates = options && range === 'dates';
   const datesBad = dates && (!from || !to || from > to);
-  const r = state?.result?.finderOnly ? state.result : null;
+  const r = state?.result?.finderOnly && !state.result.winFound ? state.result : null;
 
   function start() {
     run(dates ? undefined : days, {
@@ -114,6 +115,7 @@ export function FinderStudy() {
 
   return (
     <div className="space-y-3">
+      <WinFinder />
       <Card className="space-y-3 p-3">
         <div className="flex items-start gap-2">
           <Search className="mt-0.5 h-4 w-4 shrink-0 text-accent" />

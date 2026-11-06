@@ -15,7 +15,7 @@ const part = (p) => `${p.trades} trades · ${p.winRate ?? '–'}% win · ${forma
  * Combinations the study found by itself: learned on the older days, then checked on newer days it had not seen.
  * "Add" saves one under Account > Entries > My combinations, switched off, so nothing trades until you turn it on.
  */
-export function AutoFound({ af, endpoint = '/options', title = 'Found for you' }) {
+export function AutoFound({ af, endpoint = '/options', title = 'Found for you', intro = null, empty = null }) {
   const opts = useApi(endpoint, []);
   const [busy, setBusy] = useState(null);
   if (!af) return null;
@@ -42,6 +42,8 @@ export function AutoFound({ af, endpoint = '/options', title = 'Found for you' }
         </h3>
         {af.skipped ? (
           <p className="text-[11px] leading-snug text-muted">Not run: {af.skipped}.</p>
+        ) : intro ? (
+          <p className="text-[11px] leading-snug text-muted">{intro}</p>
         ) : (
           <p className="text-[11px] leading-snug text-muted">
             {af.tried} combinations tried{af.pool ? ` from the best ${af.pool.length} single indicators` : ''}. Each was learned on the older {af.trainDays} days and then checked on the newer {af.testDays} days it had not seen; only the ones that made money on both are shown (at least {af.minTrain} and {af.minTest} trades). With this many tries some will still be luck, so add one switched off, watch it in Review, and switch it on only when it keeps working.
@@ -57,7 +59,7 @@ export function AutoFound({ af, endpoint = '/options', title = 'Found for you' }
           ))}
         </ul>
       )}
-      {!af.skipped && af.found.length === 0 && <p className="rounded-lg bg-surface-2 p-2 text-xs text-muted">Nothing made money on both the older and the newer days. That is a real answer: do not force a combination.</p>}
+      {!af.skipped && af.found.length === 0 && <p className="rounded-lg bg-surface-2 p-2 text-xs text-muted">{empty ?? 'Nothing made money on both the older and the newer days. That is a real answer: do not force a combination.'}</p>}
       <ul className="divide-y divide-line">
         {(af.found || []).map((f, i) => {
           const have = alreadySaved(saved, f);

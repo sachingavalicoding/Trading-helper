@@ -27,6 +27,9 @@ const runSchema = z.object({
   pairDepth: z.coerce.number().int().min(1).max(3).optional(), // finder: most checks added to a starting point (1, 2 or 3)
   pairShow: z.coerce.number().int().min(3).max(30).optional(), // finder: results kept per starting point
   pairGoal: z.enum(['profit', 'winrate']).optional(), // finder: order the results by newer-days profit or by win rate
+  winFind: z.boolean().default(false), // options only: the win-rate finder: combinations that won at least winMinWin % of at least winMinTrades trades in these days
+  winMinWin: z.coerce.number().int().min(50).max(95).optional(),
+  winMinTrades: z.coerce.number().int().min(3).max(40).optional(),
   pairParts: z.boolean().optional(), // finder: a combination's own checks (each alone, each pair) are searched for partners first, then the whole
   pairResearch: z.boolean().optional(), // finder, options: research stop and profit for each result (default on)
   research: z.boolean().default(false), // options only: also try other stop amounts, profit ladders and trailing stops on Breakout + Engulfing

@@ -37,11 +37,11 @@ export class StudyService {
   }
 
   /** Starts a run and returns at once; poll status(). Only one run per user and kind at a time. */
-  start(userId, kind, { realPrices = true, live = true, maxTrades, days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch, pairParts } = {}) {
+  start(userId, kind, { realPrices = true, live = true, maxTrades, days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch, pairParts, winFind = false, winMinWin, winMinTrades } = {}) {
     if (this.status(userId, kind).state === 'running') throw conflict('A study is already running');
     const job = { state: 'running', step: 'Starting', startedAt: Date.now() };
     this.jobs.set(`${userId}|${kind}`, job);
-    const finder = { pairDepth, pairShow, pairGoal, pairResearch, pairParts };
+    const finder = { pairDepth, pairShow, pairGoal, pairResearch, pairParts, winFind, winMinWin, winMinTrades };
     const run = kind === 'ladder' ? this.#runLadder(userId, job, { index, days: days ?? 30 }) : kind === 'moved' ? this.#runMoved(userId, job, { index, days: days ?? 30 }) : kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin, pairFind, pairFirst, comboFind, ...finder }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind, research, index, pairFind, pairFirst, comboFind, from, to, realPrices, live, maxTrades, ...finder });
     run.catch((e) => {
       logger.warn(`${kind} study failed: ${e.message}`);
@@ -71,7 +71,7 @@ export class StudyService {
     return { nifty1, calendar };
   }
 
-  async #runOptions(userId, job, { realPrices = false, live = true, maxTrades, days, iv, target = 0, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch, pairParts }) {
+  async #runOptions(userId, job, { realPrices = false, live = true, maxTrades, days, iv, target = 0, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch, pairParts, winFind = false, winMinWin, winMinTrades }) {
     // with the real prices on, the study covers only the days that were saved (inside any dates asked for), and takes only trades whose contract was saved
     let prices = null;
     let noPrices = false;
@@ -141,7 +141,10 @@ export class StudyService {
       pairGoal,
       pairResearch,
       pairParts,
-      finderOnly: pairFind || comboFind, // with a finder on, only the finders run, not the normal study
+      winFind,
+      winMinWin,
+      winMinTrades,
+      finderOnly: pairFind || comboFind || winFind, // with a finder on, only the finders run, not the normal study
       research,
       lossLimit: rules.stopLoss ?? 0,
       maxLots: settings?.maxLots ?? 2,
