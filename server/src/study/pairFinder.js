@@ -181,3 +181,33 @@ export async function findCombos({ indicators, have, studyDays, trainEnd, evalua
   const trainDays = Math.floor((studyDays * 2) / 3);
   return { tried: lists.length, pool: pool.map(labelOf), trainDays, testDays: studyDays - trainDays, minTrain: PAIR_MIN_TRAIN, minTest: PAIR_MIN_TEST, baselines: [], found };
 }
+
+export const WIN_POOL = 14; // the best single checks (by win rate) that are tried two and three at a time
+export const WIN_MIN_WIN = 70;
+export const WIN_MIN_TRADES = 5;
+
+/**
+ * The win-rate finder: from the last few days only, the combinations (single checks, pairs and triples of the 14 best by win rate) that won at least
+ * `minWin` percent of at least `minTrades` trades and also made money. The list says how many trades each rests on and how the newer third of the days did,
+ * because a short window and hundreds of tries find some "70%" by luck alone.
+ */
+export async function findWinners({ indicators, have, studyDays, evaluateMany, minWin = WIN_MIN_WIN, minTrades = WIN_MIN_TRADES, show = 12 }) {
+  const pool = (indicators || [])
+    .filter((r) => r.trades >= 3 && CONDITION_BY_KEY.has(r.key) && usable(CONDITION_BY_KEY.get(r.key), have) && CONDITION_BY_KEY.get(r.key).needs !== 'news')
+    .sort((a, b) => (b.winRate ?? 0) - (a.winRate ?? 0) || b.net - a.net)
+    .slice(0, WIN_POOL)
+    .map((r) => r.key);
+  if (!pool.length) return { skipped: 'no single check had enough trades in these days to combine' };
+  const lists = pool.map((k) => [k]);
+  for (let i = 0; i < pool.length; i++) for (let j = i + 1; j < pool.length; j++) {
+    lists.push([pool[i], pool[j]]);
+    for (let k = j + 1; k < pool.length; k++) lists.push([pool[i], pool[j], pool[k]]);
+  }
+  const rows = await evaluateMany(lists);
+  const hits = rows.filter((r) => r.all.trades >= minTrades && (r.all.winRate ?? 0) >= minWin && r.all.net > 0);
+  const found = hits
+    .sort((x, y) => (y.all.winRate ?? 0) - (x.all.winRate ?? 0) || y.all.trades - x.all.trades || y.all.net - x.all.net)
+    .slice(0, show)
+    .map((r) => shown(r, labelOf));
+  return { tried: lists.length, matches: hits.length, days: studyDays, minWin, minTrades, pool: pool.map(labelOf), baselines: [], found };
+}

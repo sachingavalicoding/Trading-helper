@@ -20,7 +20,7 @@ export function PatternChart({ candles, warm, minutes, signals, selected, onPick
     const down = cssVar('--down');
     const markers = signals.map((s) => {
       const call = s.side === 'CE';
-      return { id: s.id, time: s.time - 300, position: call ? 'belowBar' : 'aboveBar', shape: call ? 'arrowUp' : 'arrowDown', color: s.skipped ? cssVar('--muted') : call ? up : down, size: s.id === selected ? 2 : 1, text: `${codeOf(s.technique)}${s.id === selected ? ' ◀' : ''}` };
+      return { id: s.id, time: s.time, entry: true, position: call ? 'belowBar' : 'aboveBar', shape: call ? 'arrowUp' : 'arrowDown', color: s.skipped ? cssVar('--muted') : call ? up : down, size: s.id === selected ? 2 : 1, text: `${codeOf(s.technique)}${s.id === selected ? ' ◀' : ''}` };
     });
     const lines = [];
     const s = signals.find((x) => x.id === selected);

@@ -13,6 +13,7 @@ import { planTrade } from './plan.js';
 import { chaseOf, chaseRise, chaseSkip } from './chase.js';
 import { movedOf, movedMeasures, movedSkip } from './moved.js';
 import { dayBiasOf, dayStand, dayBiasSkip, streakSkip } from './dayBias.js';
+import { formingBar, followsSlot, Holds } from './second.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { istParts } from '../market/marketHours.js';
 import { logger } from '../utils/logger.js';
@@ -20,6 +21,8 @@ import { logger } from '../utils/logger.js';
 const round2 = (n) => Math.round(n * 100) / 100;
 
 const SCAN_MS = 15000;
+const SECOND_MS = 1000; // how often the "act on the second" entries look at the forming 5-minute bar
+const SECOND_CACHE_MS = 5000; // who has the second switches on is read from the database this often
 const COOLDOWN_AFTER_STOP_MIN = 20;
 const SAME_SIDE_COOLDOWN_MIN = 15;
 const LOG_REPEAT_MS = 30 * 60000; // the same skip reason is written to the log at most this often
@@ -68,6 +71,15 @@ export class OptionTrader {
     this.lastReads = new Map(); // index key -> the last chart read
     this.bars = new Map(); // index key -> the 1-minute bar being built from its ticks
     this.comboCharts = new Map(); // index key -> { time, chart }
+    this.secondTimer = null;
+    this.secondBusy = false;
+    this.secondCacheAt = 0;
+    this.secondUsers = []; // settings whose entry clock is 1 second or 1 minute (the 5-minute close is the normal scan)
+    this.exitClocks = new Map(); // user id -> '1s' | '5m' when the chart stop is not the default 1-minute close
+    this.minuteDone = new Map(); // user|index -> the minute a 1-minute entry check last ran
+    this.bars5 = new Map(); // index key -> the 5-minute bar being built from its ticks
+    this.secondExit = new Map(); // user id -> the minute they close, for the second entries
+    this.holds = new Holds();
     this.onTick = (t) => this.#onTick(t);
     this.onUpdate = (u) => {
       if (u.kind === 'stopoff') {
@@ -112,10 +124,13 @@ export class OptionTrader {
     this.engine.on('update', this.onUpdate);
     this.timer = setInterval(() => this.scan().catch((e) => logger.warn(`options scan failed: ${e.message}`)), SCAN_MS);
     this.timer.unref?.();
+    this.secondTimer = setInterval(() => this.secondScan().catch((e) => logger.warn(`options second scan failed: ${e.message}`)), SECOND_MS);
+    this.secondTimer.unref?.();
   }
 
   stop() {
     clearInterval(this.timer);
+    clearInterval(this.secondTimer);
     this.market.off('tick', this.onTick);
     this.engine.off('update', this.onUpdate);
   }
@@ -285,16 +300,89 @@ export class OptionTrader {
     return this.#actOn(settings, read, hits, last, (hit) => `Combination: ${names.get(hit.technique)}`, { minScore: settings.comboMinScore ?? 0 });
   }
 
-  /** An index chart with the 50 stocks' breadth and traded value from the scanner's live candles, rebuilt once per 5-minute bar. */
-  #comboChart(index, bars) {
-    const last = bars.at(-1).time;
-    const kept = this.comboCharts.get(index);
-    if (kept?.time === last) return kept.chart;
+  #stocks5() {
     const stocks5 = {};
     for (const symbol of this.scanner?.store?.symbols ?? []) {
       const c = this.scanner.store.get(symbol, '5m');
       if (c?.length) stocks5[symbol] = c;
     }
+    return stocks5;
+  }
+
+  async #secondSettings() {
+    if (Date.now() - this.secondCacheAt < SECOND_CACHE_MS) return;
+    this.secondCacheAt = Date.now();
+    const all = await OptionSettings.find({ enabled: true, $or: [{ entryClock: { $in: ['1m', '1s'] } }, { exitClock: { $in: ['1s', '5m'] } }] }).lean();
+    this.secondUsers = all.filter((s) => s.entryClock === '1m' || s.entryClock === '1s');
+    this.exitClocks = new Map(all.filter((s) => s.exitClock === '1s' || s.exitClock === '5m').map((s) => [String(s.user), s.exitClock]));
+    for (const s of this.secondUsers) this.secondExit.set(String(s.user), (await loadRules(s.user, 'OPT')).exitMin);
+  }
+
+  /**
+   * "Buy on the second": every second the combinations are read on the 5-minute bar that is still forming, at the live index price.
+   * A signal has to stay true for `secondConfirm` seconds in a row before it buys, and each combination buys once per 5-minute bar
+   * (the same bar's close later finds it already acted on). All the usual limits, stops and lots apply, the log says "on the second".
+   */
+  async secondScan() {
+    if (this.secondBusy) return;
+    this.secondBusy = true;
+    try {
+      await this.#secondSettings();
+      if (!this.secondUsers.length) return this.holds.prune(new Set());
+      if (this.config.enforceMarketHours && !this.engine.marketStatus().isOpen) return;
+      const nowSec = Math.floor(this.now().getTime() / 1000);
+      const nowMin = istParts(this.now()).minutes;
+      const active = new Set();
+      for (const s of this.secondUsers) {
+        if (this.config.enforceMarketHours && nowMin >= (this.secondExit.get(String(s.user)) ?? 915)) continue;
+        if ([...this.open.values()].filter((w) => w.user === String(s.user)).length >= (s.maxOpen ?? 1)) continue;
+        for (const index of activeIndexes(s)) {
+          const si = forIndex(s, index);
+          if (!entryModes(si).combos) continue;
+          if (s.entryClock === '1m') {
+            if (nowSec % 60 >= 3) continue; // a 1-minute entry is read in the first seconds of each new minute, at the price of the minute mark
+            const mk = `${s.user}|${index}`;
+            const minute = Math.floor(nowSec / 60);
+            if (this.minuteDone.get(mk) === minute) continue;
+            this.minuteDone.set(mk, minute);
+          }
+          const base = this.lastReads.get(index);
+          const ltp = this.market.getLtp(INDEXES[index].symbol);
+          if (!base?.ready || !base.c1 || !ltp || !followsSlot(base.market.done5, nowSec)) continue; // the chart read of the 15-second scan must reach right up to this 5-minute slot
+          const combos = normalizeCombos(si.combos).filter((c) => c.on && comboFitsIndex(c, index));
+          if (!combos.length) continue;
+          const forming = formingBar(base.c1, ltp, nowSec);
+          const bars = [...base.market.done5, forming];
+          const stocks5 = this.#stocks5();
+          const chart = buildChart(bars, { breadth: breadthSeries(bars, stocks5), flow: turnoverSeries(bars, stocks5), from: Math.max(15, bars.length - 14) });
+          const newest = bars.length - 1;
+          const names = new Map(combos.map((c) => [`combo:${c.id}`, c.name]));
+          const ready = [];
+          for (const combo of combos) {
+            const hits = comboSignals(chart, combo, { from: Math.max(16, bars.length - 6), windows: this.config.enforceMarketHours, when: this.config.enforceMarketHours ? entryTest(entryWindowOf(si)) : null, label: `combo:${combo.id}` }).filter((h) => h.i === newest);
+            for (const hit of hits) {
+              const key = `${s.user}|${index}|${hit.technique}|${hit.side}|${forming.time}`;
+              active.add(key);
+              if (this.holds.held(key, Date.now(), s.entryClock === '1m' ? 0 : s.secondConfirm ?? 3)) ready.push({ ...hit, combo, comboId: combo.id, clock: s.entryClock === '1m' ? 'minute' : 'second' });
+            }
+          }
+          if (!ready.length) continue;
+          const live = Object.create(base, { spot: { value: ltp, enumerable: true } }); // the chart read, with the price of this second
+          await this.#actOn(si, live, ready, forming, (hit) => `Combination: ${names.get(hit.technique)} (${s.entryClock === '1m' ? 'on the minute' : 'on the second'})`, { minScore: si.comboMinScore ?? 0 });
+        }
+      }
+      this.holds.prune(active);
+    } finally {
+      this.secondBusy = false;
+    }
+  }
+
+  /** An index chart with the 50 stocks' breadth and traded value from the scanner's live candles, rebuilt once per 5-minute bar. */
+  #comboChart(index, bars) {
+    const last = bars.at(-1).time;
+    const kept = this.comboCharts.get(index);
+    if (kept?.time === last) return kept.chart;
+    const stocks5 = this.#stocks5();
     const breadth = breadthSeries(bars, stocks5);
     const flow = turnoverSeries(bars, stocks5);
     const chart = buildChart(bars, { breadth, flow, from: Math.max(15, bars.length - 14) }); // patterns far enough back for the combination window of the bars read below
@@ -317,7 +405,7 @@ export class OptionTrader {
       const sideScore = read[hit.side === 'CE' ? 'ce' : 'pe']?.score;
       let stop = ruleStop(hit, spot, hit.stopRule ?? stopRuleOf(settings, read.index));
       if (d * (spot - stop) < MIN_STOP_ATR * hit.atr) stop = spot - d * MIN_STOP_ATR * hit.atr;
-      const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: sideScore, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique, ...(hit.comboId ? { comboId: hit.comboId } : {}), atr: hit.atr, ...(hit.exits ? { exits: hit.exits } : {}), ...(hit.combo ? { combo: hit.combo } : {}) };
+      const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: sideScore, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique, ...(hit.clock ? { clock: hit.clock } : {}), ...(hit.comboId ? { comboId: hit.comboId } : {}), atr: hit.atr, ...(hit.exits ? { exits: hit.exits } : {}), ...(hit.combo ? { combo: hit.combo } : {}) };
       if (minScore && !(sideScore >= minScore)) {
         result = await this.#skip(settings, side, `${label} ${hit.side}: the chart score ${sideScore == null ? 'is not known' : `is ${Math.round(sideScore)}`}, under the ${minScore} you asked for`);
         continue;
@@ -432,7 +520,7 @@ export class OptionTrader {
       order: order._id,
       position: position?._id,
       card: { checks: side.checks, gates: side.gates },
-      detail: { ...plan, index, label: optionLabel(plan.symbol), manual, entrySpot: read.spot ?? null, trail: exitTrail, breakEven: exitBreakEven, ...(own ? { ownExits: own } : {}), trigger: side.trigger, pattern: side.pattern ?? null, firstStopSpot: plan.stopSpot, ...(side.comboId ? { comboId: side.comboId } : {}), ...(probationLots ? { probation: true } : {}), ...(side.combo ? { combo: { id: side.combo.id, name: side.combo.name, conds: side.combo.conds, need: side.combo.need, window: side.combo.window } } : {}), contract: { symbol: plan.symbol, strike: plan.strike, type: plan.type, expiry: plan.expiry, lotSize: plan.lotSize }, snapshot: read.snapshot },
+      detail: { ...plan, index, label: optionLabel(plan.symbol), manual, entrySpot: read.spot ?? null, trail: exitTrail, breakEven: exitBreakEven, ...(own ? { ownExits: own } : {}), trigger: side.trigger, pattern: side.pattern ?? null, ...(side.clock ? { clock: side.clock } : {}), firstStopSpot: plan.stopSpot, ...(side.comboId ? { comboId: side.comboId } : {}), ...(probationLots ? { probation: true } : {}), ...(side.combo ? { combo: { id: side.combo.id, name: side.combo.name, conds: side.combo.conds, need: side.combo.need, window: side.combo.window } } : {}), contract: { symbol: plan.symbol, strike: plan.strike, type: plan.type, expiry: plan.expiry, lotSize: plan.lotSize }, snapshot: read.snapshot },
     });
     return { order, plan };
   }
@@ -490,6 +578,7 @@ export class OptionTrader {
     if (index) {
       this.#trail(index, ltp);
       this.#indexMinute(index, ltp);
+      if ([...this.exitClocks.values()].includes('1s')) this.#secondStop(index, ltp);
     }
     if (!this.open.size) return;
     for (const w of this.open.values()) {
@@ -498,6 +587,14 @@ export class OptionTrader {
         w.bestR = Math.max(w.bestR, r);
         w.worstR = Math.min(w.worstR, r);
       }
+    }
+  }
+
+  /** "Sell on the second": for users with it on, the chart stop sells the moment the index touches it (the 1-minute close rule below stays for everyone else). */
+  #secondStop(index, ltp) {
+    for (const w of this.open.values()) {
+      if (w.index !== index || w.stopOff || w.stopSpot == null || this.exitClocks.get(w.user) !== '1s') continue;
+      if (w.type === 'CE' ? ltp <= w.stopSpot : ltp >= w.stopSpot) this.#exit(w.user, w.symbol, w.stopWhy ?? 'STOP').catch(() => {});
     }
   }
 
@@ -542,6 +639,7 @@ export class OptionTrader {
       for (const w of this.open.values()) {
         if (w.index !== index) continue;
         if (w.stopOff) continue; // stop switched off by hand: only the floor and profit lock in the order engine can sell it
+        if (this.exitClocks.get(w.user) === '5m') continue; // this user's stop reads the 5-minute close instead (below)
         if (w.stopSpot != null && (w.type === 'CE' ? close <= w.stopSpot : close >= w.stopSpot)) this.#exit(w.user, w.symbol, w.stopWhy ?? 'STOP').catch(() => {});
         else if (w.moved) {
           // the trailed level is written to the log once a minute, so a restart keeps it
@@ -551,6 +649,15 @@ export class OptionTrader {
       }
     }
     this.bars.set(index, { minute, last: ltp });
+    const slot = Math.floor(this.now().getTime() / 300000);
+    const bar5 = this.bars5.get(index);
+    if (bar5 && bar5.slot !== slot) {
+      for (const w of this.open.values()) {
+        if (w.index !== index || w.stopOff || this.exitClocks.get(w.user) !== '5m') continue;
+        if (w.stopSpot != null && (w.type === 'CE' ? bar5.last <= w.stopSpot : bar5.last >= w.stopSpot)) this.#exit(w.user, w.symbol, w.stopWhy ?? 'STOP').catch(() => {});
+      }
+    }
+    this.bars5.set(index, { slot, last: ltp });
   }
 
   /**

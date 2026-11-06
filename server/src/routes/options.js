@@ -36,6 +36,9 @@ const patch = z
     entryFrom: z.coerce.number().int().min(555).max(914),
     entryTo: z.coerce.number().int().min(556).max(915),
     comboEntries: z.boolean(),
+    entryClock: z.enum(['5m', '1m', '1s']),
+    exitClock: z.enum(['5m', '1m', '1s']),
+    secondConfirm: z.coerce.number().int().min(0).max(15),
     trailMode: z.enum(['off', 'points']),
     trailPoints: z.coerce.number().min(5).max(200),
     trailStart: z.coerce.number().min(0).max(200),
@@ -65,7 +68,7 @@ export function optionRoutes({ optionTrader }) {
   const view = async (userId, doc) => {
     const s = doc || new OptionSettings({ user: userId });
     const { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct } = s;
-    const entries = { patternEntries: s.patternEntries !== false, patternMinScore: s.patternMinScore ?? 0, comboMinScore: s.comboMinScore ?? 0, indexes: activeIndexes(s), mirror: s.mirror === true, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []), patternStopMode: s.patternStopMode ?? 'chart', patternStopAtr: s.patternStopAtr ?? 2, patternStopPoints: s.patternStopPoints ?? 30, comboEntries: s.comboEntries !== false, trailMode: s.trailMode ?? 'off', trailPoints: s.trailPoints ?? 25, trailStart: s.trailStart ?? 25, breakEvenPoints: s.breakEvenPoints ?? 0, chasePct: s.chasePct ?? 0, chaseMinutes: s.chaseMinutes ?? 15, movedCheck: s.movedCheck ?? 'off', movedLimit: s.movedLimit ?? 0, movedText: movedOf(s) ? movedWords(movedOf(s)) : null, withDay: s.withDay === true, comboStreak: s.comboStreak ?? 0, probation: s.probation !== false, pausedToday: Boolean(s.pausedOn) && s.pausedOn === optionTrader.engine.marketStatus().istDate, entryFrom: s.entryFrom ?? 555, entryTo: s.entryTo ?? 915 };
+    const entries = { patternEntries: s.patternEntries !== false, patternMinScore: s.patternMinScore ?? 0, comboMinScore: s.comboMinScore ?? 0, indexes: activeIndexes(s), mirror: s.mirror === true, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []), patternStopMode: s.patternStopMode ?? 'chart', patternStopAtr: s.patternStopAtr ?? 2, patternStopPoints: s.patternStopPoints ?? 30, comboEntries: s.comboEntries !== false, entryClock: s.entryClock ?? '5m', exitClock: s.exitClock ?? '1m', secondConfirm: s.secondConfirm ?? 3, trailMode: s.trailMode ?? 'off', trailPoints: s.trailPoints ?? 25, trailStart: s.trailStart ?? 25, breakEvenPoints: s.breakEvenPoints ?? 0, chasePct: s.chasePct ?? 0, chaseMinutes: s.chaseMinutes ?? 15, movedCheck: s.movedCheck ?? 'off', movedLimit: s.movedLimit ?? 0, movedText: movedOf(s) ? movedWords(movedOf(s)) : null, withDay: s.withDay === true, comboStreak: s.comboStreak ?? 0, probation: s.probation !== false, pausedToday: Boolean(s.pausedOn) && s.pausedOn === optionTrader.engine.marketStatus().istDate, entryFrom: s.entryFrom ?? 555, entryTo: s.entryTo ?? 915 };
     return { settings: { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct, lossStreak: s.lossStreak ?? 2, benchAfter: s.benchAfter ?? 3, ...entries }, indexChoices: INDEX_KEYS.map((k) => ({ key: k, name: INDEXES[k].name, short: INDEXES[k].short })), patternChoices: LIVE_PATTERNS, rules: await loadRules(userId, 'OPT'), today: await optionTrader.todaySummary(userId), disclaimer: OPTIONS_DISCLAIMER };
   };
 
