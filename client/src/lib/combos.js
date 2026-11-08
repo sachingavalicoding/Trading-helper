@@ -37,7 +37,8 @@ export function ruleText(combo) {
 export function toPayload(combo, index = 0) {
   const own = combo.stopMode ? { stopMode: combo.stopMode, stopAtr: combo.stopAtr || 2, stopPoints: combo.stopPoints || 30 } : {};
   const exits = combo.exits && Object.keys(combo.exits).length ? { exits: combo.exits } : {};
-  return { id: combo.id, name: combo.name.trim() || `Combination ${index + 1}`, conds: combo.conds, ...(combo.also?.length ? { also: combo.also } : {}), need: needOf(combo), window: combo.window || 3, on: combo.on !== false, ...(combo.side === 'CE' || combo.side === 'PE' ? { side: combo.side } : {}), ...(combo.on === false && combo.benchedOn ? { benchedOn: combo.benchedOn } : {}), ...own, ...exits };
+  const order = combo.order && Object.values(combo.order).some((v) => Number(v) > 0) ? { order: Object.fromEntries(Object.entries(combo.order).filter(([, v]) => Number(v) > 0).map(([k, v]) => [k, Number(v)])) } : {};
+  return { id: combo.id, name: combo.name.trim() || `Combination ${index + 1}`, conds: combo.conds, ...(combo.also?.length ? { also: combo.also } : {}), need: needOf(combo), window: combo.window || 3, on: combo.on !== false, ...(combo.side === 'CE' || combo.side === 'PE' ? { side: combo.side } : {}), ...(combo.on === false && combo.benchedOn ? { benchedOn: combo.benchedOn } : {}), ...own, ...exits, ...order };
 }
 
 /** A profit ladder of 8 rows 500 apart: lock `gap` points less than the gain reached. */
@@ -109,4 +110,23 @@ export function indicatorsText(rows, title = 'Indicators on their own') {
   const lines = ['', `${title} (each time the check turns true; verdict Keep needs a profit in both halves of the period):`];
   for (const x of rows) lines.push(`${x.label} [${x.group}]: ${x.verdict}, ${x.trades} trades, ${x.winRate ?? '-'}% win, net ${formatPnl(x.net)}, halves ${formatPnl(x.halves[0])} / ${formatPnl(x.halves[1])}`);
   return lines.join('\n');
+}
+
+const rupees = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+const clock = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+/** The side a share combination trades, in words. */
+export const shareSideWord = (c) => (c?.side === 'CE' ? 'buys only' : c?.side === 'PE' ? 'short sales only' : 'buys and short sales');
+
+/** A share combination's own order settings in words (risk, money, stop, target or ladder, exit time), or null when it uses the Account ones. */
+export function orderText(c) {
+  const o = c?.order || {};
+  const out = [];
+  if (o.risk > 0) out.push(`risk ${rupees(o.risk)} a trade`);
+  if (o.maxAmount > 0) out.push(`at most ${rupees(o.maxAmount)} in a trade`);
+  if (o.stopPct > 0) out.push(`stop ${o.stopPct}% from the entry`);
+  if (o.target > 0) out.push(`sell at +${rupees(o.target)}`);
+  else if (c?.exits && Array.isArray(c.exits.steps)) out.push(c.exits.steps.length ? `own profit lock from +${rupees(c.exits.steps[0].at)}` : 'no profit lock');
+  if (o.exitMin > 0) out.push(`close at ${clock(o.exitMin)}`);
+  return out.length ? out.join(', ') : null;
 }

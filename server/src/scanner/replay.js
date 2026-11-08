@@ -80,14 +80,14 @@ export function followLive(c1, from, idea, ladder = LADDER, money = null) {
     }
     if (!out) {
       const minutes = istParts(new Date(b.time * 1000)).minutes;
-      if (d * (adv - stop) <= 0) out = { status: d * (stop - entry) > 0 ? 'LOCKED' : 'STOPPED', exit: d * (stop - entry) > 0 ? 'LOCK' : 'STOP', exitPrice: stop };
-      else if (minutes >= (money?.exitMin ?? SQUARE_OFF_MIN)) out = { status: 'EXPIRED', exit: 'SQUARE_OFF', exitPrice: b.close };
+      if (d * (adv - stop) <= 0) out = { status: d * (stop - entry) > 0 ? 'LOCKED' : 'STOPPED', exit: d * (stop - entry) > 0 ? 'LOCK' : 'STOP', exitPrice: stop, exitTime: b.time };
+      else if (minutes >= (money?.exitMin ?? SQUARE_OFF_MIN)) out = { status: 'EXPIRED', exit: 'SQUARE_OFF', exitPrice: b.close, exitTime: b.time };
       else {
         bestR = Math.max(bestR, r(fav));
         if (money) {
           if (qty) {
             bestMoney = Math.max(bestMoney, d * (fav - entryFill) * qty);
-            if (money.target > 0 && bestMoney >= money.target) out = { status: 'TARGET_HIT', exit: 'TARGET', exitPrice: roundToTick(entryFill + (d * money.target) / qty) };
+            if (money.target > 0 && bestMoney >= money.target) out = { status: 'TARGET_HIT', exit: 'TARGET', exitPrice: roundToTick(entryFill + (d * money.target) / qty), exitTime: b.time };
             const rung = rungs.filter((s) => bestMoney >= s.at).at(-1);
             if (rung && !out) {
               const keep = Math.max(rung.keep, bestMoney - (rung.at - rung.keep), chargesFloor);
@@ -109,9 +109,9 @@ export function followLive(c1, from, idea, ladder = LADDER, money = null) {
   }
   if (!out) {
     const last = c1.findLast((b) => istDay(b.time) === day);
-    out = { status: 'EXPIRED', exit: 'SQUARE_OFF', exitPrice: last.close };
+    out = { status: 'EXPIRED', exit: 'SQUARE_OFF', exitPrice: last.close, exitTime: last.time };
   }
-  return { ...out, bestR: Math.round(bestR * 100) / 100, runR: Math.round(runR * 100) / 100 };
+  return { ...out, ...(money ? { sizedQty: qty } : {}), bestR: Math.round(bestR * 100) / 100, runR: Math.round(runR * 100) / 100 };
 }
 
 /**

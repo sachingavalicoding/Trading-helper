@@ -15,9 +15,11 @@ export const LAB_PRICES = [
 ];
 
 /** The request for the lab: the start, up to three added checks, how many days and which premiums. */
-export function labPath({ base, add = [], days = 22, prices = 'mixed', noStop = null }) {
-  const q = new URLSearchParams({ base, days: String(days), prices });
+export function labPath({ base, add = [], days = 22, prices = 'mixed', noStop = null, segment = 'options', edit = null }) {
+  const q = new URLSearchParams(segment === 'shares' ? { segment, base, days: String(days) } : { base, days: String(days), prices });
   if (add.length) q.set('add', add.join(','));
+  if (edit) q.set('edit', JSON.stringify(edit)); // order settings tried in place of the saved ones
+  if (segment === 'shares') return `/lab?${q}`;
   if (noStop) {
     // the no-stop test: no stop loss, only a fixed profit lock (and the emergency floor at half the premium)
     q.set('noStop', '1');
@@ -38,7 +40,7 @@ export function whenText(sec) {
   return d.replace(',', '');
 }
 
-export const EXIT_WORD = { STOP: 'Stop hit', LOCK: 'Profit lock', TRAIL: 'Trailing stop', BREAKEVEN: 'Break-even', TARGET: 'Target', EOD: 'Closing time', HARD: 'Hard stop', FLOOR: 'Emergency floor' };
+export const EXIT_WORD = { STOP: 'Stop hit', LOCK: 'Profit lock', TRAIL: 'Trailing stop', BREAKEVEN: 'Break-even', TARGET: 'Target', EOD: 'Closing time', HARD: 'Hard stop', FLOOR: 'Emergency floor', SQUARE_OFF: 'Closing time' };
 export const exitWord = (r) => EXIT_WORD[r] ?? r;
 
 /** One line on what a check would have done to the entries: "skips 3 (2 losers ₹-4,100, 1 winner ₹900), adds 0". */
@@ -126,4 +128,26 @@ export function exitStory(e) {
 export function dayWord(day) {
   const [y, m, d] = day.split('-').map(Number);
   return new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(Date.UTC(y, m - 1, d)));
+}
+
+/** Why a share entry was taken and how it was sized, in plain words. */
+export function shareEntryStory(e) {
+  const buy = e.side === 'CE';
+  const held = (e.why || []).filter((w) => w.held).map((w) => w.label);
+  const why = held.length ? `${held.join(' and ')} ${held.length > 1 ? 'all held' : 'held'} on the 5-minute bar of ${e.symbol} that had just closed` : `the check turned true on the 5-minute bar of ${e.symbol} that had just closed`;
+  const gap = Math.abs(e.entry - e.stopLoss);
+  return `At ${clock(e.entryTime)} ${why}, so it ${buy ? 'bought' : 'sold short'} ${e.qty} shares at ${px(e.entry)} (${rs(e.amount)} in the trade). The stop sat at ${px(e.stopLoss)}, ${px(gap)} (${((gap / e.entry) * 100).toFixed(2)}%) ${buy ? 'below' : 'above'}, so a stop-out would lose about ${rs(e.risk)} before charges.`;
+}
+
+/** How a share entry ended, in plain words. */
+export function shareExitStory(e) {
+  const at = clock(e.exitTime);
+  const how = {
+    STOP: `At ${at} the price reached the stop and it was closed at about ${px(e.exitPrice)}.`,
+    LOCK: `The profit lock had raised the stop as the profit grew. At ${at} the price came back to it and it was closed at about ${px(e.exitPrice)}.`,
+    TARGET: `At ${at} the profit target was reached and it was closed at ${px(e.exitPrice)}.`,
+    SQUARE_OFF: `It was still open at the closing time, so at ${at} it was closed at about ${px(e.exitPrice)}.`,
+  }[e.reason] ?? `Closed at ${at} (${e.reason}) at about ${px(e.exitPrice)}.`;
+  const result = e.net > 0 ? `Won ${rs(e.net)} after ${rs(e.charges)} charges.` : `Lost ${rs(e.net)} including ${rs(e.charges)} charges.`;
+  return `${how} Held ${e.minutes} minute${e.minutes === 1 ? '' : 's'}. ${result}`;
 }

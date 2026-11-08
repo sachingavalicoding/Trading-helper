@@ -5,8 +5,7 @@ import { api } from '../lib/api.js';
 import { useApi } from '../lib/useApi.js';
 import { formatPnl as rawPnl, formatPrice, pnlClass } from '../lib/format.js';
 import { canAdd, withFound } from '../lib/autoFind.js';
-import { LAB_DAYS, LAB_PRICES, addonLine, dayWord, entryStory, exitStory, entryMarkers, equityPath, equityRange, exitWord, fixLine, labPath, togglePick, whenText } from '../lib/lab.js';
-import { VERDICT } from '../lib/combos.js';
+import { LAB_DAYS, LAB_PRICES, dayWord, entryStory, exitStory, entryMarkers, exitWord, fixLine, labPath, togglePick, whenText } from '../lib/lab.js';
 import { whyText } from '../lib/patternReview.js';
 import { LabChart } from '../components/LabChart.jsx';
 import { TradeChart } from '../components/TradeChart.jsx';
@@ -15,111 +14,14 @@ import { InfoButton } from '../components/CheckInfo.jsx';
 import { TrustBadge } from '../components/TrustBadge.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { Badge, Card, EmptyState, Fold, Segmented, Skeleton } from '../components/ui.jsx';
+import { Addons, Breakdown, Equity, Summary } from '../components/lab/LabParts.jsx';
+import { LabOrders } from '../components/lab/OrderSettings.jsx';
+import { SharesLab } from '../components/lab/SharesLab.jsx';
 
 const formatPnl = (v) => rawPnl(Math.round(v));
 const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const dayOfSec = (t) => new Date((t + 19800) * 1000).toISOString().slice(0, 10);
 const STORE = 'lab.base';
-
-function Tile({ label, value, sub, tone = '' }) {
-  return (
-    <div className="rounded-xl bg-surface-2 p-2.5">
-      <div className="text-[10px] text-muted">{label}</div>
-      <div className={`num whitespace-nowrap text-base font-bold ${tone}`}>{value}</div>
-      {sub && <div className="num text-[10px] text-muted">{sub}</div>}
-    </div>
-  );
-}
-
-function Summary({ s, title, tone }) {
-  const pf = s.profitFactor == null ? '–' : s.profitFactor.toFixed(2);
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className={`text-sm font-semibold ${tone}`}>{title}</h3>
-        {VERDICT[s.verdict] && <Badge tone={VERDICT[s.verdict].tone}>{VERDICT[s.verdict].text}</Badge>}
-      </div>
-      <div className="grid grid-cols-3 gap-2">
-        <Tile label="Net after charges" value={formatPnl(s.net)} tone={pnlClass(s.net)} sub={`${s.trades} entries`} />
-        <Tile label="Win rate" value={s.winRate == null ? '–' : `${s.winRate}%`} sub={`${s.wins} won, ${s.trades - s.wins} lost`} />
-        <Tile label="Worst dip" value={formatPnl(-s.maxDrawdown)} tone="text-down" sub="from a peak" />
-        <Tile label="Average win" value={s.avgWin == null ? '–' : formatPnl(s.avgWin)} tone="text-up" />
-        <Tile label="Average loss" value={s.avgLoss == null ? '–' : formatPnl(s.avgLoss)} tone="text-down" />
-        <Tile label="Profit factor" value={pf} sub={`longest losing run ${s.longestLosingRun}`} />
-      </div>
-      <p className="num text-[11px] text-muted">Older half {formatPnl(s.halves[0])} · newer half {formatPnl(s.halves[1])}</p>
-    </div>
-  );
-}
-
-/** Profit and loss as it built up, the starting combination against the one with the picks added. */
-function Equity({ base, withAdd }) {
-  const range = equityRange(base.equity, withAdd?.equity);
-  const w = 320;
-  const h = 100;
-  const zero = h - 4 - ((0 - range.min) / Math.max(range.max - range.min, 1)) * (h - 8);
-  return (
-    <div className="space-y-1">
-      <svg viewBox={`0 0 ${w} ${h}`} className="h-28 w-full" role="img" aria-label="Profit and loss as it built up">
-        <line x1="0" x2={w} y1={zero} y2={zero} stroke="var(--border)" strokeDasharray="3 3" />
-        <path d={equityPath(base.equity, { w, h, ...range })} fill="none" stroke="var(--muted)" strokeWidth="2" strokeLinejoin="round" />
-        {withAdd && <path d={equityPath(withAdd.equity, { w, h, ...range })} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinejoin="round" />}
-      </svg>
-      <p className="flex flex-wrap gap-x-3 text-[11px] text-muted">
-        <span><span className="inline-block h-0.5 w-4 bg-muted align-middle" /> now {formatPnl(base.net)}</span>
-        {withAdd && <span><span className="inline-block h-0.5 w-4 bg-accent align-middle" /> with picks {formatPnl(withAdd.net)}</span>}
-      </p>
-    </div>
-  );
-}
-
-function DayBars({ days }) {
-  const max = Math.max(1, ...days.map((d) => Math.abs(d.net)));
-  return (
-    <div className="flex h-24 items-center gap-0.5" role="img" aria-label="Net result of each day">
-      {days.map((d) => (
-        <div key={d.day} className="flex h-full min-w-0 flex-1 flex-col justify-center" title={`${d.day}: ${d.trades} entries, ${formatPnl(d.net)}`}>
-          <div className="flex flex-1 items-end"><div className={`w-full rounded-t-sm ${d.net > 0 ? 'bg-up' : 'bg-transparent'}`} style={{ height: `${d.net > 0 ? (d.net / max) * 100 : 0}%` }} /></div>
-          <div className="flex flex-1 items-start"><div className={`w-full rounded-b-sm ${d.net < 0 ? 'bg-down' : 'bg-transparent'}`} style={{ height: `${d.net < 0 ? (-d.net / max) * 100 : 0}%` }} /></div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Mini({ rows }) {
-  return (
-    <ul className="divide-y divide-line text-xs">
-      {rows.map((r) => (
-        <li key={r.label} className="flex items-center justify-between gap-3 py-1.5">
-          <span>{r.label} <span className="num text-[11px] text-muted">{r.sub}</span></span>
-          <span className={`num font-semibold ${pnlClass(r.net)}`}>{formatPnl(r.net)}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function Breakdown({ s }) {
-  const hours = Object.entries(s.byHour).sort(([a], [b]) => a.localeCompare(b)).map(([h, v]) => ({ label: `${h}:00`, sub: `${v.trades} entries`, net: v.net }));
-  const sides = [['CE', 'Calls'], ['PE', 'Puts']].map(([k, label]) => ({ label, sub: `${s.bySide[k].trades} entries, ${s.bySide[k].wins} won`, net: s.bySide[k].net }));
-  const exits = Object.entries(s.byExit).map(([r, n]) => ({ label: exitWord(r), sub: `${n}`, net: null }));
-  return (
-    <div className="space-y-3">
-      <div>
-        <div className="mb-1 text-[11px] font-semibold">Each day</div>
-        <DayBars days={s.byDay} />
-        <div className="num mt-1 flex justify-between text-[10px] text-muted"><span>{s.byDay[0]?.day}</span><span>{s.byDay.at(-1)?.day}</span></div>
-      </div>
-      <div><div className="text-[11px] font-semibold">Calls and puts</div><Mini rows={sides} /></div>
-      <div><div className="text-[11px] font-semibold">By hour of entry</div><Mini rows={hours} /></div>
-      <div>
-        <div className="text-[11px] font-semibold">How the entries ended</div>
-        <ul className="flex flex-wrap gap-1.5 pt-1">{exits.map((e) => <li key={e.label}><Badge tone="muted">{e.label} {e.sub}</Badge></li>)}</ul>
-      </div>
-    </div>
-  );
-}
 
 /** The chart of the whole period with an arrow at every entry; tap an arrow or a row to open the entry. */
 function MonthChart({ r, entries, selected, onPick }) {
@@ -263,36 +165,28 @@ function DayHistory({ r, onShow }) {
   );
 }
 
-function Addons({ rows, add, onToggle }) {
-  const [all, setAll] = useState(false);
-  const shown = all ? rows : rows.slice(0, 10);
+const SEGMENT = 'lab.segment';
+
+/** Combination Lab: options or shares. */
+export default function Lab({ embedded = false }) {
+  const [segment, setSegment] = useState(() => { try { return localStorage.getItem(SEGMENT) || 'options'; } catch { return 'options'; } });
+  const choose = (v) => { setSegment(v); try { localStorage.setItem(SEGMENT, v); } catch { /* not remembered */ } };
   return (
-    <div className="space-y-2">
-      <ul className="divide-y divide-line">
-        {shown.map((a) => {
-          const on = add.includes(a.key);
-          return (
-            <li key={a.key} className={`flex items-start gap-1 ${on ? 'bg-surface-2' : ''}`}>
-              <button type="button" aria-pressed={on} onClick={() => onToggle(a.key)} className="flex min-w-0 flex-1 items-start justify-between gap-3 py-2 text-left text-xs">
-                <span className="min-w-0">
-                  <span className="flex flex-wrap items-center gap-1.5 font-medium">+ {a.label} <Badge tone="muted">{a.group}</Badge> {VERDICT[a.verdict] && <Badge tone={VERDICT[a.verdict].tone}>{VERDICT[a.verdict].text}</Badge>}</span>
-                  <span className="num block text-[11px] text-muted">{addonLine(a)}</span>
-                  <span className="num block text-[11px] text-muted">leaves {a.trades} entries, {a.winRate ?? '–'}% win, older {formatPnl(a.halves[0])} · newer {formatPnl(a.halves[1])}</span>
-                </span>
-                <span className={`num shrink-0 text-right font-semibold ${pnlClass(a.gain)}`}>{formatPnl(a.gain)}<span className="block text-[10px] font-normal text-muted">{formatPnl(a.net)} in all</span></span>
-              </button>
-              <InfoButton keys={a.key} title={a.label} className="mt-1.5" />
-            </li>
-          );
-        })}
-      </ul>
-      {rows.length > 10 && <button type="button" className="btn btn-sm w-full" onClick={() => setAll((v) => !v)}>{all ? 'Show fewer' : `Show all ${rows.length}`}</button>}
+    <div className="space-y-3">
+      {!embedded && (
+        <div>
+          <h1 className="flex items-center gap-2 text-lg font-bold"><FlaskConical className="h-5 w-5 text-accent2" /> Combination Lab</h1>
+          <p className="text-xs text-muted">Pick a combination, see how its entries did, change its order settings, and find which extra indicator would have skipped each loser.</p>
+        </div>
+      )}
+      <Segmented className="w-full" value={segment} onChange={choose} options={[{ value: 'options', label: 'Options' }, { value: 'shares', label: 'Shares' }]} />
+      {segment === 'shares' ? <SharesLab /> : <OptionsLab />}
     </div>
   );
 }
 
-/** Combination Lab: one combination or pattern over a month of trading, every entry, and which extra check would have skipped each loser. */
-export default function Lab({ embedded = false }) {
+/** Combination Lab for options: one combination or pattern over a month of trading, every entry, and which extra check would have skipped each loser. */
+function OptionsLab() {
   const [base, setBase] = useState(() => { try { return localStorage.getItem(STORE) || ''; } catch { return ''; } });
   const [add, setAdd] = useState([]);
   const [days, setDays] = useState('15');
@@ -306,12 +200,13 @@ export default function Lab({ embedded = false }) {
   const applyNoStop = () => { setNoStop(noStopOn ? { at: Number(lockAt) || 0, keep: Number(lockKeep) || 0 } : null); setSelected(null); };
   const [selected, setSelected] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [edit, setEdit] = useState(null);
   const choices = useApi('/lab', []);
   const own = useApi('/options', []);
-  const run = useApi(base ? labPath({ base, add, days, prices, noStop }) : null, [base, add.join(','), days, prices, noStop?.at, noStop?.keep, Boolean(noStop)]);
+  const run = useApi(base ? labPath({ base, add, days, prices, noStop, edit }) : null, [base, add.join(','), days, prices, noStop?.at, noStop?.keep, Boolean(noStop), JSON.stringify(edit)]);
   const r = run.data?.result;
   const saved = own.data?.settings?.combos;
-  const pick = (value) => { setBase(value); setAdd([]); setSelected(null); try { localStorage.setItem(STORE, value); } catch { /* not remembered */ } };
+  const pick = (value) => { setBase(value); setAdd([]); setEdit(null); setSelected(null); try { localStorage.setItem(STORE, value); } catch { /* not remembered */ } };
   const backTo = useRef(null);
   // opening an entry jumps to it and remembers where you were, so Close can take you back
   const openEntry = (id) => {
@@ -329,7 +224,7 @@ export default function Lab({ embedded = false }) {
   const comboBase = base.startsWith('combo:');
 
   const pickedLabels = r ? r.addons.filter((a) => add.includes(a.key)).map((a) => a.label) : [];
-  const afterSave = () => { own.reload?.(); choices.reload?.(); setAdd([]); setSelected(null); };
+  const afterSave = () => { own.reload?.(); choices.reload?.(); setAdd([]); setEdit(null); setSelected(null); };
 
   /** A pattern with add-ons, saved as a new combination: the pattern as a check, and the add-ons, all must hold. */
   async function saveFromPattern() {
@@ -346,14 +241,9 @@ export default function Lab({ embedded = false }) {
   }
 
   const list = choices.data?.choices;
+  const combo = comboBase ? saved?.find((c) => c.id === base.slice(6)) ?? null : null;
   return (
     <div className="space-y-3">
-      {!embedded && (
-        <div>
-          <h1 className="flex items-center gap-2 text-lg font-bold"><FlaskConical className="h-5 w-5 text-accent2" /> Combination Lab</h1>
-          <p className="text-xs text-muted">Pick a combination or pattern, see how its entries did, and which extra indicator would have skipped each loser.</p>
-        </div>
-      )}
       <Card className="space-y-2 p-3">
         <label className="flex items-center justify-between gap-3 text-xs text-muted">
           <span>Start from</span>
@@ -422,6 +312,9 @@ export default function Lab({ embedded = false }) {
             <p className="text-[11px] text-muted">The Lab now replays your live rules (one call and one put at a time, pauses after a loss, your trades a day, and the anti-chase, already-moved and with-the-day checks), so its history is what live would really have done.</p>
             {r.stats.trades < 15 && <p className="text-[11px] text-warn">Only {r.stats.trades} entries: too few to trust. Use a longer period.</p>}
           </Card>
+
+          {r.orders?.edited && <p className="rounded-lg border border-accent/50 bg-surface-2 p-2 text-[11px] font-semibold text-accent">The result above uses test order settings, not the saved ones.</p>}
+          {combo && <LabOrders segment="options" combo={combo} saved={saved} testing={Boolean(edit)} onTest={(d) => { setEdit(d); setSelected(null); }} onSaved={afterSave} />}
 
           <Card className="space-y-2 p-3">
             <h3 className="text-sm font-semibold">Chart with every entry</h3>
