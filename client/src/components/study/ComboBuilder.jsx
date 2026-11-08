@@ -4,10 +4,11 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
 import { MAX_COMBOS } from '../../lib/autoFind.js';
-import { MAX_CHECKS, STOP_MODES, VERDICT, exitsText, roomSteps, stopWord, sideWord, blankCombo, fromSaved, needOf, needsText, pickList, ruleText, toPayload, toggleCheck, verdictMap } from '../../lib/combos.js';
+import { MAX_CHECKS, STOP_MODES, VERDICT, exitsText, orderText, shareSideWord, stopWord, sideWord, blankCombo, fromSaved, needOf, needsText, pickList, ruleText, toPayload, toggleCheck, verdictMap } from '../../lib/combos.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
 import { InfoButton } from '../CheckInfo.jsx';
+import { ExitsBlock, SharesOrderFields } from '../lab/OrderSettings.jsx';
 
 const KIND_WORD = { state: 'Now', event: 'Event' };
 
@@ -21,71 +22,10 @@ function VerdictBadge({ verdict }) {
   );
 }
 
-const MODES3 = [
-  { value: 'account', label: 'Account' },
-  { value: 'off', label: 'Off' },
-  { value: 'own', label: 'Own' },
-];
-
-/** Profit ladder, trail and break-even for one combination. A missing key means the Account > Limits and Entries one. */
-function ExitsBlock({ exits, onChange }) {
-  const e = exits || {};
-  const put = (patch) => {
-    const next = { ...e, ...patch };
-    for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
-    onChange(Object.keys(next).length ? next : undefined);
-  };
-  const ladderMode = !('steps' in e) ? 'account' : e.steps?.length ? 'own' : 'off';
-  const trailMode = !('trail' in e) ? 'account' : e.trail ? 'own' : 'off';
-  const beMode = !('breakEven' in e) ? 'account' : e.breakEven ? 'own' : 'off';
-  const start = e.steps?.[0]?.at ?? 1000;
-  const gap = e.steps?.[0] ? e.steps[0].at - e.steps[0].keep : 500;
-  const num = (v) => Number(String(v).replace(/[^\d.]/g, '')) || 0;
-  return (
-    <div className="space-y-2">
-      <div className="text-[11px] text-muted">Exits for this combination. Account keeps the ones from Account &gt; Limits and Entries.</div>
-      <div className="space-y-1">
-        <div className="text-xs font-semibold">Profit ladder</div>
-        <Segmented className="w-full" size="sm" value={ladderMode} onChange={(v) => put({ steps: v === 'account' ? undefined : v === 'off' ? [] : roomSteps(start, gap) })} options={MODES3} />
-        {ladderMode === 'own' && (
-          <div className="grid grid-cols-2 gap-2 text-xs text-muted">
-            <label className="flex items-center justify-between gap-2">
-              <span>First lock at (₹)</span>
-              <input className="field num !w-20 !px-2 !py-1.5 text-right !text-sm" inputMode="numeric" value={start} onChange={(ev) => put({ steps: roomSteps(Math.max(100, num(ev.target.value)), gap) })} aria-label="First profit lock" />
-            </label>
-            <label className="flex items-center justify-between gap-2">
-              <span>Room (₹)</span>
-              <input className="field num !w-20 !px-2 !py-1.5 text-right !text-sm" inputMode="numeric" value={gap} onChange={(ev) => put({ steps: roomSteps(start, Math.max(50, Math.min(num(ev.target.value), start - 1))) })} aria-label="Room under the gain" />
-            </label>
-          </div>
-        )}
-      </div>
-      <div className="space-y-1">
-        <div className="text-xs font-semibold">Trail</div>
-        <Segmented className="w-full" size="sm" value={trailMode} onChange={(v) => put({ trail: v === 'account' ? undefined : v === 'off' ? null : { points: e.trail?.points ?? 30 } })} options={MODES3} />
-        {trailMode === 'own' && (
-          <label className="flex items-center justify-between gap-3 text-xs text-muted">
-            <span>Points behind the best price (5 to 150)</span>
-            <input className="field num !w-20 !px-2 !py-1.5 text-right !text-sm" inputMode="numeric" value={e.trail.points} onChange={(ev) => put({ trail: { ...e.trail, points: num(ev.target.value) } })} aria-label="Trail points" />
-          </label>
-        )}
-      </div>
-      <div className="space-y-1">
-        <div className="text-xs font-semibold">Break-even</div>
-        <Segmented className="w-full" size="sm" value={beMode} onChange={(v) => put({ breakEven: v === 'account' ? undefined : v === 'off' ? 0 : e.breakEven || 20 })} options={MODES3} />
-        {beMode === 'own' && (
-          <label className="flex items-center justify-between gap-3 text-xs text-muted">
-            <span>Move the stop to the entry after (5 to 150 points)</span>
-            <input className="field num !w-20 !px-2 !py-1.5 text-right !text-sm" inputMode="numeric" value={e.breakEven} onChange={(ev) => put({ breakEven: num(ev.target.value) })} aria-label="Break-even points" />
-          </label>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function Editor({ catalog, kind, verdicts, initial, onSave, onCancel, busy }) {
   const [combo, setCombo] = useState(initial);
+  const auto = useApi(kind === 'shares' ? '/auto' : null, [kind]);
+  const shareAccount = { risk: auto.data?.rules?.stopLoss, maxAmount: auto.data?.settings?.maxTradeAmount, steps: auto.data?.rules?.steps, exitMin: auto.data?.rules?.exitMin };
   const [query, setQuery] = useState('');
   const [showDropped, setShowDropped] = useState(false);
   const byKey = useMemo(() => new Map(catalog.conditions.map((c) => [c.key, c])), [catalog]);
@@ -190,6 +130,12 @@ function Editor({ catalog, kind, verdicts, initial, onSave, onCancel, busy }) {
         </div>
       )}
       {kind !== 'shares' && <ExitsBlock exits={combo.exits} onChange={(exits) => set({ exits })} />}
+      {kind === 'shares' && (
+        <div className="space-y-1.5 rounded-lg bg-surface-2 p-2">
+          <div className="text-[11px] text-muted">Order settings for this combination. Empty boxes use your Account settings. Try them first in Research &gt; Lab.</div>
+          <SharesOrderFields value={{ side: combo.side || null, order: combo.order || null, steps: combo.exits && Array.isArray(combo.exits.steps) ? combo.exits.steps : null }} onChange={(v) => set({ side: v.side || '', order: v.order || undefined, exits: v.steps == null ? undefined : { steps: v.steps } })} account={shareAccount} />
+        </div>
+      )}
       {liveOnly && <p className="rounded-lg bg-surface-2 p-2 text-[11px] leading-snug text-muted">News is live only: past headlines are not kept, so a study cannot test a combination with a news check.</p>}
 
       <div className="space-y-2">
@@ -307,7 +253,7 @@ export function ComboBuilder({ kind, endpoint, combos, reload }) {
                       </div>
                       <Switch on={c.on} disabled={busy} label={`Use ${c.name}`} onClick={() => toggleOn(c.id)} />
                     </div>
-                    <p className="text-[11px] leading-snug text-muted">{c.conds.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}{c.also?.length ? ` · and must also hold: ${c.also.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}` : ''}{kind === 'options' && c.side ? ` · ${sideWord(c)}` : ''}{stopWord(c) ? ` · ${stopWord(c)}` : ''}{exitsText(c) ? ` · ${exitsText(c)}` : ''}</p>
+                    <p className="text-[11px] leading-snug text-muted">{c.conds.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}{c.also?.length ? ` · and must also hold: ${c.also.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}` : ''}{kind === 'options' && c.side ? ` · ${sideWord(c)}` : ''}{kind === 'shares' && c.side ? ` · ${shareSideWord(c)}` : ''}{kind === 'shares' && orderText(c) ? ` · ${orderText(c)}` : ''}{stopWord(c) ? ` · ${stopWord(c)}` : ''}{kind !== 'shares' && exitsText(c) ? ` · ${exitsText(c)}` : ''}</p>
                     {c.benchedOn && !c.on && <p className="rounded-lg bg-warn/15 px-2 py-1 text-[11px] leading-snug">Switched off by itself on {c.benchedOn} after losing trades in a row (Account &gt; Limits). Tap its trades in Options &gt; History to replay them before turning it back on.</p>}
                     {kind === 'options' && !c.on && <p className="text-[11px] leading-snug text-muted">Off: the bot does not buy on it, but studies still try it, and one "together" row runs every combination as a set.</p>}
                     <div className="flex items-center justify-end gap-2">

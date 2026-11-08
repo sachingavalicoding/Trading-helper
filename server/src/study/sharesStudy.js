@@ -2,7 +2,7 @@ import { replayStock, followLive } from '../scanner/replay.js';
 import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { CONDITIONS, usable } from '../combos/conditions.js';
 import { describeCombo, missingData, singleCombo } from '../combos/combos.js';
-import { bars5Of, breadthByTime, shareChart, shareIdeas } from '../combos/shares.js';
+import { bars5Of, breadthByTime, comboMoney, shareChart, shareIdeas } from '../combos/shares.js';
 import { verdictOf } from '../combos/verdict.js';
 import { findPairs, findCombos, pairStart } from './pairFinder.js';
 import { evaluate, evaluateBy, netResult, targetTable } from '../scanner/backtest.js';
@@ -90,10 +90,11 @@ async function comboStudy({ nifty1, history, symbols, params, money, opts, onPro
       const at = new Map(c1.map((b, i) => [b.time, i]));
       for (const job of list) {
         if ((job.cond && !usable(job.cond, chart.have)) || missingData(job.combo, chart.have).length) continue;
+        const own = job.mine ? comboMoney(job.combo, money) : money; // your combination trades with its own order settings, if it has any
         for (const idea of shareIdeas(chart, job.combo, { symbol, exitMin: money.exitMin, days })) {
           const from = at.get(idea.time - 60);
           if (from == null) continue;
-          ideasBy.get(job.key).push({ ...idea, ...followLive(c1, from, idea, undefined, money) });
+          ideasBy.get(job.key).push({ ...idea, ...followLive(c1, from, idea, undefined, own) });
         }
       }
       await yieldTurn();

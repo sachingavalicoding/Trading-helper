@@ -17,7 +17,7 @@ const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 
 /** What the settings routes accept; `normalizeCombos` then drops unknown conditions. */
 export const comboInput = z
-  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), also: z.array(z.string().max(40)).max(6).nullish(), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional(), benchedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(), side: z.enum(['CE', 'PE']).nullish(), stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(), stopAtr: z.coerce.number().min(0.8).max(2.5).optional(), stopPoints: z.coerce.number().min(10).max(150).optional(), exits: z.object({ steps: z.array(z.object({ at: z.coerce.number(), keep: z.coerce.number() })).max(12).optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional() }).nullish() }))
+  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), also: z.array(z.string().max(40)).max(6).nullish(), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional(), benchedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(), side: z.enum(['CE', 'PE']).nullish(), stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(), stopAtr: z.coerce.number().min(0.8).max(2.5).optional(), stopPoints: z.coerce.number().min(10).max(150).optional(), exits: z.object({ steps: z.array(z.object({ at: z.coerce.number(), keep: z.coerce.number() })).max(12).optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional() }).nullish(), order: z.object({ risk: z.coerce.number().min(0).max(1_000_000).optional(), maxAmount: z.coerce.number().min(0).max(100_000_000).optional(), stopPct: z.coerce.number().min(0).max(10).optional(), target: z.coerce.number().min(0).max(10_000_000).optional(), exitMin: z.coerce.number().min(0).max(24 * 60).optional() }).nullish() }))
   .max(MAX_COMBOS);
 
 /** Clean a combination from user input: known conditions only, no repeats, at most MAX_CONDITIONS, `need` between 1 and the count. */
@@ -45,7 +45,27 @@ export function normalizeCombo(raw, index = 0) {
   }
   const exits = normalizeExits(raw.exits);
   if (exits) out.exits = exits;
+  const order = normalizeOrder(raw.order);
+  if (order) out.order = order;
   return out;
+}
+
+export const ORDER_LIMITS = { risk: [50, 1_000_000], maxAmount: [1000, 100_000_000], stopPct: [0.3, 5], target: [50, 10_000_000], exitMin: [9 * 60 + 30, 15 * 60 + 15] };
+
+/**
+ * A share combination's own order settings, each optional (0 or missing = the Account one): `risk` (rupees lost at the stop, sizes the trade),
+ * `maxAmount` (most money put in one trade), `stopPct` (stop this % from the entry in place of the chart stop), `target` (sell at this rupee
+ * profit in place of the profit ladder) and `exitMin` (minute of the day, IST, its trades are closed and no new one is taken). Returns undefined when nothing is set.
+ */
+export function normalizeOrder(raw) {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out = {};
+  for (const [k, [lo, hi]] of Object.entries(ORDER_LIMITS)) {
+    const v = Number(raw[k]);
+    if (!(v > 0)) continue;
+    out[k] = k === 'stopPct' ? Math.round(Math.min(hi, Math.max(lo, v)) * 100) / 100 : Math.round(Math.min(hi, Math.max(lo, v)));
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 /**

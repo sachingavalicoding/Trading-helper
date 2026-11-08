@@ -13,7 +13,7 @@ export function netResult(idea, opts = {}) {
   const dir = long ? 1 : -1;
   const slip = slippagePct / 100;
   const entry = idea.entry * (1 + dir * slip);
-  const qty = sizeOf(idea, opts);
+  const qty = idea.sizedQty ?? sizeOf(idea, opts); // a replay that already sized the trade (its own risk or money cap) keeps that size
   if (!qty) return null;
   const exit = idea.status === 'TARGET_HIT' ? idea.exitPrice : idea.exitPrice * (1 - dir * slip);
   const gross = dir * (exit - entry) * qty;
@@ -21,11 +21,18 @@ export function netResult(idea, opts = {}) {
   return { qty, gross: round(gross), charges: round(charges), net: round(gross - charges) };
 }
 
-/** Shares bought so the loss at the idea's stop is `riskAmount`, from the entry filled `slippagePct` worse than planned; 0 when not even one share fits. */
-export function sizeOf(idea, { riskAmount = 1000, slippagePct = 0.05 } = {}) {
+/**
+ * Shares bought so the loss at the idea's stop is `riskAmount`, from the entry filled `slippagePct` worse than planned; 0 when not even one share fits.
+ * `maxAmount` (rupees put in one trade) and `maxShares` cap it like the live auto trader; 0 or unset = no cap.
+ */
+export function sizeOf(idea, { riskAmount = 1000, slippagePct = 0.05, maxAmount = 0, maxShares = 0 } = {}) {
   const dir = idea.side === 'BUY' ? 1 : -1;
   const perShare = Math.abs(idea.entry * (1 + (dir * slippagePct) / 100) - idea.stopLoss);
-  return perShare ? Math.floor(riskAmount / perShare) : 0;
+  if (!perShare) return 0;
+  let qty = Math.floor(riskAmount / perShare);
+  if (maxAmount > 0 && idea.entry > 0) qty = Math.min(qty, Math.floor(maxAmount / idea.entry));
+  if (maxShares > 0) qty = Math.min(qty, maxShares);
+  return Math.max(0, qty);
 }
 
 /** Performance of a list of replayed ideas, in rupees after charges and slippage, in the order they were raised. */

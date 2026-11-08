@@ -5,8 +5,9 @@ import { sizePosition } from '../scanner/sizing.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { istParts } from '../market/marketHours.js';
 import { normalizeCombos } from '../combos/combos.js';
-import { bars5Of, breadthByTime, shareChart, shareIdeas, newsDirection } from '../combos/shares.js';
+import { bars5Of, breadthByTime, comboMoney, shareChart, shareIdeas, newsDirection } from '../combos/shares.js';
 import { logger } from '../utils/logger.js';
+import { roundToTick } from '../utils/money.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -63,12 +64,12 @@ export class AutoTrader {
   async closeOnTime() {
     if (!this.config.enforceMarketHours) return;
     const { minutes } = istParts(new Date());
-    const open = await AutoLog.find({ segment: { $ne: 'OPT' }, status: 'OPEN', decision: 'PLACED' }, 'user symbol').lean();
+    const open = await AutoLog.find({ segment: { $ne: 'OPT' }, status: 'OPEN', decision: 'PLACED' }, 'user symbol detail').lean();
     const exitMin = new Map();
     for (const row of open) {
       const uid = String(row.user);
       if (!exitMin.has(uid)) exitMin.set(uid, (await loadRules(uid, 'EQ')).exitMin);
-      if (minutes < exitMin.get(uid)) continue;
+      if (minutes < (row.detail?.combo?.exitMin > 0 ? row.detail.combo.exitMin : exitMin.get(uid))) continue; // a combination may close its trades at its own time
       try {
         this.timed.add(`${uid}|${row.symbol}`);
         await this.engine.exitPosition(uid, row.symbol);
@@ -118,7 +119,7 @@ export class AutoTrader {
             for (const idea of shareIdeas(chart, combo, { symbol, from: bars.length - 1, exitMin: this.config.enforceMarketHours ? exits.get(uid) : 24 * 60 })) {
               if (idea.i !== bars.length - 1) continue;
               made += 1;
-              const r = await this.consider(s, { ...idea, _id: `combo:${symbol}:${combo.id}:${last.time}`, riskReward: 1.5, comboSnap: { id: combo.id, name: combo.name, conds: combo.conds, need: combo.need, window: combo.window } });
+              const r = await this.consider(s, { ...idea, _id: `combo:${symbol}:${combo.id}:${last.time}`, riskReward: 1.5, comboSnap: { id: combo.id, name: combo.name, conds: combo.conds, need: combo.need, window: combo.window, ...(combo.order ? { order: combo.order, exitMin: combo.order.exitMin } : {}), ...(combo.exits && Array.isArray(combo.exits.steps) ? { exits: { steps: combo.exits.steps } } : {}) } });
               if (r.skipped) logger.info(`auto skip ${symbol} ${idea.side} (${combo.name}) for ${s.user}: ${r.skipped}`);
             }
           }
@@ -248,7 +249,11 @@ export class AutoTrader {
       if (movedR > 0.5 || movedR < -0.3) return { skipped: `price already moved ${movedR.toFixed(2)}R from the entry` };
     }
     if (risk && idea.entry && (risk / idea.entry) * 100 < MIN_STOP_PCT) return { skipped: `the stop is only ${round2((risk / idea.entry) * 100)}% from the entry, under the ${MIN_STOP_PCT}% minimum, so normal wiggle would hit it` };
-    if (this.config.enforceMarketHours && istParts(new Date()).minutes >= (await loadRules(userId, 'EQ')).exitMin) return { skipped: 'past the exit time set in the Account tab' };
+    const rules = await loadRules(userId, 'EQ');
+    // a combination's own order settings (Combination Lab or Account > Entries) replace the Account ones for its trades
+    const own = idea.comboSnap ? comboMoney(idea.comboSnap, { riskAmount: rules.stopLoss, maxAmount: settings.maxTradeAmount, steps: rules.steps, target: 0, exitMin: rules.exitMin }) : null;
+    const exitAt = own?.exitMin ?? rules.exitMin;
+    if (this.config.enforceMarketHours && istParts(new Date()).minutes >= exitAt) return { skipped: own && exitAt !== rules.exitMin ? 'past the exit time set for this combination' : 'past the exit time set in the Account tab' };
     if (!idea.combo && settings.skipSetups?.includes(idea.setup)) return { skipped: `${idea.setup} is switched off in the Account tab` };
     if (idea.setup === 'News gap' && settings.earlyNews === false) return { skipped: 'news gap trades are switched off' };
     if (!idea.combo && idea.score < settings.minScore) return { skipped: `score ${idea.score} is below ${settings.minScore}` };
@@ -262,13 +267,13 @@ export class AutoTrader {
     const size = sizePosition({
       capital: funds.balance,
       riskPct: settings.riskPct,
-      riskAmount: (await loadRules(userId, 'EQ')).stopLoss, // the most one trade may lose is the stop set in the Account tab
+      riskAmount: own ? own.riskAmount : rules.stopLoss, // the most one trade may lose is the stop set in the Account tab (or the combination's own)
       entry: idea.entry,
       stopLoss: idea.stopLoss,
       available: funds.available,
       leverage: this.config.misLeverage,
       maxQty: this.config.maxOrderQty,
-      maxAmount: settings.maxTradeAmount,
+      maxAmount: own ? own.maxAmount : settings.maxTradeAmount,
     });
     if (size.qty < 1) return { skipped: size.note || 'no size fits the risk limit' };
 
@@ -293,7 +298,23 @@ export class AutoTrader {
     });
     // A rejected order (market closed, not enough funds) opened nothing, so it must not be logged as a placed trade.
     if (order.status !== 'FILLED') return { skipped: order.rejectReason || `order was ${String(order.status).toLowerCase()}` };
+    if (own) await this.#ownExits(userId, idea, order, own);
     return { order };
+  }
+
+  /** A combination with its own target or profit ladder: put them on the new position in place of the Account ladder it was given. */
+  async #ownExits(userId, idea, order, own) {
+    const snap = idea.comboSnap;
+    const ownSteps = Array.isArray(snap.exits?.steps);
+    if (!(snap.order?.target > 0) && !ownSteps) return;
+    const d = idea.side === 'BUY' ? 1 : -1;
+    const fill = order.avgFillPrice ?? idea.entry;
+    try {
+      if (snap.order?.target > 0) await this.engine.setExits(userId, idea.symbol, { target: roundToTick(fill + (d * snap.order.target) / order.qty), lockTrigger: null, lockAmount: null, lockSteps: [] });
+      else await this.engine.setExits(userId, idea.symbol, { lockTrigger: null, lockAmount: null, lockSteps: own.steps });
+    } catch (e) {
+      logger.warn(`own exits for ${idea.symbol} (${snap.name}) not set: ${e.message}`);
+    }
   }
 
   async handle(idea) {

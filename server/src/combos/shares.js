@@ -50,9 +50,13 @@ export function shareChart(bars5, { breadth = null, news = null, from = 15 } = {
   return buildChart(bars5, { breadth: series && series.some((x) => x != null) ? series : null, flow: flowOfShare(bars5), news, from });
 }
 
-/** The stop an idea is traded with, or null when it is too far to risk: never closer than one ATR or 0.5% of the entry. */
-export function shareStop(signal, entry) {
+/**
+ * The stop an idea is traded with, or null when it is too far to risk: never closer than one ATR or 0.5% of the entry.
+ * With `stopPct` (a combination's own order setting) the stop is simply that % from the entry.
+ */
+export function shareStop(signal, entry, stopPct = 0) {
   const d = signal.side === 'CE' ? 1 : -1;
+  if (stopPct > 0) return roundToTick(entry - (d * entry * stopPct) / 100);
   const floor = Math.max(STOP_MIN_ATR * signal.atr, (STOP_MIN_PCT / 100) * entry);
   const cap = Math.max(STOP_MAX_ATR * signal.atr, (STOP_MAX_PCT / 100) * entry);
   let dist = d * (entry - signal.stop);
@@ -65,7 +69,8 @@ export function shareStop(signal, entry) {
  * Ideas the combination gives on this share: one per side per day at most (like the scanner's "raised" key), between 09:30 and `exitMin`.
  * Each is { symbol, setup, side: 'BUY'|'SELL', score, entry, stopLoss, target1..3, openedAt, combo: true, time }.
  */
-export function shareIdeas(chart, combo, { symbol, from = 15, exitMin = 15 * 60 + 15, label = null, days = null }) {
+export function shareIdeas(chart, combo, { symbol, from = 15, exitMin: accountExit = 15 * 60 + 15, label = null, days = null }) {
+  const exitMin = combo.order?.exitMin > 0 && accountExit < 24 * 60 ? combo.order.exitMin : accountExit; // a combination's own exit time also ends its entries
   const when = (time) => {
     const { minutes } = istParts(new Date((time + 300) * 1000));
     return minutes >= SHARE_FIRST_MIN && minutes < exitMin;
@@ -78,7 +83,7 @@ export function shareIdeas(chart, combo, { symbol, from = 15, exitMin = 15 * 60 
     const key = `${bucket(s)}|${s.side}`;
     if (raised.has(key)) continue;
     const entry = roundToTick(s.close);
-    const stopLoss = shareStop(s, entry);
+    const stopLoss = shareStop(s, entry, combo.order?.stopPct ?? 0);
     if (stopLoss == null) continue;
     raised.add(key);
     const d = s.side === 'CE' ? 1 : -1;
@@ -101,4 +106,21 @@ export function shareIdeas(chart, combo, { symbol, from = 15, exitMin = 15 * 60 
     });
   }
   return ideas;
+}
+
+/**
+ * The money rules one combination's trades use: its own order settings and profit ladder where it has them, else `money` (the Account ones).
+ * `money` is { riskAmount, slippagePct, steps, target, exitMin, maxAmount }. Its own target wins over any ladder; its own ladder wins over the Account target.
+ */
+export function comboMoney(combo, money) {
+  const o = combo?.order || {};
+  const ownSteps = combo?.exits && Array.isArray(combo.exits.steps);
+  return {
+    ...money,
+    riskAmount: o.risk > 0 ? o.risk : money.riskAmount,
+    maxAmount: o.maxAmount > 0 ? o.maxAmount : money.maxAmount || 0,
+    steps: ownSteps ? combo.exits.steps : money.steps ?? [],
+    target: o.target > 0 ? o.target : ownSteps ? 0 : money.target || 0,
+    exitMin: o.exitMin > 0 ? o.exitMin : money.exitMin,
+  };
 }
