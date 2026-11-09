@@ -121,3 +121,80 @@ test('entry reasons: each check of the combination at the entry bar, the reading
   assert.equal(typeof out.study.matched, 'boolean');
   assert.match(out.study.text, /study/);
 });
+
+// three days of a gentle wave, 1-minute candles from 09:15 to 15:30
+function wave() {
+  const c1 = [];
+  const day0 = Date.UTC(2026, 10, 2, 3, 45) / 1000; // 09:15 IST, 2 Nov
+  let p = 24000;
+  for (let d = 0; d < 3; d++) {
+    for (let m = 0; m < 375; m++) {
+      p += Math.sin((d * 375 + m) / 17) * 2 + 0.15;
+      c1.push({ time: day0 + d * 86400 + m * 60, open: p - 0.5, high: p + 1.5, low: p - 1.5, close: p, volume: 0 });
+    }
+  }
+  return c1;
+}
+
+test('a combination never fires on a bar where fewer checks hold than it needs', async () => {
+  const { comboSignals, heldConditions } = await import('../src/combos/combos.js');
+  const { buildChart } = await import('../src/combos/conditions.js');
+  const chart = buildChart(closedBars5(wave()));
+  const combos = [
+    { id: 'a', name: 'A', conds: ['p_breakout', 'keltnerUpper', 'aroonUp', 'rsiRising', 'macdAbove'], need: 5, window: 3 },
+    { id: 'b', name: 'B', conds: ['aboveEma20', 'rsiAbove50', 'macdAbove'], need: 3, window: 3 },
+    { id: 'c', name: 'C', conds: ['aboveEma20', 'rsiRising', 'aroonUp', 'macdAbove'], need: 2, window: 2 },
+  ];
+  let fired = 0;
+  for (const combo of combos) {
+    for (const s of comboSignals(chart, combo, { from: 15, windows: false })) {
+      fired++;
+      const held = heldConditions(chart, combo, s.side === 'CE' ? 1 : -1, s.i).filter((c) => c.held).length;
+      assert.ok(held >= combo.need, `${combo.id} fired at bar ${s.i} with ${held} of ${combo.need}`);
+    }
+  }
+  assert.ok(fired > 0);
+});
+
+test('entry reasons: a buy "on the minute" is read on the bar still forming, and says what changed by its close', () => {
+  const c1 = wave();
+  // the last day, at 13:00 IST: two minutes shoot up, then the rest of the 5-minute bar falls back below where it started
+  const slot = Date.UTC(2026, 10, 4, 7, 30) / 1000;
+  const k = c1.findIndex((c) => c.time === slot);
+  const base = c1[k - 1].close;
+  const path = [base + 40, base + 90, base + 20, base - 10, base - 20];
+  path.forEach((p, n) => Object.assign(c1[k + n], { open: n ? path[n - 1] : base, high: Math.max(p, n ? path[n - 1] : base) + 1, low: Math.min(p, n ? path[n - 1] : base) - 1, close: p }));
+  const bars5 = closedBars5(c1);
+  const combo = { id: 'k', name: 'Keltner', conds: ['keltnerUpper'], need: 1, window: 3 };
+  const entryTime = slot + 120 + 2; // 13:02:02, the price of the 13:02 minute mark
+  const early = entryReasons({ bars5, entryTime, side: 'CE', source: { kind: 'combo', combo }, clock: 'minute', c1, spot: base + 90 });
+  assert.equal(early.bar.forming, true);
+  assert.equal(early.bar.time, slot);
+  assert.equal(early.bar.upTo, slot + 120);
+  assert.equal(early.conditions[0].held, true); // what the live trader saw at 13:02
+  assert.equal(early.atClose.held, 0); // gone by 13:05
+  assert.deepEqual(early.atClose.failed, ['Close above the upper Keltner channel']);
+  assert.equal(early.study.matched, false);
+  assert.match(early.study.text, /before this bar closed/);
+  // read as a bar-close entry (the old way), the same trade shows the check failing on the previous bar
+  const late = entryReasons({ bars5, entryTime, side: 'CE', source: { kind: 'combo', combo } });
+  assert.equal(late.bar.time, slot - 300);
+  assert.equal(late.bar.forming, undefined);
+});
+
+test('entry reasons: live and study agree only on the same bar, not the one next to it', () => {
+  const bars5 = closedBars5(wave());
+  const combo = { id: 'trend', name: 'Trend', conds: ['aboveEma20', 'rsiAbove50'], need: 2, window: 3 };
+  const first = entryReasons({ bars5, entryTime: bars5[60].time + 305, side: 'CE', source: { kind: 'combo', combo } });
+  const times = first.study.times;
+  assert.ok(times.length > 0);
+  const at = bars5.findIndex((b) => b.time + 300 === times[0]);
+  assert.equal(entryReasons({ bars5, entryTime: bars5[at].time + 305, side: 'CE', source: { kind: 'combo', combo } }).study.matched, true);
+  assert.equal(entryReasons({ bars5, entryTime: bars5[at + 1].time + 305, side: 'CE', source: { kind: 'combo', combo } }).study.matched, false);
+});
+
+test('entry reasons: a put says its checks are read upside down', () => {
+  const bars5 = closedBars5(wave());
+  const out = entryReasons({ bars5, entryTime: bars5[100].time + 305, side: 'PE', source: { kind: 'combo', combo: { id: 't', name: 'T', conds: ['aboveEma20'], need: 1, window: 3 } } });
+  assert.equal(out.mirrored, true);
+});
