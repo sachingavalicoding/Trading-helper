@@ -103,7 +103,9 @@ export function optionRoutes({ optionTrader }) {
     const [ce, pe] = await Promise.all(['CE', 'PE'].map((type) => optionTrader.market.pickOption({ type, now: optionTrader.now(), index }).catch(() => null)));
     const quote = (c) => c && { symbol: c.symbol, label: optionLabel(c.symbol), strike: c.strike, expiry: c.expiry, lotSize: c.lotSize, ltp: c.ltp, lotCost: c.ltp ? Math.round(c.ltp * c.lotSize) : null };
     const preview = await optionTrader.preview(req.userId, read, { CE: ce, PE: pe });
-    res.json({ ready: true, preview, index, underlying: INDEXES[index].symbol, spot: read.spot, atr5: read.atr5, snapshot: read.snapshot, best: read.best?.type ?? null, ce: slim(read.ce), pe: slim(read.pe), contracts: { CE: quote(ce), PE: quote(pe) }, at: new Date().toISOString() });
+    const mine = await OptionSettings.findOne({ user: req.userId }, 'scoreEntries minScore').lean();
+    const scoreMode = { on: mine?.scoreEntries === true, minScore: mine?.minScore ?? 70 };
+    res.json({ ready: true, preview, scoreMode, index, underlying: INDEXES[index].symbol, spot: read.spot, atr5: read.atr5, snapshot: read.snapshot, best: read.best?.type ?? null, ce: slim(read.ce), pe: slim(read.pe), contracts: { CE: quote(ce), PE: quote(pe) }, at: new Date().toISOString() });
   });
 
   // Buy one now by hand, with the stop and profit lock from the Account tab.
