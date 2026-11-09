@@ -16,6 +16,7 @@ import { analyzeLab, lines, presentLab } from './lab.js';
 import { analyzeSharesLab, presentSharesLab, shareLines, sharesDayBars } from './sharesLab.js';
 import { getFunds } from '../services/walletService.js';
 import { withOrderOptions } from './orders.js';
+import { checkExamples } from './examples.js';
 
 const WARMUP_DAYS = 6;
 const orderPart = (c) => ({ side: c.side ?? null, stopMode: c.stopMode ?? null, stopAtr: c.stopMode ? c.stopAtr : null, stopPoints: c.stopMode ? c.stopPoints : null, exits: c.exits ?? null });
@@ -157,6 +158,15 @@ export class LabService {
   }
 
   /** What can be picked as the starting point. */
+  /** Where one check (or a combination of checks) would have bought on the last `days` days of the Nifty chart (the info button's chart). */
+  async examples({ keys, need = null, window = null, days = 5, index = 'NIFTY' }) {
+    const calendar = Math.ceil((days * 7) / 5) + WARMUP_DAYS;
+    const { nifty1, stocks5 } = await this.#data(index, calendar);
+    const out = checkExamples({ nifty1, stocks5, keys, need, window, days });
+    if (out.error) throw badRequest(out.error, 'NO_DATA');
+    return { index, ...out };
+  }
+
   async choices(userId, index = 'NIFTY') {
     const { params } = await this.#params(userId, index);
     return lines(params.combos);

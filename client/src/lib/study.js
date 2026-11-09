@@ -110,6 +110,17 @@ export function sharesText(r) {
     'First target (share of ideas that ran this many risks before the stop, average result in risks):',
     ...r.firstTarget.map((t) => `${t.target}R: reached ${t.hitRate ?? '-'}%, expectancy ${t.expectancyR ?? '-'}R`),
   ];
+  const ss = r.scoreStudy;
+  if (ss?.ideas) {
+    const st = (x) => `${x?.trades ?? 0} ideas, ${x?.winRate ?? '-'}% win, avg ${formatPnl(x?.avgNet)}`;
+    lines.push('', `Score study (every enterable idea, any score: ${ss.ideas} over ${ss.days} days):`);
+    lines.push(`Score now by band: ${ss.bands.now.map((b) => `${b.band} ${st(b)}`).join('; ')}`);
+    lines.push(`Score before 9 Nov by band: ${ss.bands.before.map((b) => `${b.band} ${st(b)}`).join('; ')}`);
+    lines.push('Parts (agreed vs not, difference in avg net):');
+    for (const p of ss.parts) lines.push(`${p.label} (${p.weight} pts): ${p.verdict}; agreed ${st(p.on)}; not ${st(p.off)}; diff ${formatPnl(p.lift)}`);
+    if (ss.check) lines.push(`Newer days from ${ss.check.from}: all ${st(ss.check.all)}; best third by score now ${st(ss.check.now)}; before 9 Nov ${st(ss.check.before)}${ss.check.suggested ? `; suggested weights ${st(ss.check.suggested)}` : ''}`);
+    if (ss.suggested) lines.push(`Suggested weights (${ss.fitOn}): ${Object.entries(ss.suggested).filter(([, w]) => w > 0).map(([id, w]) => `${id} ${w}`).join(', ')}`);
+  }
   if (r.combos?.length) {
     lines.push('', 'My combinations:');
     for (const x of r.combos) lines.push(`${line({ ...x, key: x.label.replace('My combination: ', '') })}; buys ${formatPnl(x.buys.net)} (${x.buys.trades}), sells ${formatPnl(x.sells.net)} (${x.sells.trades}); halves ${formatPnl(x.halves[0])} / ${formatPnl(x.halves[1])}; ${x.text}`);

@@ -7,7 +7,7 @@ import { loadRules } from '../models/TradeDefaults.js';
 import { comboInput, normalizeCombos } from '../combos/combos.js';
 
 // The setups the scanner can raise today (Level retest and VWAP pullback are switched off for good in scanner/service.js).
-export const SHARE_SETUPS = ['Opening range breakout', 'Gap and go', 'News gap'];
+export const SHARE_SETUPS = ['Opening range breakout', 'Gap and go', 'News gap', 'Trend score'];
 
 export const AUTO_DISCLAIMER = 'Auto trading places virtual (paper) orders only. It follows the scanner\'s rules and does not guarantee profit. Not investment advice.';
 
@@ -15,6 +15,7 @@ const patch = z
   .object({
     enabled: z.boolean(),
     earlyNews: z.boolean(),
+    trendScore: z.boolean(),
     minScore: z.coerce.number().min(60).max(100),
     maxOpen: z.coerce.number().int().min(1).max(10),
     riskPct: z.coerce.number().min(0.1).max(3),
@@ -32,7 +33,7 @@ export function autoRoutes({ autoTrader }) {
   const view = async (userId, doc) => {
     const s = doc || new AutoSettings({ user: userId });
     return {
-      settings: { enabled: s.enabled, minScore: s.minScore, maxOpen: s.maxOpen, riskPct: s.riskPct, dailyLossPct: s.dailyLossPct, maxShares: s.maxShares, maxTradeAmount: s.maxTradeAmount, earlyNews: s.earlyNews !== false, skipSetups: [...(s.skipSetups ?? [])], combos: normalizeCombos(s.combos ?? []) },
+      settings: { enabled: s.enabled, minScore: s.minScore, maxOpen: s.maxOpen, riskPct: s.riskPct, dailyLossPct: s.dailyLossPct, maxShares: s.maxShares, maxTradeAmount: s.maxTradeAmount, earlyNews: s.earlyNews !== false, trendScore: s.trendScore === true, skipSetups: [...(s.skipSetups ?? [])], combos: normalizeCombos(s.combos ?? []) },
       setupChoices: SHARE_SETUPS,
       rules: await loadRules(userId, 'EQ'),
       today: await autoTrader.todaySummary(userId),

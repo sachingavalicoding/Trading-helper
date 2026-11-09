@@ -452,8 +452,8 @@ async function breakoutOnce() {
   const fresh = await registerUser(app);
   const uid = fresh.user.id || fresh.user._id;
   const s = (await OptionSettings.create({ user: uid, enabled: true, patterns: ['breakout'] })).toObject();
-  assert.deepEqual(entryModes({}), { patterns: ['breakout', 'insideBar', 'emaCross'], combos: false }, 'settings saved before these switches existed get the defaults');
-  assert.deepEqual(entryModes({ patternEntries: false, scoreEntries: true }), { patterns: [], combos: false }, 'the score no longer buys, whatever an old setting says');
+  assert.deepEqual(entryModes({}), { score: false, patterns: ['breakout', 'insideBar', 'emaCross'], combos: false }, 'settings saved before these switches existed get the defaults, score off');
+  assert.deepEqual(entryModes({ patternEntries: false, scoreEntries: true }), { score: true, patterns: [], combos: false }, 'the indicator score buys when switched on');
   assert.equal(entryModes({ combos: [{ name: 'x', conds: ['rsiAbove50'] }] }).combos, true, 'a switched-on combination is an entry source');
   assert.equal(entryModes({ combos: [{ name: 'x', conds: ['rsiAbove50'], on: false }] }).combos, false);
   assert.ok(LIVE_PATTERNS.length === 14 && !LIVE_PATTERNS.some((p) => p.key === 'breadth'));
@@ -510,8 +510,13 @@ test('the pattern switches are saved, validated and shown with their choices', a
   const first = (await api().get('/api/options').set(u.auth).expect(200)).body;
   assert.deepEqual(first.settings.patterns, ['breakout', 'insideBar', 'emaCross']);
   assert.equal(first.settings.patternEntries, true);
-  assert.equal(first.settings.scoreEntries, undefined, 'the score is no longer an entry');
-  assert.equal(first.settings.minScore, undefined);
+  assert.equal(first.settings.scoreEntries, false, 'the indicator score is off until switched on');
+  assert.equal(first.settings.minScore, 70);
+  assert.equal(first.settings.scoreChecks.reduce((a, p) => a + p.points, 0), 100, 'the score parts add up to 100');
+  const scored = (await api().put('/api/options').set(u.auth).send({ scoreEntries: true, minScore: 75 }).expect(200)).body;
+  assert.equal(scored.settings.scoreEntries, true);
+  assert.equal(scored.settings.minScore, 75);
+  await api().put('/api/options').set(u.auth).send({ minScore: 40 }).expect(400);
   assert.deepEqual(first.settings.indexes, ['NIFTY']);
   assert.equal(first.settings.mirror, false);
   assert.deepEqual(first.indexChoices.map((c) => c.key), ['NIFTY']);

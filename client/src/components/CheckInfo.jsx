@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Info } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { Sheet } from './ui.jsx';
+import { CheckExamples } from './ExampleChart.jsx';
 
 // The info button beside an indicator, a pattern or a combination: a sheet that says, in plain words, what it measures, exactly when it
 // is true (with the app's own numbers), how it works for a put, and how long it counts. The words come from the server catalog.
@@ -56,6 +57,7 @@ export function CheckInfoSheet({ title, keys, rule, onClose }) {
     <Sheet title={title} subtitle={keys.length > 1 ? 'How each check works and when it triggers' : 'How it works and when it triggers'} onClose={onClose}>
       <div className="space-y-2 pt-2">
         {rule && <p className="rounded-lg bg-surface-2 p-2 text-xs leading-snug">{rule}</p>}
+        {catalog && rows.length > 0 && <CheckExamples keys={rows.map((c) => c.key)} />}
         {!catalog && <p className="text-xs text-muted">Loading…</p>}
         {catalog && rows.length === 0 && <p className="text-xs text-muted">No notes for this one.</p>}
         {rows.map((c) => <OneCheck key={c.key} c={c} open={rows.length === 1} />)}

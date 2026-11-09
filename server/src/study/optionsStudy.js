@@ -558,12 +558,21 @@ async function liveEntries({ nifty1, stocks5 = null, params, onProgress = () => 
       sources.push({ kind: 'combo', label: `Combination: ${combo.name}`, signals: found.length });
     }
   }
+  // the score entry (Account > Entries, "Indicator score"): the stronger side, unblocked, with a fresh trigger and the score at least scoreMin
+  let bot = null;
+  if (params.scoreEntries) {
+    onProgress('Working out the indicator score at each 5-minute close');
+    bot = await botSignals({ prep, c1: complete, byTime, breadth, fromTime, minScore: params.scoreMin ?? 70 });
+    const found = bot.signals.filter((s) => (when ? when(s.time - 300) : true)).map((s) => ({ ...s, technique: 'score', minScore: 0 }));
+    signals.push(...found);
+    sources.push({ kind: 'score', label: `Indicator score ${params.scoreMin ?? 70}+`, signals: found.length });
+  }
   // a minimum chart score (Account > Entries) is checked as live: the score of the signal's side at that close
   let kept = signals;
   if (signals.some((s) => s.minScore > 0)) {
     onProgress('Working out the chart score at each signal');
-    const bot = await botSignals({ prep, c1: complete, byTime, breadth, fromTime, minScore: 101 });
-    kept = signals.map((s) => ({ ...s, score: bot.scores.get(s.i)?.[s.side] })).filter((s) => !(s.minScore > 0) || (s.score != null && s.score >= s.minScore));
+    bot = bot ?? (await botSignals({ prep, c1: complete, byTime, breadth, fromTime, minScore: 101 }));
+    kept = signals.map((s) => (s.score != null ? s : { ...s, score: bot.scores.get(s.i)?.[s.side] })).filter((s) => !(s.minScore > 0) || (s.score != null && s.score >= s.minScore));
   }
   const cut = Math.floor((studyDays.length * 2) / 3);
   const splitOk = studyDays.length >= MIN_SPLIT_DAYS;

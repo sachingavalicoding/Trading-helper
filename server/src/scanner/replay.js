@@ -114,6 +114,9 @@ export function followLive(c1, from, idea, ladder = LADDER, money = null) {
   return { ...out, ...(money ? { sizedQty: qty } : {}), bestR: Math.round(bestR * 100) / 100, runR: Math.round(runR * 100) / 100 };
 }
 
+/** What each part of an idea's score earned, as a share of its most (0 to 1), keyed by the part's id. */
+export const partsOf = (c) => Object.fromEntries((c.checks ?? []).filter((k) => k.max > 0).map((k) => [k.id, Math.round((k.points / k.max) * 100) / 100]));
+
 /**
  * Replay the scanner over past 1-minute candles of one stock and report what it would have
  * raised and how each idea ended. Uses the same rules as the live scanner, with two differences:
@@ -123,11 +126,12 @@ export function followLive(c1, from, idea, ladder = LADDER, money = null) {
  * bar are given to the scanner, so it never sees the future. Older sessions still feed the indicators.
  * `legacy` scores with the rules from before ADX, EMA 50 and sector strength were added.
  */
-export function replayStock({ symbol, c1, nifty = null, days = 3, legacy = false, skipDays = 0, exits = 'target1', stopScale = 1, ladder = LADDER, money = null }) {
+export function replayStock({ symbol, c1, nifty = null, days = 3, legacy = false, skipDays = 0, exits = 'target1', stopScale = 1, ladder = LADDER, money = null, collect = null }) {
   const dayOf = (b) => istDay(b.time);
   const sessions = [...new Set(c1.map(dayOf))];
   const replayDays = new Set(sessions.slice(Math.max(0, sessions.length - days - skipDays), sessions.length - skipDays));
   const raised = new Set();
+  const raisedAll = new Set();
   const ideas = [];
 
   for (let i = MIN_BARS; i < c1.length; i += STEP) {
@@ -145,6 +149,16 @@ export function replayStock({ symbol, c1, nifty = null, days = 3, legacy = false
     const tick = tickAt(c1, i, dayStart, prevBar.close, niftyChangePct);
     const now = new Date(c1[i].time * 1000);
     const { candidates } = evaluateStock({ symbol, tick, c1: c1.slice(0, i + 1), niftyChangePct }, { now, enforceWindows: true, legacy });
+    if (collect) {
+      // the score study: every idea that could be entered, whatever its score, with what each part of the score said
+      const any = candidates.find((c) => c.status === 'ENTRY' && !c.blocked.length);
+      const keyAll = any && `${day}|${any.setup}|${any.side}`;
+      if (any && !raisedAll.has(keyAll) && !(money?.exitMin && istParts(now).minutes >= money.exitMin)) {
+        raisedAll.add(keyAll);
+        const idea = { symbol, setup: any.setup, side: any.side, score: any.score, entry: any.entry, stopLoss: any.stopLoss, target1: any.target1, target2: any.target2, target3: any.target3, openedAt: now.toISOString(), parts: partsOf(any) };
+        collect.push({ ...idea, ...(exits === 'live' ? followLive(c1, i, idea, ladder, money) : follow(c1, i, idea)) });
+      }
+    }
     const top = candidates.find((c) => c.score >= MIN_SCORE);
     if (!top || top.status !== 'ENTRY') continue;
     if (money?.exitMin && istParts(now).minutes >= money.exitMin) continue; // no new trade at or after the time you close

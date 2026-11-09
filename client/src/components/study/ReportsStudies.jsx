@@ -44,6 +44,8 @@ export function ReportsAndStudies() {
   );
 }
 
+const TREND_SCORE = 'Trend score';
+
 /** The share setups the auto trader may trade. A switched-off setup still shows in the scanner; it is just not bought. */
 function ShareSetups({ data, reload }) {
   const [busy, setBusy] = useState(false);
@@ -52,9 +54,16 @@ function ShareSetups({ data, reload }) {
   if (!data) return <Skeleton className="h-24" />;
   const off = new Set(data.settings.skipSetups);
 
+  // Trend score (the score-led entry) has its own switch, off until you turn it on; the others are on unless skipped
+  const isOn = (setup) => (setup === TREND_SCORE ? Boolean(data.settings.trendScore) && !off.has(setup) : !off.has(setup));
   async function toggle(setup) {
     setBusy(true);
     try {
+      if (setup === TREND_SCORE) {
+        await api('/auto', { method: 'PUT', body: { trendScore: !isOn(setup), skipSetups: data.setupChoices.filter((x) => x !== setup && off.has(x)) } });
+        reload();
+        return;
+      }
       const next = data.setupChoices.filter((x) => (x === setup ? !off.has(x) : off.has(x)));
       await api('/auto', { method: 'PUT', body: { skipSetups: next } });
       reload();
@@ -73,9 +82,10 @@ function ShareSetups({ data, reload }) {
           <li key={setup} className="flex items-center justify-between gap-2 py-1.5 text-xs">
             <span className="min-w-0">
               {setup}
+              {setup === TREND_SCORE && <span className="block text-[11px] leading-snug text-muted">No pattern of its own: a stock trending on 5 and 15 minutes, past VWAP, that just pushed on. The score of all indicators decides (your minimum score). New: check it in the Shares study first.</span>}
               {stats.get(setup) && <span className={`num block text-[11px] ${resultTone(stats.get(setup))}`}>{resultLine(stats.get(setup))}</span>}
             </span>
-            <Switch on={!off.has(setup)} disabled={busy} label={setup} onClick={() => toggle(setup)} />
+            <Switch on={isOn(setup)} disabled={busy} label={setup} onClick={() => toggle(setup)} />
           </li>
         ))}
       </ul>
@@ -92,11 +102,11 @@ export function entrySummary(options, auto) {
     const chosen = new Set(s.patterns);
     const labels = options.patternChoices.filter((p) => chosen.has(p.key)).map((p) => p.label.split(' (')[0]);
     const mine = (s.combos || []).filter((c) => c.on).length;
-    parts.push(`Options (Nifty): ${s.patternEntries ? (labels.length ? labels.join(', ') : 'no pattern') : 'patterns off'}${mine ? `, ${s.comboEntries === false ? 'combinations off' : `${mine} of your combinations`}` : ''}`);
+    parts.push(`Options (Nifty): ${s.scoreEntries ? `score ${s.minScore}+, ` : ''}${s.patternEntries ? (labels.length ? labels.join(', ') : 'no pattern') : 'patterns off'}${mine ? `, ${s.comboEntries === false ? 'combinations off' : `${mine} of your combinations`}` : ''}`);
   }
   if (auto) {
     const off = new Set(auto.settings.skipSetups);
-    const on = auto.setupChoices.filter((x) => !off.has(x)).length;
+    const on = auto.setupChoices.filter((x) => !off.has(x) && (x !== TREND_SCORE || auto.settings.trendScore)).length;
     const mine = (auto.settings.combos || []).filter((c) => c.on).length;
     parts.push(`Shares: ${on} of ${auto.setupChoices.length} setups on${mine ? `, ${mine} of your combinations` : ''}`);
   }

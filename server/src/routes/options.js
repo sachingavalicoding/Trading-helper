@@ -10,6 +10,7 @@ import { badRequest } from '../utils/errors.js';
 import { comboInput, normalizeCombos } from '../combos/combos.js';
 import { MOVED_KEYS, movedOf, movedWords } from '../options/moved.js';
 import { forIndex } from '../options/indexSettings.js';
+import { OPTION_SCORE_PARTS } from '../options/signal.js';
 import { marketMood, todayVerdict, istMinutesNow } from '../options/todayCheck.js';
 import { istParts } from '../market/marketHours.js';
 
@@ -25,6 +26,8 @@ const patch = z
     dailyLossPct: z.coerce.number().min(2).max(30),
     lossStreak: z.coerce.number().int().min(0).max(5),
     benchAfter: z.coerce.number().int().min(0).max(10),
+    scoreEntries: z.boolean(),
+    minScore: z.coerce.number().int().min(60).max(100),
     patternEntries: z.boolean(),
     patternMinScore: z.coerce.number().min(0).max(95),
     comboMinScore: z.coerce.number().min(0).max(95),
@@ -68,7 +71,7 @@ export function optionRoutes({ optionTrader }) {
   const view = async (userId, doc) => {
     const s = doc || new OptionSettings({ user: userId });
     const { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct } = s;
-    const entries = { patternEntries: s.patternEntries !== false, patternMinScore: s.patternMinScore ?? 0, comboMinScore: s.comboMinScore ?? 0, indexes: activeIndexes(s), mirror: s.mirror === true, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []), patternStopMode: s.patternStopMode ?? 'chart', patternStopAtr: s.patternStopAtr ?? 2, patternStopPoints: s.patternStopPoints ?? 30, comboEntries: s.comboEntries !== false, entryClock: s.entryClock ?? '5m', exitClock: s.exitClock ?? '1m', secondConfirm: s.secondConfirm ?? 3, trailMode: s.trailMode ?? 'off', trailPoints: s.trailPoints ?? 25, trailStart: s.trailStart ?? 25, breakEvenPoints: s.breakEvenPoints ?? 0, chasePct: s.chasePct ?? 0, chaseMinutes: s.chaseMinutes ?? 15, movedCheck: s.movedCheck ?? 'off', movedLimit: s.movedLimit ?? 0, movedText: movedOf(s) ? movedWords(movedOf(s)) : null, withDay: s.withDay === true, comboStreak: s.comboStreak ?? 0, probation: s.probation !== false, pausedToday: Boolean(s.pausedOn) && s.pausedOn === optionTrader.engine.marketStatus().istDate, entryFrom: s.entryFrom ?? 555, entryTo: s.entryTo ?? 915 };
+    const entries = { scoreEntries: s.scoreEntries === true, minScore: s.minScore ?? 70, scoreChecks: OPTION_SCORE_PARTS, patternEntries: s.patternEntries !== false, patternMinScore: s.patternMinScore ?? 0, comboMinScore: s.comboMinScore ?? 0, indexes: activeIndexes(s), mirror: s.mirror === true, patterns: [...(s.patterns ?? DEFAULT_PATTERNS)], combos: normalizeCombos(s.combos ?? []), patternStopMode: s.patternStopMode ?? 'chart', patternStopAtr: s.patternStopAtr ?? 2, patternStopPoints: s.patternStopPoints ?? 30, comboEntries: s.comboEntries !== false, entryClock: s.entryClock ?? '5m', exitClock: s.exitClock ?? '1m', secondConfirm: s.secondConfirm ?? 3, trailMode: s.trailMode ?? 'off', trailPoints: s.trailPoints ?? 25, trailStart: s.trailStart ?? 25, breakEvenPoints: s.breakEvenPoints ?? 0, chasePct: s.chasePct ?? 0, chaseMinutes: s.chaseMinutes ?? 15, movedCheck: s.movedCheck ?? 'off', movedLimit: s.movedLimit ?? 0, movedText: movedOf(s) ? movedWords(movedOf(s)) : null, withDay: s.withDay === true, comboStreak: s.comboStreak ?? 0, probation: s.probation !== false, pausedToday: Boolean(s.pausedOn) && s.pausedOn === optionTrader.engine.marketStatus().istDate, entryFrom: s.entryFrom ?? 555, entryTo: s.entryTo ?? 915 };
     return { settings: { enabled, maxLots, maxOpen, maxTrades, budget, dailyLossPct, lossStreak: s.lossStreak ?? 2, benchAfter: s.benchAfter ?? 3, ...entries }, indexChoices: INDEX_KEYS.map((k) => ({ key: k, name: INDEXES[k].name, short: INDEXES[k].short })), patternChoices: LIVE_PATTERNS, rules: await loadRules(userId, 'OPT'), today: await optionTrader.todaySummary(userId), disclaimer: OPTIONS_DISCLAIMER };
   };
 
