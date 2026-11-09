@@ -207,7 +207,9 @@ function WhyTaken({ why, side }) {
       {why.conditions?.length > 0 && (
         <div>
           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
-            Its checks at the entry bar{why.bar ? ` (${clockOf(why.bar.time)}-${clockOf(why.bar.time + 300)})` : ''}
+            {why.bar?.forming
+              ? `Its checks when it bought (${clockOf(why.bar.time)}-${clockOf(why.bar.upTo)}, bar still forming, bought ${why.bar.clock === 'second' ? 'on the second' : 'on the minute'})`
+              : `Its checks at the entry bar${why.bar ? ` (${clockOf(why.bar.time)}-${clockOf(why.bar.time + 300)})` : ''}`}
             {why.need && why.need < why.conditions.length ? ` · needs ${why.need} of ${why.conditions.length}` : ''}
           </div>
           <ul className="space-y-1">
@@ -221,6 +223,13 @@ function WhyTaken({ why, side }) {
               </li>
             ))}
           </ul>
+          {why.mirrored && <p className="mt-1 text-[11px] leading-snug text-muted">This is a put, so each check is read on the chart turned upside down: above means below, up means down, a high means a low.</p>}
+          {why.atClose && (
+            <p className="mt-1 text-[11px] leading-snug text-muted">
+              At the bar&apos;s close ({clockOf(why.atClose.time)}): {why.atClose.held} of {why.atClose.of} still held
+              {why.atClose.failed?.length ? ` (no longer: ${why.atClose.failed.join(', ')})` : ''}.
+            </p>
+          )}
         </div>
       )}
       {why.study && (

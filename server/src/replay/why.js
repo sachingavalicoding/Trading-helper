@@ -3,6 +3,7 @@ import { buildChart, CONDITION_BY_KEY } from '../combos/conditions.js';
 import { comboSignals, describeCombo, heldConditions, missingData } from '../combos/combos.js';
 import { TECHNIQUES, prepare, findSignals } from '../study/patterns.js';
 import { round2 } from '../utils/money.js';
+import { formingBar } from '../options/second.js';
 
 // Why a trade was taken: the pattern or combination that fired, each of its checks at the entry bar, the main indicator readings there,
 // and whether the study (the same rules run on the saved candles) sees a signal at that bar. Nothing here looks past the entry bar,
@@ -67,20 +68,41 @@ export function sourceOf(setup, { combos = [], detailCombo = null, comboId = nul
 }
 
 /**
+ * The 5-minute bars as an entry "on the minute" or "on the second" saw them: the bars closed before its slot, then the bar still
+ * forming, built from the 1-minute candles that had closed by then, with the index price at the entry as its close (like the live trader).
+ */
+export function formingBars(bars5, c1, entryTime, spot = null) {
+  const slot = entryTime - (entryTime % 300);
+  const minute = entryTime - (entryTime % 60);
+  const done = bars5.filter((b) => b.time + 300 <= slot);
+  const part = (c1 ?? []).filter((c) => c.time >= slot && c.time < minute);
+  const ltp = num(spot) ? spot : (part.at(-1)?.close ?? done.at(-1)?.close);
+  return [...done, formingBar(part, ltp, entryTime)];
+}
+
+const isEarly = (clock) => clock === 'minute' || clock === 'second';
+
+/**
  * The checks and readings at the entry bar, on a chart of 5-minute bars.
  * @param bars5     closed 5-minute bars of the index (options) or the share, a few days before the entry up to the end of the day
  * @param side      'CE' for a call or a share bought first, 'PE' for a put or a share sold first
  * @param chartOf   (bars5) => chart; builds it with the breadth and volume the live trader had (or without)
+ * @param clock     'minute' or 'second' when the trade was bought before its 5-minute bar closed ("How fast to buy"); then `c1`
+ *                  (the day's 1-minute candles) and `spot` (the index price at the entry) rebuild the bar as it was at that moment
  */
-export function entryReasons({ bars5, entryTime, side, source, chartOf = (b) => buildChart(b), when = null }) {
-  const i = entryBarIndex(bars5, entryTime);
+export function entryReasons({ bars5, entryTime, side, source, chartOf = (b) => buildChart(b), when = null, clock = null, c1 = null, spot = null }) {
+  const early = isEarly(clock) && source.kind === 'combo';
+  const bars = early ? formingBars(bars5, c1, entryTime, spot) : bars5;
+  const i = early ? bars.length - 1 : entryBarIndex(bars5, entryTime);
   if (i < 20) return { bar: null, note: 'Not enough candles before the entry to read the chart.' };
-  const chart = chartOf(bars5);
+  const chart = chartOf(bars);
   const d = side === 'CE' ? 1 : -1;
-  const bar = bars5[i];
+  const bar = bars[i];
   const day = dayOf(entryTime);
-  const out = { bar: { time: bar.time, close: bar.close }, readings: readingsAt(chart, i) };
-  const near = (s) => s.side === side && Math.abs(s.time - (bar.time + 300)) <= 300;
+  const out = { bar: { time: bar.time, close: bar.close, ...(early ? { forming: true, clock, upTo: clock === 'minute' ? entryTime - (entryTime % 60) : entryTime } : {}) }, readings: readingsAt(chart, i) };
+  if (side !== 'CE') out.mirrored = true;
+  // the study takes a signal at the close of the bar it forms on: the same bar as the live entry, nothing either side of it
+  const same = (s) => s.side === side && s.time === bar.time + 300;
   if (source.kind === 'combo' && source.combo) {
     const combo = source.combo;
     const missing = missingData(combo, chart.have);
@@ -91,27 +113,38 @@ export function entryReasons({ bars5, entryTime, side, source, chartOf = (b) => 
       return out;
     }
     out.conditions = heldConditions(chart, combo, d, i);
-    out.need = combo.need;
-    const sigs = comboSignals(chart, combo, { from: 15, windows: false, when }).filter((s) => dayOf(s.time - 300) === day);
-    out.study = studyMatch(sigs, near, side);
+    out.need = Math.min(combo.need || combo.conds.length, combo.conds.length);
+    const closed = early ? chartOf(bars5) : chart; // the study reads closed bars only
+    if (early) {
+      const j = bars5.findIndex((b) => b.time === bar.time);
+      if (j >= 0) {
+        const atClose = heldConditions(closed, combo, d, j);
+        out.atClose = { time: bar.time + 300, held: atClose.filter((c) => c.held).length, of: atClose.length, failed: atClose.filter((c) => !c.held).map((c) => c.label) };
+      }
+    }
+    const sigs = comboSignals(closed, combo, { from: 15, windows: false, when }).filter((s) => dayOf(s.time - 300) === day);
+    out.study = studyMatch(sigs, same, side, early ? out.atClose ?? null : null);
   } else if (source.kind === 'pattern') {
     out.text = source.technique.text;
     const sigs = findSignals(prepare(bars5, null, null), { only: [source.technique.key], windows: false, when }).filter((s) => dayOf(s.time - 300) === day);
-    out.study = studyMatch(sigs, near, side);
+    out.study = studyMatch(sigs, same, side);
   }
   return out;
 }
 
-function studyMatch(sigs, near, side) {
-  const same = sigs.filter((s) => s.side === side);
-  const hit = sigs.find(near);
-  return {
-    matched: Boolean(hit),
-    times: same.map((s) => s.time),
-    text: hit
-      ? 'The study sees the same signal on this bar, so live and study agree on this entry.'
-      : same.length
-        ? `The study does not see this signal on this bar. On this day it sees it at other times only, so this live entry would not be in a study's results.`
-        : 'The study does not see this signal anywhere on this day. A live entry the study never takes is one reason live results differ from the study.',
-  };
+function studyMatch(sigs, same, side, early = null) {
+  const sameSide = sigs.filter((s) => s.side === side);
+  const hit = sigs.find(same);
+  let text;
+  if (hit && early) text = 'Live bought before this bar closed; the study waits for the close and sees the same signal on this bar, so they agree.';
+  else if (hit) text = 'The study sees the same signal on this bar, so live and study agree on this entry.';
+  else if (early)
+    text = early.held < early.of
+      ? `Live bought before this bar closed, while every check held. By the close ${early.of - early.held} of them had stopped holding, so the study (which reads closed bars only) does not take this entry.`
+      : 'Live bought before this bar closed. The study (which reads closed bars only) does not take a signal on this bar, so this entry is not in its results.';
+  else
+    text = sameSide.length
+      ? 'The study does not see this signal on this bar. On this day it sees it at other times only, so this live entry would not be in a study\'s results.'
+      : 'The study does not see this signal anywhere on this day. A live entry the study never takes is one reason live results differ from the study.';
+  return { matched: Boolean(hit), times: sameSide.map((s) => s.time), text };
 }

@@ -189,7 +189,8 @@ export class TradeReplayService {
           const stocks5 = await this.#stocks5(day);
           if (stocks5) chartOf = (b) => buildChart(b, { breadth: breadthSeries(b, stocks5), flow: turnoverSeries(b, stocks5) });
         }
-        reasons = entryReasons({ bars5, entryTime, side, source, chartOf, when });
+        // an entry "on the minute" or "on the second" was read on the 5-minute bar still forming, so it is read again that way
+        reasons = entryReasons({ bars5, entryTime, side, source, chartOf, when, clock: d.clock ?? null, c1: minutes.filter((c) => dayOfTime(c.time) === day), spot: d.entrySpot ?? null });
       } else {
         const minutes = await this.market.getMinutes(pos.symbol, day).catch(() => []);
         const bars5 = closedBars5(minutes.filter((c) => dayOfTime(c.time) <= day));
