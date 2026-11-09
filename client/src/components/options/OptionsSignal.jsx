@@ -42,7 +42,47 @@ function PlanPreview({ preview, type, name }) {
   );
 }
 
-function SideCard({ side, contract, preview, name, busy, gate, onBuy }) {
+/**
+ * The indicator score of one side: the 15 chart checks added up. It is the score the "Indicator score" entry buys on, and the same number the
+ * pattern and combination "minimum score" settings read. Says whether the score entry would buy this side now, and lists every check.
+ */
+function ScoreBlock({ side, mode, best }) {
+  const [open, setOpen] = useState(false);
+  const score = Math.round(side.score);
+  const min = mode?.minScore ?? 70;
+  let status;
+  if (!mode?.on) status = 'The Indicator score entry is off (Account > Entries), so this score only filters patterns and combinations that have a minimum score.';
+  else if (best === side.type) status = score >= min ? `At or above your ${min}, the stronger side and nothing blocks it: the bot buys this side if your limits allow.` : `The stronger side, but under your ${min}: no buy yet.`;
+  else if (side.blocked?.length) status = `Not bought: ${side.blocked[0]}.`;
+  else if (score >= min) status = 'High enough, but the other side scores within 10 points, so the bot waits.';
+  else status = `Under your ${min}: no buy.`;
+  return (
+    <div className="space-y-1 rounded-lg bg-surface-2 p-2 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <span><b className="text-fg">Indicator score</b> <span className="text-muted">(15 indicators)</span></span>
+        <span className={`num text-sm font-bold ${mode?.on && score >= min ? 'text-up' : ''}`}>{score} <span className="text-[11px] font-normal text-muted">/ 100{mode?.on ? ` · buys at ${min}+` : ''}</span></span>
+      </div>
+      <p className="text-[11px] leading-snug text-muted">{status}</p>
+      {side.checks?.length > 0 && (
+        <>
+          <button type="button" className="text-[11px] font-semibold text-accent" onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'} the indicators</button>
+          {open && (
+            <ul className="divide-y divide-line">
+              {side.checks.map((c) => (
+                <li key={c.id} className="flex items-start justify-between gap-2 py-1 text-[11px] leading-snug">
+                  <span className="min-w-0"><b>{c.label}</b> <span className="text-muted">{c.text}</span></span>
+                  <span className={`num shrink-0 ${c.points > 0 ? 'text-up' : 'text-muted'}`}>{c.points}/{c.max}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function SideCard({ side, contract, preview, name, busy, gate, onBuy, mode, best }) {
   const meta = SIDE[side.type];
   const Icon = meta.icon;
   return (
@@ -65,11 +105,7 @@ function SideCard({ side, contract, preview, name, busy, gate, onBuy }) {
           </div>
         )}
       </div>
-      {side.score != null && (
-        <p className="text-xs text-muted">
-          <b className="text-fg">Chart score:</b> <span className="num">{Math.round(side.score)}</span> of 100. A pattern can be set to buy only at 60, 70 or 80 and above in Account &gt; Entries.
-        </p>
-      )}
+      {side.score != null && <ScoreBlock side={side} mode={mode} best={best} />}
       {side.trigger && (
         <p className="text-xs text-muted">
           <b className="text-fg">{side.trigger.kind}:</b> {side.trigger.note}.
@@ -133,7 +169,7 @@ export function OptionsSignal({ index = 'NIFTY', onBought }) {
       </Card>
       <div className="grid gap-3 md:grid-cols-2">
         {['ce', 'pe'].map((k) => (
-          <SideCard key={k} side={data[k]} contract={data.contracts[k.toUpperCase()]} preview={data.preview?.[k.toUpperCase()]} name={idx.short} busy={busy} gate={blocked} onBuy={buy} />
+          <SideCard key={k} side={data[k]} contract={data.contracts[k.toUpperCase()]} preview={data.preview?.[k.toUpperCase()]} mode={data.scoreMode} best={data.best} name={idx.short} busy={busy} gate={blocked} onBuy={buy} />
         ))}
       </div>
       <OrderBook contracts={data.contracts} />
