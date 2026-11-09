@@ -248,4 +248,49 @@ export function newsGap(ctx) {
   return out;
 }
 
-export const SETUPS = [openingRange, vwapPullback, levelRetest, newsGap];
+export const TREND_SCORE = 'Trend score';
+const TREND_FIRST_BARS = 6; // not before 09:45: the opening range breakout has the first half hour
+
+/**
+ * The score-led entry: no chart pattern of its own. A stock whose 5-minute and 15-minute trends agree, that is on the right side of VWAP
+ * and whose last closed 5-minute bar pushed past the bar before it, is put forward at the price now; the score of all the indicators then
+ * decides whether it is worth taking (the same minimum score as every idea). The stop is just past the low (high) of the last three bars.
+ */
+export function trendScore(ctx) {
+  const { c5, today5, ltp, atr5, vwap } = ctx;
+  if (!vwap || today5.length < TREND_FIRST_BARS || c5.length < 4) return [];
+  const done = c5.at(-2);
+  const prev = c5.at(-3);
+  const tail = c5.slice(-4, -1);
+  const out = [];
+  for (const { side, d } of sides) {
+    if (d * ctx.trend5 <= 0 || d * ctx.trend15 <= 0 || d * (ltp - vwap) <= 0) continue;
+    const pushed = d * (done.close - (d > 0 ? prev.high : prev.low)) > 0 && d * (done.close - done.open) > 0;
+    if (!pushed) continue;
+    const beyond = d * (ltp - done.close);
+    const status = beyond <= atr5 * CHASE_ATR ? 'ENTRY' : 'MISSED';
+    const w = word(d);
+    const rawStop = (d > 0 ? Math.min(...tail.map((b) => b.low)) : Math.max(...tail.map((b) => b.high))) - d * atr5 * 0.15;
+    const c = candidate(ctx, {
+      setup: TREND_SCORE,
+      side,
+      d,
+      status,
+      trigger: done.close,
+      entry: ltp,
+      rawStop,
+      stopNote: `just past the ${w.low} of the last three 5-minute bars`,
+      reasons: [
+        `The 5-minute and 15-minute trends both point ${w.up}`,
+        `Price is ${w.above} VWAP (${fmt(vwap)})`,
+        `The last 5-minute bar closed ${w.above} the bar before it (${fmt(done.close)})`,
+        'The indicator score decides: it is taken only when enough of them agree',
+      ],
+      wrongIf: `A 5-minute close back ${w.below} VWAP or ${w.below} ${fmt(rawStop)}`,
+    });
+    if (c) out.push(c);
+  }
+  return out;
+}
+
+export const SETUPS = [openingRange, vwapPullback, levelRetest, newsGap, trendScore];

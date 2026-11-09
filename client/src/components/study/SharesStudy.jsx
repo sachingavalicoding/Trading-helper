@@ -10,6 +10,7 @@ import { ExitTimeField, useExitTime } from './ExitTimeField.jsx';
 import { IndicatorRanking } from './IndicatorRanking.jsx';
 import { PairFinder, PairFinderControl } from './PairFinder.jsx';
 import { AutoFound } from './AutoFound.jsx';
+import { ScoreStudy } from './ScoreStudy.jsx';
 
 const DAYS = [
   { value: 1, label: 'Today' },
@@ -164,6 +165,7 @@ export function SharesStudy() {
             )}
           </Card>
           {!r.finderOnly && <Group title="By setup" rows={r.bySetup} note="Switch a losing setup off in Account > Entries." />}
+          {!r.finderOnly && <ScoreStudy s={r.scoreStudy} />}
           {!r.finderOnly && <ComboRows rows={r.combos} />}
           <PairFinder pf={r.pairs} endpoint="/auto" callWord="Buys" putWord="Sells" />
           <AutoFound af={r.comboFound} endpoint="/auto" title="Combinations found" />

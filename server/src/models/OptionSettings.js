@@ -36,7 +36,7 @@ const optionSettingsSchema = new mongoose.Schema(
     pausedOn: { type: String, default: null }, // 'YYYY-MM-DD' (IST): no new automatic buy on that day; open trades are still managed
     comboMinScore: { type: Number, default: 0, min: 0, max: 95 }, // 0 = off; otherwise a combination is bought only while the chart score of its side is at least this
     patternMinScore: { type: Number, default: 0, min: 0, max: 95 }, // 0 = off; otherwise a pattern is bought only while the chart score of its side is at least this (the study's "Patterns, score 70+")
-    scoreEntries: { type: Boolean, default: false }, // no longer used: the all-checks score does not buy any more (patterns and combinations do)
+    scoreEntries: { type: Boolean, default: false }, // buy when the indicator score (all chart checks, options/signal.js) reaches minScore with a fresh trigger; off by default
     lossStreak: { type: Number, default: 2, min: 0, max: 5 }, // 0 = off; otherwise no new automatic buy today after this many losing option trades in a row today (any entry)
     benchAfter: { type: Number, default: 3, min: 0, max: 10 }, // 0 = off; otherwise a combination is switched off by itself after this many live losing trades in a row (it stays saved, marked benchedOn)
     dailyLossPct: { type: Number, default: 10, min: 2, max: 30 }, // stop opening trades after losing this % of the budget today

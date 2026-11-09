@@ -49,12 +49,13 @@ export function OptionsEntries({ data, reload }) {
   const study = useApi('/study/options', []);
   const stats = useMemo(() => new Map((study.data?.result?.techniques ?? []).map((t) => [t.key, t])), [study.data]);
   const mine = (s.combos || []).filter((c) => c.on).length;
-  const triggers = [s.patternEntries && s.patterns.length > 0 && 'patterns', s.comboEntries && mine > 0 && 'combinations'].filter(Boolean);
+  const triggers = [s.scoreEntries && `indicator score ${s.minScore ?? 70}+`, s.patternEntries && s.patterns.length > 0 && 'patterns', s.comboEntries && mine > 0 && 'combinations'].filter(Boolean);
   return (
     <div className="space-y-3">
       <div className="space-y-2">
         <h4 className="text-xs font-semibold">What triggers a buy</h4>
         <p className="text-[11px] leading-snug text-muted">Switch on what you trust. The result beside each pattern is from your latest Options study ({study.data?.result ? `${study.data.result.period.days} days` : 'run one under Studies'}), so you can see which ones pay before you switch them on.</p>
+        <ScoreEntry s={s} busy={busy} save={save} />
         <div className="flex items-center justify-between gap-3">
           <p className="text-[11px] leading-snug text-muted">
             <b className="text-fg">Chart patterns.</b> Buys when a pattern completes on a closed 5-minute bar.
@@ -104,6 +105,46 @@ export function OptionsEntries({ data, reload }) {
 
       <SpeedSettings data={data} reload={reload} />
       <p className="text-[11px] leading-snug text-muted">Where the stop goes, the trailing stop and the profit lock are in Account &gt; Limits.</p>
+    </div>
+  );
+}
+
+/**
+ * The indicator score as its own trigger: 15 chart checks each give points, and the stronger side is bought when its score reaches the minimum
+ * with a fresh breakout, pullback or reversal and no hard check against it. Works beside patterns and combinations (any of them can buy).
+ */
+export function ScoreEntry({ s, busy, save }) {
+  const [open, setOpen] = useState(false);
+  const parts = s.scoreChecks ?? [];
+  return (
+    <div className="space-y-2 rounded-lg border border-line p-2">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] leading-snug text-muted">
+          <b className="text-fg">Indicator score.</b> Buys when many indicators agree: {parts.length || 15} chart checks add up to a score out of 100 for a call and for a put, and the stronger side is bought once it reaches your minimum, a fresh breakout or pullback has fired and the other side is at least 10 lower.
+        </p>
+        <Switch on={Boolean(s.scoreEntries)} disabled={busy} label="Indicator score" onClick={() => save({ scoreEntries: !s.scoreEntries })} />
+      </div>
+      {s.scoreEntries && (
+        <div className="space-y-1">
+          <p className="text-[11px] leading-snug text-muted"><b className="text-fg">Minimum score.</b> Higher means fewer, stronger trades. The Options study row "Current bot (all checks)" shows what it would have paid.</p>
+          <Segmented className="w-full" size="sm" value={s.minScore ?? 70} onChange={(v) => save({ minScore: v })} options={[60, 65, 70, 75, 80, 85].map((v) => ({ value: v, label: `${v}+` }))} />
+        </div>
+      )}
+      {parts.length > 0 && (
+        <button type="button" className="text-[11px] font-semibold text-accent" onClick={() => setOpen(!open)}>
+          {open ? 'Hide' : 'Show'} the {parts.length} indicators and their points
+        </button>
+      )}
+      {open && (
+        <ul className="divide-y divide-line">
+          {parts.map((p) => (
+            <li key={p.id} className="flex items-start justify-between gap-2 py-1 text-[11px] leading-snug">
+              <span className="min-w-0"><b>{p.label}</b> <span className="text-muted">{p.text}</span></span>
+              <span className="num shrink-0 text-muted">{p.points}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -234,10 +275,10 @@ export function OptionsAutoCard({ data, reload }) {
         </button>
       </div>
       <p className="text-[11px] leading-snug text-muted">
-        Buys one Nifty at-the-money call or put when a chart pattern or one of your combinations turns true. The stop and the profit lock are the ones in your Account tab, and everything the auto trader bought is closed at the exit time in your Account tab (15:15 unless you changed it).
+        Buys one Nifty at-the-money call or put when the indicator score is high enough (if on), a chart pattern or one of your combinations turns true. The stop and the profit lock are the ones in your Account tab, and everything the auto trader bought is closed at the exit time in your Account tab (15:15 unless you changed it).
       </p>
       <p className="text-[11px] leading-snug text-muted">
-        Buys on: {s.patternEntries ? `${s.patterns.length} chart patterns` : 'no chart patterns'}, {s.comboEntries ? 'your combinations' : 'no combinations'}. Change this in Account &gt; Entries.
+        Buys on: {s.scoreEntries ? `indicator score ${s.minScore ?? 70}+, ` : ''}{s.patternEntries ? `${s.patterns.length} chart patterns` : 'no chart patterns'}, {s.comboEntries ? 'your combinations' : 'no combinations'}. Change this in Account &gt; Entries.
       </p>
       {s.enabled && (
         <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 p-2">

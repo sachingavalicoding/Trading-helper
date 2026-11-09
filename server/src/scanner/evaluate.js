@@ -14,11 +14,15 @@ export const MIN_ADAPTED_RR = 1.2; // a target pulled in to fit a slow stock mus
 
 /**
  * Points each part of the score can earn; they add up to 100 (news is a bonus on top).
- * Change them here. LEGACY_WEIGHTS is the scorer from before ADX, EMA 50 and sector
- * strength were added, kept so the replay can compare old against new.
+ * Change them here. On 9 Nov 2026 the setup's share went from 26 to 16 and seven indicators were added (Keltner, Ultimate oscillator,
+ * 20-bar high/low, DMI, Aroon, money flow, R1/S1), so the score is decided by many indicators agreeing, not by the opening range alone.
+ * PREV_WEIGHTS is the scorer before that, LEGACY_WEIGHTS the one before ADX, EMA 50 and sector strength: both kept so a study can compare.
  */
-export const WEIGHTS = { setup: 26, vwap: 4, trend5: 4, trend15: 3, volume: 10, strength: 9, book: 2, rsi: 6, macd: 4, adx: 5, emaStack: 4, sector: 3, monthly: 4, candle: 4, niftyTrend: 3, supertrend: 3, obv: 2, squeeze: 2, cpr: 2 };
-export const LEGACY_WEIGHTS = { setup: 30, vwap: 7, trend5: 7, trend15: 6, volume: 18, strength: 13, book: 6, rsi: 7, macd: 6, adx: 0, emaStack: 0, sector: 0, monthly: 0, candle: 0, niftyTrend: 0, supertrend: 0, obv: 0, squeeze: 0, cpr: 0 };
+export const WEIGHTS = { setup: 16, vwap: 4, trend5: 4, trend15: 3, volume: 8, strength: 8, book: 2, rsi: 5, macd: 4, adx: 4, emaStack: 4, sector: 3, monthly: 3, candle: 3, niftyTrend: 3, supertrend: 3, obv: 2, squeeze: 2, cpr: 2, keltner: 3, ultimate: 3, donchian: 3, dmi: 2, aroon: 2, mfi: 2, pivotR1: 2 };
+export const PREV_WEIGHTS = { setup: 26, vwap: 4, trend5: 4, trend15: 3, volume: 10, strength: 9, book: 2, rsi: 6, macd: 4, adx: 5, emaStack: 4, sector: 3, monthly: 4, candle: 4, niftyTrend: 3, supertrend: 3, obv: 2, squeeze: 2, cpr: 2, keltner: 0, ultimate: 0, donchian: 0, dmi: 0, aroon: 0, mfi: 0, pivotR1: 0 };
+export const LEGACY_WEIGHTS = { setup: 30, vwap: 7, trend5: 7, trend15: 6, volume: 18, strength: 13, book: 6, rsi: 7, macd: 6, adx: 0, emaStack: 0, sector: 0, monthly: 0, candle: 0, niftyTrend: 0, supertrend: 0, obv: 0, squeeze: 0, cpr: 0, keltner: 0, ultimate: 0, donchian: 0, dmi: 0, aroon: 0, mfi: 0, pivotR1: 0 };
+/** Plain names of the score parts, for the study table. */
+export const PART_LABELS = { setup: 'Setup fired', vwap: 'VWAP side', trend5: 'Trend (5m)', trend15: 'Trend (15m)', volume: 'Volume', strength: 'Vs Nifty 50', book: 'Order book', rsi: 'RSI', macd: 'MACD', adx: 'ADX', emaStack: 'EMA 9/21/50', sector: 'Sector', monthly: 'Last month', candle: 'Candle', niftyTrend: 'Market', supertrend: 'Supertrend', obv: 'On-balance volume', squeeze: 'Squeeze', cpr: 'Pivot range', keltner: 'Keltner channel', ultimate: 'Ultimate oscillator', donchian: '20-bar high/low', dmi: 'DMI (+DI/-DI, ADX rising)', aroon: 'Aroon', mfi: 'Money flow (MFI)', pivotR1: 'Past R1 / S1', news: 'News' };
 export const MIN_ADX = 15; // below this the stock is moving sideways: it earns no trend points, but is not blocked
 
 const STATUS_POINTS = { ENTRY: 30, WATCHING: 18, MISSED: 10 };
@@ -101,8 +105,8 @@ export function reachTargets(ctx, c) {
 }
 
 /** Score one idea out of 100 and explain every part of the score. */
-export function scoreCandidate(ctx, c, { legacy = false } = {}) {
-  const W = legacy ? LEGACY_WEIGHTS : WEIGHTS;
+export function scoreCandidate(ctx, c, { legacy = false, weights = null } = {}) {
+  const W = weights ?? (legacy ? LEGACY_WEIGHTS : WEIGHTS);
   const d = c.side === 'BUY' ? 1 : -1;
   const checks = [];
 
@@ -177,6 +181,41 @@ export function scoreCandidate(ctx, c, { legacy = false } = {}) {
     checks.push(check('sector', 'Sector', ss != null && ss > 0.1 ? W.sector : 0, W.sector, ss == null ? 'No sector reading' : `Its sector is ${ss > 0.1 ? 'backing' : 'not backing'} this direction (${ctx.sectorStrength >= 0 ? '+' : ''}${ctx.sectorStrength.toFixed(2)}% vs Nifty 50)`));
   }
 
+  const x = ctx.extra;
+  if (W.keltner && x) {
+    const k = x.keltner;
+    checks.push(check('keltner', 'Keltner channel', k != null && d * k > 0 ? W.keltner : 0, W.keltner, k == null ? 'Not enough bars for the Keltner channel yet' : d * k > 0 ? `The last 5-minute bar closed ${d > 0 ? 'above the upper' : 'below the lower'} Keltner band (EMA 20 ± 1.5 ATR): a strong push` : `Price is not ${d > 0 ? 'above the upper' : 'below the lower'} Keltner band`));
+  }
+  if (W.ultimate && x) {
+    const u = x.ultimate;
+    const ok = u != null && (d > 0 ? u > 50 && u < 75 : u < 50 && u > 25);
+    checks.push(check('ultimate', 'Ultimate oscillator', ok ? W.ultimate : 0, W.ultimate, u == null ? 'Not enough bars for the Ultimate oscillator yet' : `Ultimate oscillator ${u.toFixed(0)}${ok ? `, on the ${d > 0 ? 'buy' : 'sell'} side and not stretched` : d * (u - 50) > 0 ? ', stretched' : ', on the other side'}`));
+  }
+  if (W.donchian && x) {
+    const b = x.donchian;
+    checks.push(check('donchian', '20-bar high/low', b != null && d * b > 0 ? W.donchian : 0, W.donchian, b == null ? 'Not enough bars yet' : d * b > 0 ? `The last 5-minute bar closed past the ${d > 0 ? 'highest high' : 'lowest low'} of the 20 bars before it` : `Not past the 20-bar ${d > 0 ? 'high' : 'low'}`));
+  }
+  if (W.dmi && x) {
+    const m = x.dmi;
+    const ok = m != null && d * m.dir > 0 && m.rising;
+    checks.push(check('dmi', 'DMI', ok ? W.dmi : 0, W.dmi, m == null ? 'Not enough bars for DMI yet' : `${m.dir > 0 ? '+DI above -DI' : '-DI above +DI'}, ADX ${m.adx.toFixed(0)} ${m.rising ? 'rising' : 'not rising'}${ok ? ': the trend is getting stronger this way' : ''}`));
+  }
+  if (W.aroon && x) {
+    const a = x.aroon;
+    const ok = a != null && (d > 0 ? a.up >= 70 && a.up > a.down : a.down >= 70 && a.down > a.up);
+    checks.push(check('aroon', 'Aroon', ok ? W.aroon : 0, W.aroon, a == null ? 'Not enough bars for Aroon yet' : `Aroon up ${a.up.toFixed(0)}, down ${a.down.toFixed(0)}${ok ? `: a fresh ${d > 0 ? 'high' : 'low'} was made recently` : ''}`));
+  }
+  if (W.mfi && x) {
+    const f = x.mfi;
+    const ok = f != null && (d > 0 ? f >= 50 && f <= 80 : f <= 50 && f >= 20);
+    checks.push(check('mfi', 'Money flow', ok ? W.mfi : 0, W.mfi, f == null ? 'No volume for money flow' : `Money flow index ${f.toFixed(0)}${ok ? ', money is flowing this way' : ''}`));
+  }
+  if (W.pivotR1) {
+    const p = ctx.pivots;
+    const ok = p != null && (d > 0 ? ctx.ltp > p.r1 : ctx.ltp < p.s1);
+    checks.push(check('pivotR1', 'Past R1 / S1', ok ? W.pivotR1 : 0, W.pivotR1, p == null ? 'No previous day for pivots' : ok ? `Price is ${d > 0 ? 'above resistance 1' : 'below support 1'} (${(d > 0 ? p.r1 : p.s1).toFixed(2)}), a strong day` : `Price is not ${d > 0 ? 'above R1' : 'below S1'} yet`));
+  }
+
   const penalties = [];
   let newsDelta = 0;
   const n = ctx.news;
@@ -188,8 +227,9 @@ export function scoreCandidate(ctx, c, { legacy = false } = {}) {
       newsDelta = -8;
       penalties.push(`Good news for this trade is being sold (${headline}); the price fell ${Math.abs(n.movePct)}% since`);
     } else if (aligned) {
-      const pts = r === 'AGREES' ? 10 : 5;
-      checks.push(check('news', 'News (bonus)', pts, 10, r === 'AGREES' ? `${headline}, and the price confirms it (${n.movePct > 0 ? '+' : ''}${n.movePct}% since)` : `${headline}; the price has not reacted yet`));
+      // News that the price has not confirmed earns nothing: the morning news calls hit only 18% on 9 Nov 2026 (old results, recaps)
+      const pts = r === 'AGREES' ? 10 : 0;
+      checks.push(check('news', 'News (bonus)', pts, 10, r === 'AGREES' ? `${headline}, and the price confirms it (${n.movePct > 0 ? '+' : ''}${n.movePct}% since)` : `${headline}; the price has not reacted yet, so no points until it does`));
     } else {
       newsDelta = r === 'AGREES' ? -15 : -10;
       penalties.push(`News points the other way: ${headline}${r === 'AGREES' ? ' and the price agrees' : ''}`);
@@ -230,7 +270,7 @@ export function entryWindow(now, legacy = false) {
  * All ideas for one stock, best first. With `enforceWindows` (live trading hours) nothing is
  * suggested outside the entry window.
  */
-export function evaluateStock(input, { now = new Date(), enforceWindows = false, legacy = false } = {}) {
+export function evaluateStock(input, { now = new Date(), enforceWindows = false, legacy = false, weights = null } = {}) {
   const ctx = buildContext(input);
   if (!ctx) return { ctx: null, candidates: [] };
   const window = enforceWindows ? entryWindow(now, legacy) : 'open';
@@ -238,7 +278,7 @@ export function evaluateStock(input, { now = new Date(), enforceWindows = false,
   const early = window === 'early';
   const candidates = SETUPS.flatMap((setup) => setup(ctx))
     .filter((c) => !early || c.early)
-    .map((c) => scoreCandidate(ctx, legacy ? c : reachTargets(ctx, adaptTargets(ctx, c)), { legacy }))
+    .map((c) => scoreCandidate(ctx, legacy ? c : reachTargets(ctx, adaptTargets(ctx, c)), { legacy, weights }))
     .sort((a, b) => b.score - a.score);
   return { ctx, candidates };
 }

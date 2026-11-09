@@ -4,6 +4,7 @@ import { validate } from '../middleware/validate.js';
 import { INDEX_KEYS } from '../options/symbols.js';
 import { MAX_ADD, MAX_DAYS } from '../lab/lab.js';
 import { badRequest } from '../utils/errors.js';
+import { EXAMPLE_DAYS } from '../lab/examples.js';
 
 export const LAB_NOTE = 'A look back at paper trades of one lot on past candles, traded like the options study (one at a time, at most 3 a day, your Account stop and profit ladder). Days with saved real option prices use them; the other days are estimated. A few weeks of trades is a small sample and some indicators will look good by luck: paper-test before relying on one. Not investment advice.';
 
@@ -69,6 +70,13 @@ export function labRoutes({ lab }) {
     const choices = await lab.choices(req.userId, q.index);
     if (!q.base) return res.json({ choices, note: LAB_NOTE });
     res.json({ choices, note: LAB_NOTE, result: await lab.run(req.userId, { base: q.base, add, from: q.from, to: q.to, days: q.days, index: q.index, prices: q.prices, noStop: q.noStop === '1' ? { at: q.lockAt ?? 0, keep: q.lockKeep ?? 0 } : null, edit }) });
+  });
+
+  // "where would this have bought?": one check (or a combination) on the last few days of the Nifty chart, for the info button
+  const exampleQuery = z.object({ keys: z.string().min(2).max(400), need: z.coerce.number().int().min(1).max(20).optional(), window: z.coerce.number().int().min(1).max(6).optional(), days: z.coerce.number().int().refine((d) => EXAMPLE_DAYS.includes(d)).default(5) });
+  router.get('/examples', validate(exampleQuery, 'query'), async (req, res) => {
+    const keys = req.valid.keys.split(',').map((k) => k.trim()).filter(Boolean).slice(0, 20);
+    res.json(await lab.examples({ keys, need: req.valid.need, window: req.valid.window, days: req.valid.days }));
   });
 
   // one stock's 5-minute bars around one day, for the chart of a shares Lab entry

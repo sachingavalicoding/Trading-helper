@@ -1,3 +1,4 @@
+import { TREND_SCORE } from '../scanner/setups.js';
 import { AutoLog, AutoSettings, Order, Position, Trade } from '../models/index.js';
 import { getFunds } from '../services/walletService.js';
 import { roundTripCharges } from '../services/charges.js';
@@ -256,6 +257,7 @@ export class AutoTrader {
     if (this.config.enforceMarketHours && istParts(new Date()).minutes >= exitAt) return { skipped: own && exitAt !== rules.exitMin ? 'past the exit time set for this combination' : 'past the exit time set in the Account tab' };
     if (!idea.combo && settings.skipSetups?.includes(idea.setup)) return { skipped: `${idea.setup} is switched off in the Account tab` };
     if (idea.setup === 'News gap' && settings.earlyNews === false) return { skipped: 'news gap trades are switched off' };
+    if (idea.setup === TREND_SCORE && settings.trendScore !== true) return { skipped: 'Trend score trades are switched off (Account > Entries > Shares)' };
     if (!idea.combo && idea.score < settings.minScore) return { skipped: `score ${idea.score} is below ${settings.minScore}` };
     if (await Position.findOne({ user: userId, symbol: idea.symbol, status: 'OPEN' })) return { skipped: 'already in this stock' };
 

@@ -34,12 +34,19 @@ const PATTERN_FRESH_MS = 4 * 60000; // a pattern is acted on only while the 5-mi
 export const LIVE_PATTERNS = TECHNIQUES.filter((t) => t.key !== 'breadth' && !t.needs).map((t) => ({ key: t.key, label: t.label }));
 export const DEFAULT_PATTERNS = ['breakout', 'insideBar', 'emaCross'];
 
-/** Which entry sources are on for a user: the chosen chart patterns and the user's own combinations. (The all-checks score no longer buys.) */
+/**
+ * Which entry sources are on for a user: the indicator score (all 15 chart checks add up to a score; it buys when the stronger side reaches
+ * `minScore` with a fresh trigger and no hard check against it), the chosen chart patterns and the user's own combinations. The score is off
+ * unless switched on (Account > Entries), so settings saved before it came back keep buying as they did.
+ */
 export function entryModes(settings) {
   const known = new Set(LIVE_PATTERNS.map((p) => p.key));
   const chosen = (settings.patterns ?? DEFAULT_PATTERNS).filter((k) => known.has(k));
-  return { patterns: settings.patternEntries === false ? [] : chosen, combos: settings.comboEntries !== false && normalizeCombos(settings.combos).some((c) => c.on) };
+  return { score: settings.scoreEntries === true, patterns: settings.patternEntries === false ? [] : chosen, combos: settings.comboEntries !== false && normalizeCombos(settings.combos).some((c) => c.on) };
 }
+
+/** The label a score entry is logged under: one name per trigger, so the losing-streak pause and the day report can group them. */
+export const scoreLabel = (side) => `Score: ${side.trigger?.kind ?? 'no trigger'}`;
 
 /** The indexes a user trades: those ticked in the settings (Nifty only when nothing was ever saved). */
 export function activeIndexes(settings) {
@@ -198,6 +205,10 @@ export class OptionTrader {
             const si = forIndex(s, index);
             const modes = entryModes(si);
             const read = await readOf(index);
+            if (modes.score) {
+              const p = await this.considerScore(si, read);
+              if (p.order) continue;
+            }
             if (modes.patterns.length) {
               const p = await this.considerPatterns(si, read);
               if (p.order) continue;
@@ -261,6 +272,53 @@ export class OptionTrader {
       detail: { type: side.type, index: side.index ?? DEFAULT_INDEX, spot: this.lastReads.get(side.index ?? DEFAULT_INDEX)?.spot, ...extra },
     });
     return { skipped: reason };
+  }
+
+  /**
+   * The score entry: every chart check (trend, EMAs, supertrend, ADX, RSI, MACD, levels, breadth, candle, Heikin-Ashi, stochastic, pivot range,
+   * choppiness) adds points, and the stronger side is bought when its score reaches `minScore`, a fresh trigger (breakout, pullback-and-turn or
+   * reversal) has fired, no hard check blocks it and the other side scores at least 10 less. The stop is the chart level of the read (moved by
+   * the stop setting in Account > Limits unless that is "chart"). Acted on once per side per 5-minute bar, like a pattern.
+   */
+  async considerScore(settings, read) {
+    if (!read?.ready) return { skipped: 'the chart is not ready yet' };
+    const last = read.market.done5.at(-1);
+    if (!last) return { skipped: 'no closed bar yet' };
+    if (this.config.enforceMarketHours && !entryTest(entryWindowOf(settings))(last.time)) return { skipped: 'outside your entry hours' };
+    const min = settings.minScore ?? 70;
+    const side = read.best;
+    if (!side) {
+      // only a strong side that a hard check stopped is worth a log row; a quiet market is not a decision
+      const lead = read.lead;
+      if (lead && lead.score >= min && (!settings.sideOnly || lead.type === settings.sideOnly)) {
+        const seen = `${settings.user}|${read.index}|score-blocked|${lead.type}|${last.time}`;
+        if (this.patternSeen.has(seen)) return { skipped: 'already logged' };
+        this.patternSeen.add(seen);
+        return this.#skip(settings, { ...lead, trigger: { kind: scoreLabel(lead) } }, `Score ${lead.type} ${lead.score} but not bought: ${lead.blocked[0] || 'the other side scores nearly the same'}`);
+      }
+      return { skipped: 'no side scores high enough' };
+    }
+    if (settings.sideOnly && side.type !== settings.sideOnly) return { skipped: `${side.type} is not the side you trade` };
+    if (side.score < min) return { skipped: `score ${side.score} is below ${min}` };
+    const seen = `${settings.user}|${read.index}|score|${side.type}|${last.time}`;
+    if (this.patternSeen.has(seen)) return { skipped: 'this bar was already acted on' };
+    if (this.patternSeen.size > 500) this.patternSeen.clear();
+    this.patternSeen.add(seen);
+    const ruled = this.#ruled(settings, read, side);
+    const result = await this.#enter(settings, read, { ...ruled, index: read.index ?? DEFAULT_INDEX, trigger: { ...side.trigger, kind: scoreLabel(side) }, pattern: 'score', atr: read.market.atr5 });
+    if (/live price/.test(result.skipped ?? '')) this.patternSeen.delete(seen);
+    return result;
+  }
+
+  /** The chosen stop rule applied to a score entry: unless it is the chart level, the stop is moved to where the rule puts it. */
+  #ruled(settings, read, side) {
+    const rule = stopRuleOf(settings, read.index);
+    const atr = read.atr5 ?? read.market?.atr5;
+    if (!rule || rule.mode === 'chart' || !(atr > 0) || !side.stop) return side;
+    const d = side.type === 'CE' ? 1 : -1;
+    let price = ruleStop({ side: side.type, stop: side.stop.price, atr }, read.spot, rule);
+    if (d * (read.spot - price) < MIN_STOP_ATR * atr) price = read.spot - d * MIN_STOP_ATR * atr;
+    return { ...side, stop: { ...side.stop, price: roundToTick(price), note: `${side.stop.note}; moved by your stop setting to ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(price)}` } };
   }
 
   /**

@@ -26,6 +26,7 @@ export const SETUP_FAMILY = {
   'News gap': 'News gap',
   'VWAP pullback': 'Trend follow',
   'Level retest': 'Level retest',
+  'Trend score': 'Trend follow',
 };
 
 const CHECK_SUPPORTS = 0.5; // a check "supports" a trade when it earned at least this share of its points

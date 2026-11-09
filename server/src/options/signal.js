@@ -9,6 +9,24 @@ import { roundToTick, round2 } from '../utils/money.js';
 // Options lose money fast when the entry is late or the market is sideways, so every part below can say no.
 
 export const OPTION_WEIGHTS = { trend5: 8, trend15: 8, emaStack: 6, mean: 8, supertrend: 8, adx: 8, rsi: 6, macd: 6, level: 10, breadth: 8, candle: 6, heikin: 5, stoch: 4, cpr: 5, chop: 4 }; // adds up to 100
+/** The parts of the options score, for the screens: what each one looks at and the most points it gives. */
+export const OPTION_SCORE_PARTS = [
+  ['trend5', 'Trend (5m)', 'EMA 9 above EMA 21 on 5-minute bars for a call (below for a put)'],
+  ['trend15', 'Trend (15m)', 'The same on 15-minute bars'],
+  ['emaStack', 'EMA stack', 'EMA 9, 21 and 50 lined up in the trade direction'],
+  ['mean', "Today's average", "Index on the trade side of its average price for the day"],
+  ['supertrend', 'Supertrend', 'Supertrend (10, 3) points the same way'],
+  ['adx', 'Trend strength (ADX)', 'ADX 20+ is a trend (full points), 15-20 half'],
+  ['rsi', 'RSI', 'RSI 52-70 for a call, 30-48 for a put (full); nearby half'],
+  ['macd', 'MACD', 'MACD histogram on the trade side and growing'],
+  ['level', 'Key levels', 'Past the opening range and past yesterday\'s high (call) or low (put)'],
+  ['breadth', 'Market breadth', '60%+ of the Nifty 50 stocks moving the trade way'],
+  ['candle', 'Candle', 'The last 5-minute bar closed strongly in the trade direction'],
+  ['heikin', 'Heikin-Ashi', '3 or more smoothed bars in a row in the trade direction'],
+  ['stoch', 'Stochastic', 'Not stretched, and %K crossing the trade way'],
+  ['cpr', 'Pivot range', "Past yesterday's central pivot range"],
+  ['chop', 'Choppiness', 'Under 50 is trending (full), under 61.8 half'],
+].map(([id, label, text]) => ({ id, label, text, points: OPTION_WEIGHTS[id] }));
 export const OPTION_MIN_SCORE = 70;
 export const FIRST_ENTRY_MIN = 9 * 60 + 15; // the market opens: index options have no pre-market, so this is the earliest a buy can be priced
 export const LAST_ENTRY_MIN = 15 * 60 + 15; // the 15:15 square-off: no new trade after it

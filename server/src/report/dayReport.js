@@ -21,10 +21,29 @@ const optionExits = (o) => [
   o.chasePct > 0 ? `no buy when the premium is over ${o.chasePct}% above its ${o.chaseMinutes ?? 15}-minute low` : 'no anti-chase check',
 ].join(', ');
 
+/** What the options trader buys on, as one phrase. */
+export const optionSources = (o) => {
+  const parts = [];
+  if (o.scoreEntries) parts.push(`indicator score ${o.minScore ?? 70}+`);
+  if (o.patternEntries !== false) parts.push(`patterns ${o.patternMinScore > 0 ? `(score ${o.patternMinScore}+)` : '(no score)'}`);
+  if (o.comboEntries !== false) parts.push(`combinations ${o.comboMinScore > 0 ? `(score ${o.comboMinScore}+)` : '(no score)'}`);
+  return parts.length ? parts.join(', ') : 'nothing (every trigger is off)';
+};
+
+/** A combination's own exits, when it has them: they replace the Account ladder, trail and break-even for its trades. */
+export const ownExitsText = (x) => {
+  if (!x) return '';
+  const parts = [];
+  if ('steps' in x) parts.push(x.steps?.length ? `ladder from +₹${x.steps[0].at}` : 'NO profit ladder');
+  if ('trail' in x) parts.push(x.trail ? `trail ${x.trail.points} pts` : 'no trail');
+  if ('breakEven' in x) parts.push(x.breakEven > 0 ? `break-even at ${x.breakEven} pts` : 'NO break-even');
+  return parts.length ? ` [own exits: ${parts.join(', ')}]` : '';
+};
+
 function rules({ auto, options, rules: lock = TRADE_DEFAULTS }) {
   const lines = [];
   if (auto) lines.push(`- Auto shares: ${auto.enabled ? 'ON' : 'off'}, min score ${auto.minScore}, max ${auto.maxOpen} open, stop for the day after -${auto.dailyLossPct}%, max ₹${auto.maxTradeAmount} a trade, no sale target; ${lockText(lock.shares)}.`);
-  if (options) lines.push(`- Auto options: ${options.enabled ? 'ON' : 'off'}, ${(options.indexes ?? ['NIFTY']).join(' + ')}, patterns ${options.patternMinScore > 0 ? `(score ${options.patternMinScore}+)` : '(no score)'} and combinations ${options.comboMinScore > 0 ? `(score ${options.comboMinScore}+)` : '(no score)'}, budget ₹${options.budget}, max ${options.maxLots} lots, ${options.maxTrades} trades a day, chart stop (closed 1-minute candle), no target, ${optionExits(options)}; ${lockText(lock.options, 'loss limit')}.`);
+  if (options) lines.push(`- Auto options: ${options.enabled ? 'ON' : 'off'}, ${(options.indexes ?? ['NIFTY']).join(' + ')}, buys on ${optionSources(options)}, budget ₹${options.budget}, max ${options.maxLots} lots, ${options.maxTrades} trades a day, chart stop (closed 1-minute candle), no target, ${optionExits(options)}; ${lockText(lock.options, 'loss limit')}.`);
   return lines;
 }
 
@@ -53,7 +72,7 @@ function tradeLines(title, entries, { options = false } = {}) {
     const o = e.outcome;
     const what = options ? `${e.detail?.label || e.symbol}${e.detail?.manual ? ' (by hand)' : ''}, ${e.detail?.lots ?? '?'} lot` : `${e.symbol} ${e.side} qty ${e.qty}`;
     lines.push(
-      `- ${clock(e.decidedAt)} ${what} ${e.setup || ''} score ${e.score ?? '-'}: bought at ${e.fillPrice ?? e.entry}, stop ${e.stopLoss}${o ? ` -> ${o.exitReason} at ${o.exitPrice}, net ${inr(o.netPnl)} (${signed(o.resultR, 'R')}), best ${signed(o.bestR, 'R')}, worst ${signed(o.worstR, 'R')}, held ${o.minutesHeld} min` : ' -> still open'}`,
+      `- ${clock(e.decidedAt)} ${what} ${e.setup || ''} score ${e.score ?? '-'}${options ? ownExitsText(e.detail?.ownExits) : ''}: bought at ${e.fillPrice ?? e.entry}, stop ${e.stopLoss}${o ? ` -> ${o.exitReason} at ${o.exitPrice}, net ${inr(o.netPnl)} (${signed(o.resultR, 'R')}), best ${signed(o.bestR, 'R')}, worst ${signed(o.worstR, 'R')}, held ${o.minutesHeld} min` : ' -> still open'}`,
     );
   }
   if (sum.byExit.length) lines.push(`Exits: ${sum.byExit.map((g) => `${g.key} ${g.trades} (net ${inr(g.netPnl)})`).join('; ')}`);

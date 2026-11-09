@@ -5,7 +5,7 @@ import { adx, supertrend, obvChange, squeezeRelease } from '../src/signals/indic
 import { pivotsFrom, candleConfirms } from '../src/scanner/pivots.js';
 import { followLive } from '../src/scanner/replay.js';
 import { targetTable } from '../src/scanner/backtest.js';
-import { scoreCandidate, adaptTargets, reachTargets, WEIGHTS, LEGACY_WEIGHTS, MIN_ADX } from '../src/scanner/evaluate.js';
+import { scoreCandidate, adaptTargets, reachTargets, WEIGHTS, PREV_WEIGHTS, LEGACY_WEIGHTS, MIN_ADX } from '../src/scanner/evaluate.js';
 
 const bars = (n, close) => Array.from({ length: n }, (_, i) => {
   const c = close(i);
@@ -23,9 +23,11 @@ test('score weights add up to 100, old and new', () => {
   const total = (w) => Object.values(w).reduce((a, b) => a + b, 0);
   assert.equal(total(WEIGHTS), 100);
   assert.equal(total(LEGACY_WEIGHTS), 100);
+  assert.equal(total(PREV_WEIGHTS), 100);
+  assert.ok(WEIGHTS.setup < PREV_WEIGHTS.setup, 'the setup alone weighs less now, the indicators more');
 });
 
-const ctx = (over = {}) => ({ ltp: 101, vwap: 100, trend5: 1, trend15: 1, relVol: 2, relStrength: 0.6, bookShare: 0.7, rsi: 60, macdHist: { now: 1, prev: 0.5 }, niftyChangePct: 0.3, vwapStretch: 0.5, news: null, adx: 30, emaStack: 1, sectorStrength: 0.4, month: { trend: 1, sessions: 22 }, supertrend: { dir: 1 }, obv: 500, squeeze: { released: true, side: 1 }, pivots: { tc: 100.5, bc: 99.5, widthPct: 0.2 }, candleOk: () => true, marketState: { niftyTrend: 1, breadthUp: 0.7 }, ...over });
+const ctx = (over = {}) => ({ ltp: 101, vwap: 100, trend5: 1, trend15: 1, relVol: 2, relStrength: 0.6, bookShare: 0.7, rsi: 60, macdHist: { now: 1, prev: 0.5 }, niftyChangePct: 0.3, vwapStretch: 0.5, news: null, adx: 30, emaStack: 1, sectorStrength: 0.4, month: { trend: 1, sessions: 22 }, supertrend: { dir: 1 }, obv: 500, squeeze: { released: true, side: 1 }, pivots: { tc: 100.5, bc: 99.5, r1: 100.8, s1: 99, widthPct: 0.2 }, extra: { keltner: 1, ultimate: 60, donchian: 1, dmi: { dir: 1, rising: true, adx: 28 }, aroon: { up: 100, down: 20 }, mfi: 65 }, candleOk: () => true, marketState: { niftyTrend: 1, breadthUp: 0.7 }, ...over });
 const cand = (over = {}) => ({ side: 'BUY', status: 'ENTRY', entry: 101, stopLoss: 100.4, setup: 'X', ...over });
 
 test('a clean trend, aligned EMAs and a backing sector earn full marks', () => {
@@ -300,4 +302,57 @@ test('before 09:20 nothing; 09:20 to 09:30 only the news-gap setup; then everyth
   assert.equal(entryWindow(at(15, 14)), 'open');
   assert.equal(entryWindow(at(15, 15)), 'closed');
   assert.equal(entryWindow(at(9, 25), true), 'closed', 'the old rules keep their 09:30 start');
+});
+
+test('the seven new indicators each give points only in the trade direction', () => {
+  const ids = ['keltner', 'ultimate', 'donchian', 'dmi', 'aroon', 'mfi', 'pivotR1'];
+  const buy = scoreCandidate(ctx(), cand());
+  for (const id of ids) assert.equal(buy.checks.find((c) => c.id === id).points, WEIGHTS[id], id);
+  const sell = scoreCandidate(ctx(), cand({ side: 'SELL', entry: 101, stopLoss: 101.6 }));
+  for (const id of ids) assert.equal(sell.checks.find((c) => c.id === id).points, 0, `${id} against a sell`);
+  const stretched = scoreCandidate(ctx({ extra: { keltner: 0, ultimate: 82, donchian: 0, dmi: { dir: 1, rising: false, adx: 30 }, aroon: { up: 40, down: 60 }, mfi: 90 } }), cand());
+  for (const id of ['keltner', 'ultimate', 'donchian', 'dmi', 'aroon', 'mfi']) assert.equal(stretched.checks.find((c) => c.id === id).points, 0, id);
+  const none = scoreCandidate(ctx({ extra: undefined }), cand());
+  assert.ok(!none.checks.some((c) => c.id === 'keltner'), 'no reads, no rows (older callers)');
+});
+
+test('the old scorer is still available to compare against', () => {
+  const r = scoreCandidate(ctx(), cand(), { weights: PREV_WEIGHTS });
+  assert.equal(r.checks.find((c) => c.id === 'setup').max, PREV_WEIGHTS.setup);
+  assert.ok(!r.checks.some((c) => c.id === 'keltner'));
+});
+
+test('news that the price has not confirmed earns no points', () => {
+  const news = (reaction) => ({ label: 'BULLISH', reaction, title: 'Profit up', movePct: 0.1 });
+  assert.equal(scoreCandidate(ctx({ news: news('PENDING') }), cand()).checks.find((c) => c.id === 'news').points, 0);
+  assert.equal(scoreCandidate(ctx({ news: news('AGREES') }), cand()).checks.find((c) => c.id === 'news').points, 10);
+});
+
+test('Trend score: put forward when both trends agree, price is past VWAP and the last bar pushed on; nothing otherwise', async () => {
+  const { trendScore, TREND_SCORE } = await import('../src/scanner/setups.js');
+  const b = (i, o, h, l, c) => ({ time: T0 + i * 300, open: o, high: h, low: l, close: c, volume: 1000 });
+  const c5 = [b(0, 100, 100.4, 99.9, 100.3), b(1, 100.3, 100.6, 100.2, 100.5), b(2, 100.5, 100.8, 100.4, 100.7), b(3, 100.7, 101.0, 100.6, 100.9), b(4, 100.9, 101.4, 100.8, 101.3), b(5, 101.3, 101.4, 101.3, 101.35)];
+  const base = { c5, today5: c5, ltp: 101.35, atr5: 0.4, vwap: 100.6, trend5: 1, trend15: 1, levels: [] };
+  const [idea] = trendScore(ctx(base));
+  assert.equal(idea.setup, TREND_SCORE);
+  assert.equal(idea.side, 'BUY');
+  assert.equal(idea.status, 'ENTRY');
+  assert.ok(idea.stopLoss < 100.6, 'stop past the low of the last three closed bars');
+  assert.deepEqual(trendScore(ctx({ ...base, trend15: 0 })), [], 'the 15-minute trend must agree');
+  assert.deepEqual(trendScore(ctx({ ...base, vwap: 101.5 })), [], 'price must be past VWAP');
+  assert.deepEqual(trendScore(ctx({ ...base, today5: c5.slice(0, 3) })), [], 'not in the first half hour');
+  const stalled = [...c5.slice(0, 4), b(4, 100.9, 100.95, 100.7, 100.75), c5[5]];
+  assert.deepEqual(trendScore(ctx({ ...base, c5: stalled, today5: stalled })), [], 'no push on the last closed bar');
+});
+
+test('the extra share reads: a steady rise is past the Keltner band and the 20-bar high, with +DI on top', async () => {
+  const { extraReads } = await import('../src/scanner/context.js');
+  const rise = Array.from({ length: 60 }, (_, i) => ({ time: T0 + i * 300, open: 100 + i * 0.1, high: 100 + i * 0.1 + 0.08 + (i === 59 ? 0.6 : 0), low: 100 + i * 0.1 - 0.05, close: 100 + i * 0.1 + 0.06 + (i === 59 ? 0.55 : 0), volume: 1000 + i }));
+  const x = extraReads(rise);
+  assert.equal(x.keltner, 1);
+  assert.equal(x.donchian, 1);
+  assert.equal(x.dmi.dir, 1);
+  assert.ok(x.aroon.up > x.aroon.down);
+  assert.ok(x.ultimate > 50 && x.mfi > 50);
+  assert.deepEqual(extraReads(rise.slice(0, 10)), { keltner: null, ultimate: null, donchian: null, dmi: null, aroon: null, mfi: null });
 });

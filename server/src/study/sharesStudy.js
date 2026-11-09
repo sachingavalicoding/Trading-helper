@@ -7,6 +7,7 @@ import { verdictOf } from '../combos/verdict.js';
 import { findPairs, findCombos, pairStart } from './pairFinder.js';
 import { evaluate, evaluateBy, netResult, targetTable } from '../scanner/backtest.js';
 import { istParts } from '../market/marketHours.js';
+import { scoreStudy } from './scoreParts.js';
 
 // The shares study: the live scanner's rules replayed over past 1-minute candles of the Nifty 50, as paper trades sized to the Account stop.
 // It reads history and changes nothing. The replay has no order book. Its exits are in rupees on the shares it would buy: your profit
@@ -28,10 +29,11 @@ export async function runSharesStudy({ nifty1, history, params, onProgress = () 
   const exitMin = params.exitMin > 0 ? params.exitMin : 15 * 60 + 15;
   const money = { ...opts, steps: params.steps ?? [], target, exitMin };
   const ideas = [];
+  const every = []; // every enterable idea whatever its score, for the score study
   const symbols = Object.keys(history).filter((s) => history[s]?.length > 100);
   for (const [n, symbol] of params.finderOnly ? [] : symbols.entries()) {
     onProgress(`Replaying the scanner on ${symbol} (${n + 1}/${symbols.length})`);
-    ideas.push(...replayStock({ symbol, c1: history[symbol], nifty: nifty1, days: params.days, exits: 'live', money }));
+    ideas.push(...replayStock({ symbol, c1: history[symbol], nifty: nifty1, days: params.days, exits: 'live', money, collect: every }));
     await yieldTurn();
   }
   const needRank = params.finderOnly ? (params.pairFind && !params.pairFirst) || params.comboFind : params.rank !== false;
@@ -52,6 +54,7 @@ export async function runSharesStudy({ nifty1, history, params, onProgress = () 
     byHour: rows(hourOf),
     byExit: rows((i) => i.exit, (k) => EXIT_WORD[k] || k),
     firstTarget: targetTable(ideas),
+    scoreStudy: scoreStudy(every, opts),
     ...extra,
     recent: traded.slice(0, 15).map(({ i, r }) => ({ symbol: i.symbol, setup: i.setup, side: i.side, openedAt: i.openedAt, entry: i.entry, stopLoss: i.stopLoss, exit: EXIT_WORD[i.exit] || i.exit, exitPrice: i.exitPrice, qty: r.qty, net: r.net })),
   };

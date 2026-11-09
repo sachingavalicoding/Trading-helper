@@ -3,6 +3,7 @@ import { ema, rsi, atr, adx, macd, sessionVwap, supertrend, obvChange, squeezeRe
 import { pivotsFrom, candleConfirms } from './pivots.js';
 import { buildLevels } from './levels.js';
 import { summarizeDaily } from './daily.js';
+import { keltner, ultimate, dmi, aroon, mfi } from '../combos/series.js';
 
 const IST = 19800;
 export const istDay = (t) => Math.floor((t + IST) / 86400);
@@ -35,6 +36,38 @@ function macdHistogram(c5) {
   const h = m?.histogram ?? m?.hist;
   if (!h || h.length < 2) return null;
   return { now: h.at(-1).value ?? h.at(-1), prev: h.at(-2).value ?? h.at(-2) };
+}
+
+const KEEP_BARS = 160; // the extra indicators read only the last 160 closed 5-minute bars (about two sessions), enough for their 14 to 28-bar windows
+
+/**
+ * The extra indicators for the share score (added 9 Nov 2026 when the score leaned on the opening range alone), read on closed 5-minute bars.
+ * Each is a direction (+1 for a buy, -1 for a sell, 0 neither) or a value the score turns into one. null when there are not enough bars.
+ */
+export function extraReads(done5) {
+  const bars = done5.slice(-KEEP_BARS);
+  if (bars.length < 30) return { keltner: null, ultimate: null, donchian: null, dmi: null, aroon: null, mfi: null };
+  const lastOf = (arr) => arr.at(-1) ?? null;
+  const close = bars.at(-1).close;
+  const k = keltner(bars, 20, 1.5);
+  const up = lastOf(k.upper);
+  const lo = lastOf(k.lower);
+  const prior = bars.slice(-21, -1);
+  const hi20 = Math.max(...prior.map((b) => b.high));
+  const lo20 = Math.min(...prior.map((b) => b.low));
+  const dm = dmi(bars, 14);
+  const adxNow = lastOf(dm.adx);
+  const adxBefore = dm.adx.at(-4) ?? null;
+  const ar = aroon(bars, 25);
+  const m = mfi(bars, bars.map((b) => b.volume ?? 0), 14);
+  return {
+    keltner: up == null || lo == null ? null : close > up ? 1 : close < lo ? -1 : 0,
+    ultimate: lastOf(ultimate(bars)),
+    donchian: close > hi20 ? 1 : close < lo20 ? -1 : 0,
+    dmi: adxNow == null || adxBefore == null || lastOf(dm.pdi) == null ? null : { dir: Math.sign(lastOf(dm.pdi) - lastOf(dm.ndi)), rising: adxNow > adxBefore, adx: adxNow },
+    aroon: lastOf(ar.up) == null ? null : { up: lastOf(ar.up), down: lastOf(ar.down) },
+    mfi: bars.some((b) => b.volume > 0) ? lastOf(m) : null,
+  };
 }
 
 const trend = (fast, slow) => (fast == null || slow == null || Math.abs(fast - slow) / slow < 0.0005 ? 0 : Math.sign(fast - slow));
@@ -110,6 +143,7 @@ export function buildContext({ symbol, tick, c1, niftyChangePct = null, sectorCh
     squeeze: squeezeRelease(done5),
     pivots,
     lastBar: done5.at(-1) ?? null,
+    extra: extraReads(done5),
     candleOk: (d) => candleConfirms(done5.at(-1), d),
     marketState,
     emaStack,

@@ -5,6 +5,7 @@ import { ScanIdea } from '../models/index.js';
 import { logger } from '../utils/logger.js';
 import { CandleStore } from './candleStore.js';
 import { evaluateStock, MIN_SCORE } from './evaluate.js';
+import { TREND_SCORE } from './setups.js';
 import { buildPlan } from './plan.js';
 import { resultR } from './stats.js';
 import { aggregateCandles } from '../market/providers/BaseProvider.js';
@@ -26,6 +27,7 @@ const SETUP_MIN_AVG_R = -0.25; // ...averaging worse than this switch the setup 
 const SETUP_WINDOW_MS = 3 * 24 * 60 * 60 * 1000; // only recent ideas count, so a switched-off setup comes back by itself
 const MARKET_STATE_MS = 60_000;
 const MAX_OPEN_IDEAS = 5; // more at once cannot all be watched, so the extra ones wait
+const MAX_TREND_IDEAS = 5; // Trend score ideas open at once, counted apart from the chart setups' MAX_OPEN_IDEAS
 const MAX_IDEAS_PER_STOCK = 2; // per day: a stock that keeps failing is not worth another try
 const LATE_R = 0.5; // price already ran this far (in risk units) towards the target
 const CHOP_WINDOW = 4; // of the last 4 finished ideas...
@@ -362,9 +364,14 @@ export class ScannerService extends EventEmitter {
         const { candidates } = evaluateStock({ symbol, tick, c1, niftyChangePct, sectorChangePct: sectors(symbol), daily: this.daily.get(symbol) ?? null, marketState, news: newsBySymbol[symbol] ?? null }, { now: this.now(), enforceWindows });
         const st = this.#stockToday(symbol);
         const strong = candidates.filter((c) => c.score >= MIN_SCORE);
-        const openCount = [...this.open.values()].reduce((n, l) => n + l.length, 0);
-        const stockBlock = paused ? paused : openCount >= MAX_OPEN_IDEAS ? `Already ${openCount} ideas open, so new ones wait` : st.stopped ? 'Already stopped out on this stock today' : st.count >= MAX_IDEAS_PER_STOCK ? `Already had ${st.count} ideas on this stock today` : null;
-        const ok = stockBlock ? null : strong.find((c) => c.status !== 'MISSED' && !c.blocked.length && !this.disabledSetups.has(c.setup));
+        // Trend score ideas have their own places, so the score-led entry never crowds out the chart setups (or the other way round)
+        const openAll = [...this.open.values()].flat();
+        const openTrend = openAll.filter((i) => i.setup === TREND_SCORE).length;
+        const openCount = openAll.length - openTrend;
+        const full = (c) => (c.setup === TREND_SCORE ? openTrend >= MAX_TREND_IDEAS : openCount >= MAX_OPEN_IDEAS);
+        const fullText = (c) => (c?.setup === TREND_SCORE ? `Already ${openTrend} Trend score ideas open, so new ones wait` : `Already ${openCount} ideas open, so new ones wait`);
+        const stockBlock = paused ? paused : st.stopped ? 'Already stopped out on this stock today' : st.count >= MAX_IDEAS_PER_STOCK ? `Already had ${st.count} ideas on this stock today` : strong[0] && full(strong[0]) && strong.every(full) ? fullText(strong[0]) : null;
+        const ok = stockBlock ? null : strong.find((c) => c.status !== 'MISSED' && !c.blocked.length && !this.disabledSetups.has(c.setup) && !full(c));
         if (ok) {
           const item = { ...ok, symbol, ltp: tick.ltp, changePct: tick.changePct };
           if (ok.status === 'ENTRY') {

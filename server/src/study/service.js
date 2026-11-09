@@ -220,6 +220,8 @@ export class StudyService {
       combos: normalizeCombos(settings?.combos),
       comboEntries: modes.combos,
       patterns: modes.patterns,
+      scoreEntries: modes.score,
+      scoreMin: settings?.minScore ?? 70,
       patternMinScore: settings?.patternMinScore ?? 0,
       comboMinScore: settings?.comboMinScore ?? 0,
       stopRule: stopRuleOf(settings, index),
