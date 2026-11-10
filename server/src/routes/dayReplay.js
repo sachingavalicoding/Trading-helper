@@ -38,7 +38,23 @@ export function dayReplayRoutes({ config, clock, manager }) {
     res.json({ run: manager.stop() });
   });
 
-  r.post('/control', validate(controlBody), (req, res) => {
+  // Reset, from inside a replay: ask the live server to start this same day again (it stops this copy and wipes the test account).
+  r.post('/reset', async (req, res) => {
+    if (!config.replay) return res.status(400).json({ error: { code: 'NOT_REPLAY', message: 'Only a replay can be reset.' } });
+    try {
+      const out = await fetch(`http://127.0.0.1:${config.replay.livePort}/api/replay-day/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: req.headers.authorization || '' },
+        body: JSON.stringify({ day: config.replay.day, speed: clock.info().speed || 1 }),
+      });
+      if (!out.ok) return res.status(502).json({ error: { code: 'RESET_FAILED', message: 'The live app could not restart the replay. Is it still running?' } });
+      res.json({ ok: true });
+    } catch {
+      res.status(502).json({ error: { code: 'RESET_FAILED', message: 'Could not reach the live app to restart the replay.' } });
+    }
+  });
+
+  r.post('/control',validate(controlBody), (req, res) => {
     if (!clock) return res.status(400).json({ error: { code: 'NOT_REPLAY', message: 'Only a replay has a clock to control.' } });
     const { speed, paused } = req.body;
     if (speed) clock.setSpeed(speed);
