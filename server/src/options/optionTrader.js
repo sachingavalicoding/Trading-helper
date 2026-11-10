@@ -1,3 +1,4 @@
+import { every } from '../utils/every.js';
 import { AutoLog, OptionSettings, Order, Position, Trade } from '../models/index.js';
 import { getFunds } from '../services/walletService.js';
 import { INDEXES, DEFAULT_INDEX, INDEX_KEYS, indexKeyOf, isOptionSymbol, optionLabel, parseOptionSymbol } from './symbols.js';
@@ -129,15 +130,13 @@ export class OptionTrader {
   start() {
     this.market.on('tick', this.onTick);
     this.engine.on('update', this.onUpdate);
-    this.timer = setInterval(() => this.scan().catch((e) => logger.warn(`options scan failed: ${e.message}`)), SCAN_MS);
-    this.timer.unref?.();
-    this.secondTimer = setInterval(() => this.secondScan().catch((e) => logger.warn(`options second scan failed: ${e.message}`)), SECOND_MS);
-    this.secondTimer.unref?.();
+    this.timer = every(SCAN_MS, () => this.scan(), { onError: (e) => logger.warn(`options scan failed: ${e.message}`) });
+    this.secondTimer = every(SECOND_MS, () => this.secondScan(), { onError: (e) => logger.warn(`options second scan failed: ${e.message}`) });
   }
 
   stop() {
-    clearInterval(this.timer);
-    clearInterval(this.secondTimer);
+    this.timer?.stop();
+    this.secondTimer?.stop();
     this.market.off('tick', this.onTick);
     this.engine.off('update', this.onUpdate);
   }

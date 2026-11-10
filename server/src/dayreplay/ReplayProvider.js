@@ -101,6 +101,7 @@ export class ReplayProvider extends BaseProvider {
 
   /** Hands out every price whose second the clock has reached. */
   #advance() {
+    this.clock.step?.();
     const nowSec = Math.floor(this.clock.now() / 1000);
     for (const st of this.states.values()) {
       while (st.cursor < st.rows.length && st.rows[st.cursor].time <= nowSec) {

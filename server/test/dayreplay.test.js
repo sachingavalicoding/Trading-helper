@@ -141,3 +141,51 @@ test('the manager refuses an unknown speed', async () => {
   await assert.rejects(() => m.start({ day: '2026-01-01', speed: 1 }), /no recorded seconds/);
   assert.deepEqual(SPEEDS, [1, 2, 5, 10, 25, 50]);
 });
+
+test('a busy job holds the clock, and a late step counts at most maxStepMs', () => {
+  let real = 0;
+  const clock = new ReplayClock({ startMs: open, endMs: open + 6 * 3600000, speed: 50, realNow: () => real, maxStepMs: 500 });
+  real += 100;
+  clock.step();
+  assert.equal(clock.now(), open + 5000);
+  clock.hold();
+  real += 3000; // a slow scan
+  assert.equal(clock.now(), open + 5000, 'the clock waits for the scan');
+  clock.release();
+  assert.equal(clock.now(), open + 5000, 'the wait does not count');
+  assert.equal(clock.info().busy, false);
+  real += 4000; // the phone answered late
+  assert.equal(clock.now(), open + 5000 + 500 * 50, 'only maxStepMs of a late step counts');
+  clock.step();
+  real += 100;
+  assert.equal(clock.now(), open + 5000 + 25000 + 5000);
+});
+
+test('every() runs on the replay clock, never overlaps, and holds the clock while it runs', async () => {
+  const { every } = await import('../src/utils/every.js');
+  let virtual = open;
+  let holds = 0;
+  let maxHolds = 0;
+  const clock = { now: () => virtual, hold: () => { holds += 1; maxHolds = Math.max(maxHolds, holds); }, release: () => { holds -= 1; } };
+  let runs = 0;
+  let finish;
+  const job = every(1000, () => { runs += 1; return new Promise((r) => { finish = r; }); }, { clock });
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  await wait(60);
+  assert.equal(runs, 0, 'no virtual second has passed yet');
+  virtual += 1000;
+  await wait(60);
+  assert.equal(runs, 1);
+  assert.equal(holds, 1, 'the clock is held while the job runs');
+  virtual += 5000;
+  await wait(60);
+  assert.equal(runs, 1, 'never two runs at once');
+  finish();
+  await wait(60);
+  assert.equal(runs, 2, 'runs again once the last run ended and the time has come');
+  finish();
+  await wait(10);
+  assert.equal(holds, 0, 'every hold was released');
+  job.stop();
+  assert.equal(maxHolds, 1);
+});

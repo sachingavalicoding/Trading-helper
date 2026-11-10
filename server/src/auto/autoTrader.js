@@ -1,3 +1,4 @@
+import { every } from '../utils/every.js';
 import { TREND_SCORE } from '../scanner/setups.js';
 import { AutoLog, AutoSettings, Order, Position, Trade } from '../models/index.js';
 import { getFunds } from '../services/walletService.js';
@@ -47,18 +48,16 @@ export class AutoTrader {
     this.scanner.on('entry', this.onEntry);
     this.engine.market.on('tick', this.onTick);
     this.engine.on('update', this.onUpdate);
-    this.timer = setInterval(() => this.closeOnTime().catch((e) => logger.warn(`auto time exit failed: ${e.message}`)), 30_000);
-    this.timer.unref?.();
-    this.comboTimer = setInterval(() => this.scanCombos().catch((e) => logger.warn(`combination scan failed: ${e.message}`)), 20_000);
-    this.comboTimer.unref?.();
+    this.timer = every(30_000, () => this.closeOnTime(), { onError: (e) => logger.warn(`auto time exit failed: ${e.message}`) });
+    this.comboTimer = every(20_000, () => this.scanCombos(), { onError: (e) => logger.warn(`combination scan failed: ${e.message}`) });
   }
 
   stop() {
     this.scanner.off('entry', this.onEntry);
     this.engine.market.off('tick', this.onTick);
     this.engine.off('update', this.onUpdate);
-    clearInterval(this.timer);
-    clearInterval(this.comboTimer);
+    this.timer?.stop();
+    this.comboTimer?.stop();
   }
 
   /** Close the auto trader's open share trades once the clock reaches the exit time set in the Account tab (15:15 unless changed). */
