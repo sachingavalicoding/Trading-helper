@@ -20,7 +20,7 @@ export async function prepareReplay(env) {
   logger.info(`Replay of ${day}: copying the saved data into the test database`);
   const copied = await seedReplayDb({ sourceUri, targetUri, day });
   if (!copied.ticks) throw new Error(`No recorded seconds for ${day}. Pick a day from the list in Account.`);
-  const clock = new ReplayClock({ startMs: atMinute(day, OPEN_MIN), endMs: atMinute(day, CLOSE_MIN + 5), speed });
+  const clock = new ReplayClock({ startMs: atMinute(day, OPEN_MIN), endMs: atMinute(day, CLOSE_MIN + 5), speed, maxStepMs: 500 }); // a busy phone slows the replay instead of jumping it ahead
   const provider = new ReplayProvider({ source: new MongoSource(day), clock, day, lotSize: lotSizeOf('NIFTY', env) });
   installClock(clock);
   logger.info(`Replay of ${day} ready at ${speed}x (${copied.ticks} saved chunks of seconds). Orders and positions are kept in the separate replay database.`);

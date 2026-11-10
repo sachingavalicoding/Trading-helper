@@ -1,3 +1,4 @@
+import { every } from '../utils/every.js';
 import { EventEmitter } from 'node:events';
 import { Order, Position, Trade, TradeDefaults } from '../models/index.js';
 import { rulesFor } from '../models/TradeDefaults.js';
@@ -60,12 +61,11 @@ export class OrderEngine extends EventEmitter {
   }
 
   startScheduler(intervalMs = 5000) {
-    this.timer = setInterval(() => this.checkSquareOff().catch((e) => logger.error('square-off failed', e)), intervalMs);
-    this.timer.unref?.();
+    this.timer = every(intervalMs, () => this.checkSquareOff(), { onError: (e) => logger.error('square-off failed', e) });
   }
 
   stop() {
-    clearInterval(this.timer);
+    this.timer?.stop();
     this.market.off('tick', this.onTick);
   }
 

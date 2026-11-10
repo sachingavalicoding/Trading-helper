@@ -1,3 +1,4 @@
+import { every } from '../utils/every.js';
 import { EventEmitter } from 'node:events';
 import { NIFTY50 } from '../market/instruments.js';
 import { istParts, isTradingDay, SQUARE_OFF_MIN } from '../market/marketHours.js';
@@ -182,18 +183,19 @@ export class ScannerService extends EventEmitter {
     this.warmUp()
       .then(() => this.scanOnce())
       .catch((e) => logger.error('scanner warm-up failed', e));
-    this.timer = setInterval(() => {
-      this.store
-        .refreshSome(1)
-        .then(() => this.scanOnce())
-        .then(() => this.announcePlan())
-        .catch((e) => logger.error('scan failed', e));
-    }, this.intervalMs);
-    this.timer.unref?.();
+    this.timer = every(
+      this.intervalMs,
+      () =>
+        this.store
+          .refreshSome(1)
+          .then(() => this.scanOnce())
+          .then(() => this.announcePlan()),
+      { onError: (e) => logger.error('scan failed', e) },
+    );
   }
 
   stop() {
-    clearInterval(this.timer);
+    this.timer?.stop();
     this.market.off('tick', this.onTick);
   }
 
