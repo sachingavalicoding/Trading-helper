@@ -15,6 +15,7 @@ import { OptionHistorySync } from './market/optionHistory.js';
 import { TickRecorder } from './ticks/tickRecorder.js';
 import { attachSocket } from './socket/index.js';
 import { prepareReplay } from './dayreplay/boot.js';
+import { mongoSettingsSync } from './dayreplay/settingsLink.js';
 import { dayReplayRoutesDeps } from './dayreplay/manager.js';
 import { logger } from './utils/logger.js';
 
@@ -23,6 +24,12 @@ async function main() {
   // A replay run uses its own database and a virtual clock; the live server never does.
   const replay = env.replay ? await prepareReplay(env) : null;
   await connectDb(replay ? replay.mongoUri : env.mongoUri);
+  // a replay follows the live settings all the time (see dayreplay/settingsLink.js)
+  const settingsSync = replay ? await mongoSettingsSync({ sourceUri: replay.sourceUri }) : null;
+  if (settingsSync) {
+    await settingsSync.syncNow();
+    settingsSync.start();
+  }
 
   const market = new MarketDataService(replay ? replay.provider : createProvider(env), { holidays: env.nseHolidays, expiryWeekday: env.niftyExpiryWeekday, enforceHours: env.enforceMarketHours });
   const engine = new OrderEngine({ market, config: env });
@@ -71,6 +78,7 @@ async function main() {
   const shutdown = async (signal) => {
     logger.info(`${signal} received, shutting down`);
     dayReplay.manager?.stop();
+    settingsSync?.stop();
     engine.stop();
     tracker.stop();
     autoTrader.stop();

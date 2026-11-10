@@ -24,5 +24,5 @@ export async function prepareReplay(env) {
   const provider = new ReplayProvider({ source: new MongoSource(day), clock, day, lotSize: lotSizeOf('NIFTY', env) });
   installClock(clock);
   logger.info(`Replay of ${day} ready at ${speed}x (${copied.ticks} saved chunks of seconds). Orders and positions are kept in the separate replay database.`);
-  return { mongoUri: targetUri, provider, clock };
+  return { mongoUri: targetUri, sourceUri, provider, clock };
 }
