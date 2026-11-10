@@ -28,6 +28,7 @@ import { historyRoutes } from './routes/history.js';
 import { tickRoutes } from './routes/ticks.js';
 import { dayReplayRoutes } from './routes/dayReplay.js';
 import { optionHistoryRoutes } from './routes/optionHistory.js';
+import { keepCombosInLive } from './dayreplay/keepCombos.js';
 import { requireAuth } from './middleware/auth.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
@@ -49,6 +50,7 @@ export function createApp({ market, engine, config, tracker, scanner, news, auto
   app.get('/api/market/status', (_req, res) => res.json({ ...market.status(), disclaimer: DISCLAIMER }));
 
   app.use('/api/auth', authRoutes(config));
+  if (config.replay?.livePort) app.use(keepCombosInLive({ livePort: config.replay.livePort })); // a combination switched off or deleted in a replay stays so
 
   const auth = requireAuth(config.jwtSecret);
   app.use('/api/market', auth, marketRoutes({ market }));
