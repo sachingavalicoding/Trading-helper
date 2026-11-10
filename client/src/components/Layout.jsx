@@ -4,6 +4,7 @@ import { IndexStrip } from './IndexStrip.jsx';
 import { MarketStatus } from './MarketStatus.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { Disclaimer } from './ui.jsx';
+import { ReplayBanner } from './Replay.jsx';
 
 const NAV = [
   { to: '/', label: 'Stocks', icon: LineChart, end: true },
@@ -51,6 +52,7 @@ export function Layout() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
+        <ReplayBanner />
         <header className="sticky top-0 z-30 border-b border-line bg-bg/80 backdrop-blur-xl">
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 pt-3">
             <Brand className="md:hidden" small />

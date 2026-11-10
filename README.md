@@ -580,3 +580,7 @@ with neither, the option premium is estimated from the index at the volatility o
 rebuilt from 1-minute candles, so a move can differ by seconds from the live engine. New trades keep the combination as it was at entry.
 
 **Sensex removed (5 Nov 2026).** The Sensex is gone from the feed, options trader, settings, studies, Review, Lab and screens; only the Nifty remains. Old Sensex trades and saved days stay readable, and an old Sensex trade still open is closed at the last price the app saw for it. The old setup is on branch `archive/pre-redesign-2026-11-02` and in git history.
+
+## Replay a past day (test with the market closed)
+
+Account > "Replay a past day" (switch on/off there). Pick one of the days that have recorded 1-second data (the newest 3 are kept) and a speed (1x, 2x, 5x, 10x, 25x, 50x). The server starts a **second copy of itself** on the next port (PORT+1, or `REPLAY_PORT`) with its own database (`<db>_replay`, dropped and refilled on every start) and a virtual clock that starts at 09:15 on that day, so auto trading, combos, scores, ladders, charts and the day report all run as on a real day. Your real paper history and live feed are never touched. A yellow "Replay mode" bar shows the virtual time, pause and speed. Nifty and the option contracts come from the recorded seconds (only contracts that were streaming that day can be bought); shares move once a minute from the saved 1-minute candles.

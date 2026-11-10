@@ -78,3 +78,14 @@ export async function downloadFile(path, fallbackName) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+
+// A replay runs at another address, so the login arrives once in the link (#t=...). Take it and clear it from the address bar.
+try {
+  const m = /^#t=(.+)$/.exec(window.location.hash);
+  if (m) {
+    tokenStore.set(decodeURIComponent(m[1]));
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+} catch {
+  /* no window */
+}
