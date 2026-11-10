@@ -29,6 +29,23 @@ export class MongoSource {
     return this.db.collection(DAY_OPTION_CANDLES).distinct('symbol', { day: this.day });
   }
 
+  /** First and last recorded second of every symbol that has seconds on the day: Map(symbol -> { first, last }). */
+  async tickSpans() {
+    const rows = await TickChunk.aggregate([{ $match: { day: this.day } }, { $group: { _id: '$symbol', first: { $min: '$from' }, last: { $max: '$to' } } }]);
+    return new Map(rows.map((r) => [r._id, { first: r.first, last: r.last }]));
+  }
+
+  /** First second and last second covered by the saved 1-minute candles of every option contract on the day. */
+  async optionSpans() {
+    const docs = await this.db.collection(DAY_OPTION_CANDLES).find({ day: this.day }).toArray();
+    const out = new Map();
+    for (const d of docs) {
+      const candles = unpackOptionCandles(buf(d.data), d.count);
+      if (candles.length) out.set(d.symbol, { first: candles[0].time, last: candles.at(-1).time + 59 });
+    }
+    return out;
+  }
+
   /** All the day's recorded samples of a symbol, oldest first. */
   async readTicks(symbol) {
     const chunks = await TickChunk.find({ symbol, day: this.day }).sort({ from: 1 }).lean();

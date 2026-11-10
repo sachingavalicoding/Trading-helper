@@ -109,8 +109,8 @@ export class ReplayManager {
 }
 
 /** What the routes need: a manager in the live server, the clock in a replay copy. */
-export function dayReplayRoutesDeps({ config, clock }) {
+export function dayReplayRoutesDeps({ config, clock, ...bots }) {
   const manager = config.replay ? null : new ReplayManager({ config });
   if (manager) process.on('exit', () => manager.child?.kill());
-  return { config, clock, manager };
+  return { config, clock, manager, ...bots };
 }

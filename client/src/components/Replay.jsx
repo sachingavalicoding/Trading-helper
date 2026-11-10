@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pause, Play, Rewind, RotateCcw } from 'lucide-react';
+import { CircleHelp, Pause, Play, Rewind, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, tokenStore } from '../lib/api.js';
 import { Card } from './ui.jsx';
@@ -44,10 +44,54 @@ export function useReplayStatus() {
   return s;
 }
 
+const DOT = { bad: 'bg-down', warn: 'bg-warn', ok: 'bg-up' };
+
+/** A list of plain-words findings: a coloured dot and one sentence each. */
+function Findings({ items }) {
+  return (
+    <ul className="space-y-1.5">
+      {items.map((it, i) => (
+        <li key={i} className="flex gap-2 text-xs leading-snug">
+          <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${DOT[it.level] ?? 'bg-muted'}`} aria-hidden="true" />
+          <span className={it.level === 'ok' ? 'text-muted' : ''}>{it.text}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** "Why no trades?": what the bots see right now in this replay, refreshed every few seconds while open. */
+function WhyPanel() {
+  const [items, setItems] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let alive = true;
+    let timer;
+    const load = () =>
+      api('/replay-day/why')
+        .then((d) => alive && (setItems(d.items), setError('')))
+        .catch((e) => alive && setError(e.message))
+        .finally(() => alive && (timer = setTimeout(load, 5000)));
+    load();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, []);
+  return (
+    <div className="mx-auto mt-2 max-w-5xl rounded-xl border border-line bg-surface p-3">
+      <div className="mb-2 text-xs font-semibold">Why no trades? (red = blocks buying, yellow = worth a look)</div>
+      {error && <p className="text-xs text-down">{error}</p>}
+      {!items && !error ? <p className="text-xs text-muted">Checking…</p> : items && <Findings items={items} />}
+    </div>
+  );
+}
+
 /** Shown on every screen of a replay: it says so loudly, shows the virtual time, and holds pause and speed. */
 export function ReplayBanner() {
   const s = useReplayStatus();
   const [resetting, setResetting] = useState(false);
+  const [why, setWhy] = useState(false);
   if (s?.mode !== 'replay') return null;
   // The live app restarts this copy, so wait for it to go down and come back, then reload onto the fresh day.
   async function reset() {
@@ -92,6 +136,9 @@ export function ReplayBanner() {
               {x}x
             </button>
           ))}
+          <button type="button" className={`btn btn-sm ${why ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setWhy(!why)} title="Why has it not bought anything?">
+            <CircleHelp className="h-3.5 w-3.5" /> Why no trades?
+          </button>
           <button type="button" className="btn btn-secondary btn-sm" disabled={resetting} onClick={reset} title="Start this day again from 09:15 with an empty test account">
             <RotateCcw className="h-3.5 w-3.5" /> {resetting ? 'Resetting…' : 'Reset'}
           </button>
@@ -102,6 +149,7 @@ export function ReplayBanner() {
           ) : null}
         </div>
       </div>
+      {why && <WhyPanel />}
     </div>
   );
 }
@@ -115,6 +163,7 @@ export function ReplayCard() {
   const [run, setRun] = useState(null);
   const [busy, setBusy] = useState(false);
   const [inReplay, setInReplay] = useState(false);
+  const [check, setCheck] = useState(null);
 
   useEffect(() => {
     if (!tools) return undefined;
@@ -125,6 +174,17 @@ export function ReplayCard() {
       alive = false;
     };
   }, [tools]);
+
+  // what the chosen day lacks
+  useEffect(() => {
+    if (!tools || inReplay || !day) return undefined;
+    let alive = true;
+    setCheck(null);
+    api(`/replay-day/check?day=${day}`).then((d) => alive && setCheck(d.items)).catch(() => alive && setCheck([]));
+    return () => {
+      alive = false;
+    };
+  }, [tools, inReplay, day]);
 
   // while it starts, ask until it is ready
   useEffect(() => {
@@ -194,6 +254,10 @@ export function ReplayCard() {
                   ))}
                 </select>
               </label>
+              <div className="rounded-xl border border-line p-3">
+                <div className="mb-2 text-xs font-semibold">Replay data check for this day</div>
+                {check == null ? <p className="text-xs text-muted">Checking what is saved…</p> : <Findings items={check} />}
+              </div>
               <div>
                 <div className="mb-1 text-xs text-muted">Speed</div>
                 <div className="grid grid-cols-6 gap-1">
