@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pause, Play, Rewind } from 'lucide-react';
+import { Pause, Play, Rewind, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, tokenStore } from '../lib/api.js';
 import { Card } from './ui.jsx';
@@ -47,7 +47,29 @@ export function useReplayStatus() {
 /** Shown on every screen of a replay: it says so loudly, shows the virtual time, and holds pause and speed. */
 export function ReplayBanner() {
   const s = useReplayStatus();
+  const [resetting, setResetting] = useState(false);
   if (s?.mode !== 'replay') return null;
+  // The live app restarts this copy, so wait for it to go down and come back, then reload onto the fresh day.
+  async function reset() {
+    if (!window.confirm('Start this day again from the beginning? The test account (trades, orders) is wiped.')) return;
+    setResetting(true);
+    try {
+      await api('/replay-day/reset', { method: 'POST' });
+      await new Promise((r) => setTimeout(r, 4000));
+      for (let i = 0; i < 120; i += 1) {
+        try {
+          if ((await fetch('/api/health')).ok) break;
+        } catch {
+          /* still restarting */
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      window.location.reload();
+    } catch (e) {
+      toast.error(e.message);
+      setResetting(false);
+    }
+  }
   const control = (body) => api('/replay-day/control', { method: 'POST', body }).catch((e) => toast.error(e.message));
   const live = `${window.location.protocol}//${window.location.hostname}:${s.livePort}/`;
   return (
@@ -65,6 +87,9 @@ export function ReplayBanner() {
               {x}x
             </button>
           ))}
+          <button type="button" className="btn btn-secondary btn-sm" disabled={resetting} onClick={reset} title="Start this day again from 09:15 with an empty test account">
+            <RotateCcw className="h-3.5 w-3.5" /> {resetting ? 'Resetting…' : 'Reset'}
+          </button>
           {s.livePort ? (
             <a href={live} className="btn btn-secondary btn-sm ml-1">
               <Rewind className="h-3.5 w-3.5" /> Live
