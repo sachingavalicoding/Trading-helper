@@ -3,6 +3,7 @@ import { INDICES } from '../market/instruments.js';
 import { isOptionSymbol, parseOptionSymbol } from '../options/symbols.js';
 import { istParts } from '../market/marketHours.js';
 import { addDays } from '../market/days.js';
+import { logger } from '../utils/logger.js';
 
 // Plays one recorded day back as if it were live. The Nifty index and the option contracts come from the recorded seconds; shares come
 // from the saved 1-minute candles (one price a minute, so they move in steps). A price is handed out only when the virtual clock reaches
@@ -26,6 +27,8 @@ export class ReplayProvider extends BaseProvider {
     this.timer = null;
     this.tickSymbols = null; // symbols with recorded seconds
     this.candleOptions = new Set(); // option contracts with saved 1-minute candles of the day (priced once a minute)
+    this.spans = new Map(); // option contract -> { first, last, kind }: the seconds (epoch) its prices cover, so only a contract that has a price now can be picked
+    this.loadErrors = []; // symbols whose data could not be read, shown in the "Why no trades" panel
   }
 
   get name() {
@@ -51,6 +54,8 @@ export class ReplayProvider extends BaseProvider {
   async connect() {
     this.tickSymbols = new Set(await this.source.tickSymbols());
     this.candleOptions = new Set((await this.source.optionCandleSymbols?.()) ?? []);
+    for (const [symbol, span] of (await this.source.optionSpans?.()) ?? []) this.spans.set(symbol, { ...span, kind: 'candles' });
+    for (const [symbol, span] of (await this.source.tickSpans?.()) ?? []) this.spans.set(symbol, { ...span, kind: 'ticks' }); // seconds win over candles
     this.timer = setInterval(() => this.#advance(), this.pollMs);
     this.timer.unref?.();
     this.setStatus(true, `Replay of ${this.day}`);
@@ -74,7 +79,11 @@ export class ReplayProvider extends BaseProvider {
         symbol,
         this.#build(symbol)
           .then((st) => this.states.set(symbol, st))
-          .catch(() => this.states.set(symbol, this.#empty(symbol)))
+          .catch((err) => {
+            this.loadErrors.push(`${symbol}: ${err.message}`);
+            logger.warn(`Replay could not read ${symbol}: ${err.message}`);
+            this.states.set(symbol, this.#empty(symbol));
+          })
           .finally(() => this.loading.delete(symbol)),
       );
     }
@@ -94,8 +103,11 @@ export class ReplayProvider extends BaseProvider {
       return { ...this.#empty(symbol), kind: 'ticks', rows, prior, prevClose, candles: [] };
     }
     const day = await this.source.readDayCandles(symbol);
-    // one price a minute, at the minute's last second; the first one is the candle's open so the day opens where it did
-    const rows = day.map((c) => ({ time: c.time + 59, ltp: c.close, volume: c.volume, candle: c, bids: [], asks: [], totalBuyQty: 0, totalSellQty: 0 }));
+    // two prices a minute: the open at the minute's first second and the close at its last, so a price exists from the first second of the candle
+    const rows = day.flatMap((c) => [
+      { time: c.time, ltp: c.open, volume: 0, candle: c, bids: [], asks: [], totalBuyQty: 0, totalSellQty: 0 },
+      { time: c.time + 59, ltp: c.close, volume: c.volume, candle: c, bids: [], asks: [], totalBuyQty: 0, totalSellQty: 0 },
+    ]);
     return { ...this.#empty(symbol), kind: 'candles', rows, day, prior, prevClose };
   }
 
@@ -220,11 +232,24 @@ export class ReplayProvider extends BaseProvider {
     return [...new Set([...this.tickSymbols, ...this.candleOptions])].map((symbol) => ({ symbol, o: parseOptionSymbol(symbol) })).filter((c) => c.o).map(({ symbol, o }) => ({ symbol, strike: o.strike, type: o.type, expiry: o.expiry, lotSize: this.lotSize }));
   }
 
+  /** Has this contract a price at the virtual clock's second? A contract with no known span is assumed priced. */
+  #priced(symbol, nowSec) {
+    const span = this.spans.get(symbol);
+    if (!span) return true;
+    return span.first <= nowSec && (span.kind === 'ticks' || nowSec <= span.last + 120);
+  }
+
+  /** The contracts that can be bought right now: only those that have a price at the clock, so the one picked always has a premium. */
+  async #priced_contracts() {
+    const nowSec = Math.floor(this.clock.now() / 1000);
+    return (await this.#contracts()).filter((c) => this.#priced(c.symbol, nowSec));
+  }
+
   async getOptionExpiries() {
-    return [...new Set((await this.#contracts()).map((c) => c.expiry))].filter((e) => e >= this.day).sort();
+    return [...new Set((await this.#priced_contracts()).map((c) => c.expiry))].filter((e) => e >= this.day).sort();
   }
 
   async getOptionContracts(expiry) {
-    return (await this.#contracts()).filter((c) => c.expiry === expiry);
+    return (await this.#priced_contracts()).filter((c) => c.expiry === expiry);
   }
 }

@@ -74,9 +74,11 @@ test('prices appear only when the clock reaches their second', async () => {
   p.on('tick', (t) => ticks.push(t));
   await p.connect();
   await p.subscribe(['NIFTY 50', OPT, 'RELIANCE']);
-  assert.equal(ticks.length, 1); // second 0 of Nifty only
-  assert.equal(ticks[0].ltp, 24500);
-  assert.equal(ticks[0].prevClose, 24450);
+  const first = ticks.filter((t) => t.symbol === 'NIFTY 50');
+  assert.equal(first.length, 1); // second 0 of Nifty only
+  assert.equal(ticks.length, 2); // plus the open of the share's first minute
+  assert.equal(first[0].ltp, 24500);
+  assert.equal(first[0].prevClose, 24450);
   advance(2000);
   p.subscribe([]); // runs the advance step
   await new Promise((r) => setImmediate(r));
@@ -130,7 +132,7 @@ test('every strike with saved 1-minute candles can be bought too, priced once a 
   p.on('tick', (t) => ticks.push(t));
   advance(61000); // the first minute has closed
   await p.subscribe([OPT2]);
-  assert.deepEqual(ticks.filter((t) => t.symbol === OPT2).map((t) => t.ltp), [121], 'the closed minute only, never the one still to come');
+  assert.deepEqual(ticks.filter((t) => t.symbol === OPT2).map((t) => t.ltp), [120, 121, 121], 'open and close of the first minute, then the open of the second; never its close');
   await p.disconnect();
 });
 
@@ -216,4 +218,52 @@ test('starting a replay again waits for the old copy to exit before the new one 
   await m.start({ day: DAY, speed: 5 });
   assert.deepEqual(order, ['spawn', 'kill', 'exit', 'spawn']);
   m.stop();
+});
+
+test('only a contract that has a price at the clock can be picked', async () => {
+  const LATE = 'NIFTY-20261117-25000-CE';
+  const src = {
+    ...source,
+    optionCandleSymbols: async () => [LATE],
+    optionSpans: async () => new Map([[LATE, { first: sec + 600, last: sec + 3000 }]]),
+    tickSpans: async () => new Map([[OPT, { first: sec, last: sec + 3 }]]),
+  };
+  const { clock, advance } = fakeClock();
+  const p = new ReplayProvider({ source: src, clock, day: DAY, pollMs: 100000 });
+  await p.connect();
+  assert.deepEqual(await p.getOptionExpiries(), ['2026-11-10'], 'the later expiry has no price yet');
+  advance(601000);
+  assert.deepEqual(await p.getOptionExpiries(), ['2026-11-10', '2026-11-17']);
+  advance(3000 * 1000);
+  assert.deepEqual(await p.getOptionExpiries(), ['2026-11-10'], 'its candles ended');
+  await p.disconnect();
+});
+
+import { checkItems, whyItems } from '../src/dayreplay/diagnose.js';
+
+const goodFacts = { day: DAY, niftySeconds: 20000, niftyPriorBars: 900, niftyPriorDays: 3, expiries: [{ expiry: '2026-11-10', contracts: 40 }], chosenExpiry: '2026-11-10', optionTickContracts: 10, optionCandleContracts: 30, sharesWithHistory: 50, sharesOnDay: 50, optionSettings: { enabled: true, comboEntries: true, combos: [] , scoreEntries: true }, autoSettings: { enabled: false } };
+
+test('the data check names each missing thing in plain words', () => {
+  const ok = checkItems(goodFacts);
+  assert.equal(ok.filter((i) => i.level === 'bad').length, 0);
+  const bad = checkItems({ ...goodFacts, niftyPriorBars: 0, expiries: [{ expiry: '2026-11-17', contracts: 0 }], chosenExpiry: '2026-11-17', optionSettings: { enabled: false }, sharesOnDay: 3 });
+  const text = bad.map((i) => i.text).join('\n');
+  assert.match(text, /only 0 saved 1-minute candles/);
+  assert.match(text, /No option prices were saved/);
+  assert.match(text, /Auto options is OFF/);
+  assert.match(text, /only 3 of 50 have 1-minute candles/);
+  const later = checkItems({ ...goodFacts, expiries: [{ expiry: '2026-11-10', contracts: 5 }, { expiry: '2026-11-17', contracts: 0 }], chosenExpiry: '2026-11-17' });
+  assert.match(later.map((i) => i.text).join('\n'), /expiry on .* but no prices were saved for it/);
+});
+
+test('"why no trades" lists the blockers and the bot skip reasons', () => {
+  const items = whyItems({
+    clockText: '10:42', minutes: 642, marketOpen: true, optionSettings: { enabled: true, scoreEntries: true, comboEntries: false }, autoSettings: { enabled: false },
+    niftyTick: { ltp: 25000 }, niftyBars: 30, optionRead: 'notReady', expiries: ['2026-11-17'], pick: { symbol: 'NIFTY-20261117-25000-CE', ltp: null },
+    sharesWithBars: 0, sharesWithTick: 50, log: [{ segment: 'OPT', decision: 'SKIPPED', reason: 'no live premium for the contract' }, { segment: 'OPT', decision: 'SKIPPED', reason: 'no live premium for the contract' }], loadErrors: [],
+  });
+  const text = items.map((i) => i.text).join('\n');
+  assert.match(text, /Nifty has 30 1-minute candles/);
+  assert.match(text, /No price for the strike the bot would buy/);
+  assert.match(text, /skipped 2×: no live premium/);
 });

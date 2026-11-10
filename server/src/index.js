@@ -58,7 +58,7 @@ async function main() {
   }
   const ticks = new TickRecorder({ market, config: env });
   ticks.start();
-  const dayReplay = dayReplayRoutesDeps({ config: env, clock: replay?.clock ?? null });
+  const dayReplay = dayReplayRoutesDeps({ config: env, clock: replay?.clock ?? null, market, optionTrader, scanner, engine });
   const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history, optionHistory, ticks, dayReplay });
   const server = http.createServer(app);
   const io = attachSocket(server, { market, engine, config: env, scanner });
