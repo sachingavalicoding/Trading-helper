@@ -258,12 +258,13 @@ test('the data check names each missing thing in plain words', () => {
 
 test('"why no trades" lists the blockers and the bot skip reasons', () => {
   const items = whyItems({
-    clockText: '10:42', minutes: 642, marketOpen: true, optionSettings: { enabled: true, scoreEntries: true, comboEntries: false }, autoSettings: { enabled: false },
+    clockText: '10:42', dateText: '9 Nov', minutes: 642, marketOpen: true, optionSettings: { enabled: true, scoreEntries: true, comboEntries: false }, autoSettings: { enabled: false },
     niftyTick: { ltp: 25000 }, niftyBars: 30, optionRead: 'notReady', expiries: ['2026-11-17'], pick: { symbol: 'NIFTY-20261117-25000-CE', ltp: null },
     sharesWithBars: 0, sharesWithTick: 50, log: [{ segment: 'OPT', decision: 'SKIPPED', reason: 'no live premium for the contract' }, { segment: 'OPT', decision: 'SKIPPED', reason: 'no live premium for the contract' }], loadErrors: [],
   });
   const text = items.map((i) => i.text).join('\n');
   assert.match(text, /Nifty has 30 1-minute candles/);
-  assert.match(text, /No price for the strike the bot would buy/);
+  assert.match(text, /No price for the strike the bot would buy .*expiry 17 Nov/);
+  assert.match(text, /Replay clock 9 Nov 10:42/);
   assert.match(text, /skipped 2×: no live premium/);
 });

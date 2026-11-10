@@ -110,7 +110,8 @@ export async function gatherCheckFacts({ day, userId }) {
 export function whyItems(f) {
   const out = [];
   const o = f.optionSettings;
-  out.push(f.marketOpen ? item('ok', `Replay clock ${f.clockText} IST: market open.`) : item('bad', `Replay clock ${f.clockText} IST: the market is closed, so nothing is bought.`));
+  const when = `${f.dateText ? `${f.dateText} ` : ''}${f.clockText}`;
+  out.push(f.marketOpen ? item('ok', `Replay clock ${when} IST: market open.`) : item('bad', `Replay clock ${when} IST: the market is closed, so nothing is bought.`));
   if (f.marketOpen && o?.enabled) {
     const from = o.entryFrom ?? 555;
     const to = o.entryTo ?? 915;
@@ -125,9 +126,11 @@ export function whyItems(f) {
   if (f.optionRead === 'none') out.push(item('warn', 'The options bot has not read the chart yet (it reads every 15 replay seconds while the market is open).'));
   else if (f.optionRead === 'notReady') out.push(item('bad', 'The options bot cannot read the Nifty chart yet: not enough candles or no daily history.'));
 
+  const tried = f.pick?.symbol ? parseOptionSymbol(f.pick.symbol) : null;
+  const listed = f.expiries.length ? `Expiries with a price now: ${f.expiries.map(mmm).join(', ')}.` : '';
   if (!f.expiries.length) out.push(item('bad', 'No option contract has a price at this moment of the replay.'));
-  if (f.pick?.error || (f.pick && !f.pick.ltp)) out.push(item('bad', `No price for the strike the bot would buy${f.pick?.symbol ? ` (${f.pick.symbol})` : ''}: "no live premium for the contract".`));
-  else if (f.pick) out.push(item('ok', `Strike the bot would buy now: ${f.pick.symbol} at ₹${f.pick.ltp}.`));
+  if (f.pick?.error || (f.pick && !f.pick.ltp)) out.push(item('bad', `No price for the strike the bot would buy${f.pick?.symbol ? ` (${f.pick.symbol}, expiry ${mmm(tried?.expiry)})` : ''}: "no live premium for the contract". ${listed}`));
+  else if (f.pick) out.push(item('ok', `Strike the bot would buy now: ${f.pick.symbol} at ₹${f.pick.ltp} (expiry ${mmm(tried?.expiry)}, chosen on the replay date, skipping a contract that expires that day). ${listed}`));
   else if (f.expiries.length) out.push(item('bad', 'The bot found no strike to buy near the Nifty price.'));
 
   if (f.sharesWithBars < 20) out.push(item('warn', `Shares: only ${f.sharesWithBars} of 50 have the ${MIN_SHARE_BARS} candles the combinations need, so share combinations cannot run.`));
@@ -169,6 +172,7 @@ export async function gatherWhyFacts({ market, optionTrader, scanner, engine, us
   const read = optionTrader?.lastReads?.get('NIFTY');
   const shares = NIFTY50.map((s) => s.symbol);
   return {
+    dateText: mmm(parts.dateKey),
     clockText: `${String(Math.floor(parts.minutes / 60)).padStart(2, '0')}:${String(parts.minutes % 60).padStart(2, '0')}`,
     minutes: parts.minutes,
     marketOpen: Boolean(status.isOpen) || !config.enforceMarketHours,
