@@ -25,6 +25,7 @@ export class ReplayProvider extends BaseProvider {
     this.loading = new Map();
     this.timer = null;
     this.tickSymbols = null; // symbols with recorded seconds
+    this.candleOptions = new Set(); // option contracts with saved 1-minute candles of the day (priced once a minute)
   }
 
   get name() {
@@ -49,6 +50,7 @@ export class ReplayProvider extends BaseProvider {
 
   async connect() {
     this.tickSymbols = new Set(await this.source.tickSymbols());
+    this.candleOptions = new Set((await this.source.optionCandleSymbols?.()) ?? []);
     this.timer = setInterval(() => this.#advance(), this.pollMs);
     this.timer.unref?.();
     this.setStatus(true, `Replay of ${this.day}`);
@@ -209,9 +211,12 @@ export class ReplayProvider extends BaseProvider {
     return [...byDay.values()].filter((c) => c.time >= (Date.now() - days * 86400000) / 1000);
   }
 
-  /** The contracts that have recorded seconds on the replay day: the only ones that can be bought. */
+  /**
+   * The contracts that can be bought on the replay day: those with recorded seconds (priced each second) and every strike whose 1-minute
+   * candles were saved that evening (priced once a minute), so the at-the-money strike is there all day as on a live day.
+   */
   async #contracts() {
-    return [...this.tickSymbols].map((symbol) => ({ symbol, o: parseOptionSymbol(symbol) })).filter((c) => c.o).map(({ symbol, o }) => ({ symbol, strike: o.strike, type: o.type, expiry: o.expiry, lotSize: this.lotSize }));
+    return [...new Set([...this.tickSymbols, ...this.candleOptions])].map((symbol) => ({ symbol, o: parseOptionSymbol(symbol) })).filter((c) => c.o).map(({ symbol, o }) => ({ symbol, strike: o.strike, type: o.type, expiry: o.expiry, lotSize: this.lotSize }));
   }
 
   async getOptionExpiries() {

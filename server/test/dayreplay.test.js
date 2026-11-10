@@ -105,12 +105,32 @@ test('candle history stops at the clock and joins the earlier days', async () =>
   await p.disconnect();
 });
 
-test('only recorded contracts can be picked', async () => {
+test('without saved candles, only recorded contracts can be picked', async () => {
   const { clock } = fakeClock();
   const p = new ReplayProvider({ source, clock, day: DAY, lotSize: 65 });
   await p.connect();
   assert.deepEqual(await p.getOptionExpiries(), ['2026-11-10']);
   assert.deepEqual(await p.getOptionContracts('2026-11-10'), [{ symbol: OPT, strike: 24500, type: 'CE', expiry: '2026-11-10', lotSize: 65 }]);
+  await p.disconnect();
+});
+
+test('every strike with saved 1-minute candles can be bought too, priced once a minute', async () => {
+  const OPT2 = 'NIFTY-20261110-24550-PE';
+  const src = {
+    ...source,
+    optionCandleSymbols: async () => [OPT, OPT2],
+    readDayCandles: async (s) => (s === OPT2 ? [{ time: sec, open: 120, high: 122, low: 119, close: 121, volume: 10 }, { time: sec + 60, open: 121, high: 125, low: 120, close: 124, volume: 12 }] : []),
+  };
+  const { clock, advance } = fakeClock();
+  const p = new ReplayProvider({ source: src, clock, day: DAY, lotSize: 65, pollMs: 100000 });
+  await p.connect();
+  const listed = await p.getOptionContracts('2026-11-10');
+  assert.deepEqual(listed.map((c) => c.symbol).sort(), [OPT, OPT2].sort(), 'recorded and candle-only contracts, once each');
+  const ticks = [];
+  p.on('tick', (t) => ticks.push(t));
+  advance(61000); // the first minute has closed
+  await p.subscribe([OPT2]);
+  assert.deepEqual(ticks.filter((t) => t.symbol === OPT2).map((t) => t.ltp), [121], 'the closed minute only, never the one still to come');
   await p.disconnect();
 });
 

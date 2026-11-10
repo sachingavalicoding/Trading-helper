@@ -24,6 +24,11 @@ export class MongoSource {
     return TickChunk.distinct('symbol', { day: this.day });
   }
 
+  /** Option contracts with saved 1-minute candles on the day (every strike near the day's range, saved that evening). */
+  async optionCandleSymbols() {
+    return this.db.collection(DAY_OPTION_CANDLES).distinct('symbol', { day: this.day });
+  }
+
   /** All the day's recorded samples of a symbol, oldest first. */
   async readTicks(symbol) {
     const chunks = await TickChunk.find({ symbol, day: this.day }).sort({ from: 1 }).lean();
