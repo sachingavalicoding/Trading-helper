@@ -55,20 +55,25 @@ export function ReplayBanner() {
     setResetting(true);
     try {
       await api('/replay-day/reset', { method: 'POST' });
-      await new Promise((r) => setTimeout(r, 4000));
-      for (let i = 0; i < 120; i += 1) {
-        try {
-          if ((await fetch('/api/health')).ok) break;
-        } catch {
-          /* still restarting */
-        }
-        await new Promise((r) => setTimeout(r, 1500));
-      }
-      window.location.reload();
     } catch (e) {
-      toast.error(e.message);
-      setResetting(false);
+      if (e.code !== 'NETWORK') {
+        toast.error(e.message);
+        setResetting(false);
+        return;
+      }
+      // the copy was stopped while answering: it is restarting, keep waiting below
     }
+    // wait until a NEW copy answers (its boot id differs), then reload onto the fresh day
+    for (let i = 0; i < 160; i += 1) {
+      await new Promise((r) => setTimeout(r, 1500));
+      try {
+        const st = await api('/replay-day/status');
+        if (st.mode === 'replay' && st.bootId !== s.bootId) break;
+      } catch {
+        /* still restarting */
+      }
+    }
+    window.location.reload();
   }
   const control = (body) => api('/replay-day/control', { method: 'POST', body }).catch((e) => toast.error(e.message));
   const live = `${window.location.protocol}//${window.location.hostname}:${s.livePort}/`;

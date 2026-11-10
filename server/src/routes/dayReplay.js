@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { SPEEDS } from '../dayreplay/manager.js';
@@ -6,12 +7,14 @@ import { validate } from '../middleware/validate.js';
 const startBody = z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), speed: z.number().int().refine((s) => SPEEDS.includes(s)).default(1) });
 const controlBody = z.object({ speed: z.number().refine((s) => SPEEDS.includes(s)).optional(), paused: z.boolean().optional() });
 
+const BOOT_ID = randomUUID(); // changes with every start of the process, so a page can tell a restarted replay from the old one
+
 /** Replay a recorded day: the live server starts/stops a replay copy; the replay copy reports and controls its clock. */
 export function dayReplayRoutes({ config, clock, manager }) {
   const r = Router();
 
   r.get('/status', (_req, res) => {
-    if (config.replay) return res.json({ mode: 'replay', day: config.replay.day, livePort: config.replay.livePort, speeds: SPEEDS, ...clock.info() });
+    if (config.replay) return res.json({ mode: 'replay', bootId: BOOT_ID, day: config.replay.day, livePort: config.replay.livePort, speeds: SPEEDS, ...clock.info() });
     res.json({ mode: 'live', speeds: SPEEDS, run: manager.status() });
   });
 
@@ -39,19 +42,15 @@ export function dayReplayRoutes({ config, clock, manager }) {
   });
 
   // Reset, from inside a replay: ask the live server to start this same day again (it stops this copy and wipes the test account).
-  r.post('/reset', async (req, res) => {
+  r.post('/reset', (req, res) => {
     if (!config.replay) return res.status(400).json({ error: { code: 'NOT_REPLAY', message: 'Only a replay can be reset.' } });
-    try {
-      const out = await fetch(`http://127.0.0.1:${config.replay.livePort}/api/replay-day/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: req.headers.authorization || '' },
-        body: JSON.stringify({ day: config.replay.day, speed: clock.info().speed || 1 }),
-      });
-      if (!out.ok) return res.status(502).json({ error: { code: 'RESET_FAILED', message: 'The live app could not restart the replay. Is it still running?' } });
-      res.json({ ok: true });
-    } catch {
-      res.status(502).json({ error: { code: 'RESET_FAILED', message: 'Could not reach the live app to restart the replay.' } });
-    }
+    // The live app stops this very process before it starts the new copy, so answer first and let the request go on in the background.
+    res.status(202).json({ ok: true, bootId: BOOT_ID });
+    fetch(`http://127.0.0.1:${config.replay.livePort}/api/replay-day/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: req.headers.authorization || '' },
+      body: JSON.stringify({ day: config.replay.day, speed: clock.info().speed || 1 }),
+    }).catch(() => {});
   });
 
   r.post('/control',validate(controlBody), (req, res) => {

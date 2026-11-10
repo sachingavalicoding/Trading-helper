@@ -39,7 +39,7 @@ export class ReplayManager {
   async start({ day, speed = 1 }) {
     if (!SPEEDS.includes(speed)) throw Object.assign(new Error(`Speed must be one of ${SPEEDS.join(', ')}`), { status: 400, code: 'BAD_SPEED' });
     if (!(await this.days()).some((d) => d.day === day)) throw Object.assign(new Error(`There are no recorded seconds for ${day}`), { status: 400, code: 'NO_DAY' });
-    this.stop();
+    await this.#halt();
     const run = { state: 'starting', day, speed, startedAt: Date.now() };
     this.run = run;
     const child = this.spawnFn(process.execPath, [SERVER_ENTRY], {
@@ -78,6 +78,23 @@ export class ReplayManager {
       this.run = { state: 'failed', day: run.day, speed: run.speed, error: 'The replay did not start in time. See the server log.' };
       this.child?.kill();
     }
+  }
+
+  /** Stops the running copy and waits until it has really exited (its port and database are free), killing it if it is slow. */
+  async #halt(timeoutMs = 10000) {
+    const child = this.child;
+    this.stop();
+    if (!child || child.exitCode !== null || child.signalCode) return;
+    await new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        setTimeout(resolve, 500);
+      }, timeoutMs);
+      child.once('exit', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
   }
 
   stop() {
