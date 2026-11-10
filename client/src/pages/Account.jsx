@@ -16,6 +16,7 @@ import { OptionsLimits, StopPlacement, Switch } from '../components/options/Opti
 import { TrailStop } from '../components/options/TrailStop.jsx';
 import { EntryChoices } from '../components/study/ReportsStudies.jsx';
 import { DayReviewTile, GuideTile } from '../components/AccountExports.jsx';
+import { ReplayCard } from '../components/Replay.jsx';
 
 function Row({ label, value, className = '' }) {
   return (
@@ -298,6 +299,8 @@ export default function Account() {
         <GuideTile />
       </div>
 
+
+      <ReplayCard />
 
       <Card className="divide-y divide-line">
         <button type="button" disabled={busy} onClick={addFunds} className="flex w-full items-center gap-2 px-4 py-3.5 text-sm transition-colors hover:bg-surface-2 disabled:opacity-50">

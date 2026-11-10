@@ -10,7 +10,9 @@ const num = (v, fallback) => (v === undefined || v === '' || Number.isNaN(Number
 const here = path.dirname(fileURLToPath(import.meta.url));
 const clientDist = [path.resolve(here, '../../../phone-app'), path.resolve(here, '../../../client/dist')].find((d) => existsSync(path.join(d, 'index.html'))) || null;
 
-const provider = (process.env.MARKET_DATA_PROVIDER || 'mock').toLowerCase();
+// A replay run (see dayreplay/) is the same server started on a past day's recorded data: REPLAY_DAY=YYYY-MM-DD.
+const replayDay = /^\d{4}-\d{2}-\d{2}$/.test(process.env.REPLAY_DAY || '') ? process.env.REPLAY_DAY : '';
+const provider = replayDay ? 'replay' : (process.env.MARKET_DATA_PROVIDER || 'mock').toLowerCase();
 
 export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -24,16 +26,18 @@ export const env = {
   clientDist: bool(process.env.SERVE_CLIENT, true) ? clientDist : null,
 
   provider,
+  replay: replayDay ? { day: replayDay, speed: num(process.env.REPLAY_SPEED, 1), sourceMongoUri: process.env.REPLAY_SOURCE_MONGO_URI || '', livePort: num(process.env.REPLAY_LIVE_PORT, 0) } : null,
+  replayPort: num(process.env.REPLAY_PORT, 0), // the port a replay run listens on (default: this server's port + 1)
   // Live providers enforce NSE hours for orders by default; the mock feed lets you practise any time.
   enforceMarketHours: bool(process.env.ENFORCE_MARKET_HOURS, provider !== 'mock'),
   // Comma separated YYYY-MM-DD dates when NSE is closed. Keep this in sync with NSE's holiday circular.
   nseHolidays: (process.env.NSE_HOLIDAYS || '').split(',').map((s) => s.trim()).filter(Boolean),
 
   // Free headline feeds (Google News RSS). Turn off if the server cannot reach the internet.
-  newsEnabled: bool(process.env.NEWS_ENABLED, true),
+  newsEnabled: replayDay ? false : bool(process.env.NEWS_ENABLED, true),
 
   // One-second record of Nifty and the streaming option contracts (the newest 3 days are kept). Turn off with TICK_RECORD=false.
-  tickRecord: bool(process.env.TICK_RECORD, true),
+  tickRecord: replayDay ? false : bool(process.env.TICK_RECORD, true),
 
   startingBalance: num(process.env.STARTING_BALANCE, 100000),
   misLeverage: num(process.env.MIS_LEVERAGE, 5),

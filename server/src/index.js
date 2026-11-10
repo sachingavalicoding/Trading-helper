@@ -14,13 +14,17 @@ import { HistorySync } from './market/historySync.js';
 import { OptionHistorySync } from './market/optionHistory.js';
 import { TickRecorder } from './ticks/tickRecorder.js';
 import { attachSocket } from './socket/index.js';
+import { prepareReplay } from './dayreplay/boot.js';
+import { dayReplayRoutesDeps } from './dayreplay/manager.js';
 import { logger } from './utils/logger.js';
 
 async function main() {
   assertEnv();
-  await connectDb(env.mongoUri);
+  // A replay run uses its own database and a virtual clock; the live server never does.
+  const replay = env.replay ? await prepareReplay(env) : null;
+  await connectDb(replay ? replay.mongoUri : env.mongoUri);
 
-  const market = new MarketDataService(createProvider(env), { holidays: env.nseHolidays, expiryWeekday: env.niftyExpiryWeekday, enforceHours: env.enforceMarketHours });
+  const market = new MarketDataService(replay ? replay.provider : createProvider(env), { holidays: env.nseHolidays, expiryWeekday: env.niftyExpiryWeekday, enforceHours: env.enforceMarketHours });
   const engine = new OrderEngine({ market, config: env });
   await engine.init();
   try {
@@ -47,12 +51,15 @@ async function main() {
   optionTrader.start();
 
   const history = new HistorySync({ market });
-  history.schedule();
   const optionHistory = new OptionHistorySync({ market });
-  optionHistory.schedule();
+  if (!replay) {
+    history.schedule();
+    optionHistory.schedule();
+  }
   const ticks = new TickRecorder({ market, config: env });
   ticks.start();
-  const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history, optionHistory, ticks });
+  const dayReplay = dayReplayRoutesDeps({ config: env, clock: replay?.clock ?? null });
+  const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history, optionHistory, ticks, dayReplay });
   const server = http.createServer(app);
   const io = attachSocket(server, { market, engine, config: env, scanner });
 
@@ -63,6 +70,7 @@ async function main() {
 
   const shutdown = async (signal) => {
     logger.info(`${signal} received, shutting down`);
+    dayReplay.manager?.stop();
     engine.stop();
     tracker.stop();
     autoTrader.stop();
