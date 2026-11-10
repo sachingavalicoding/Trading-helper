@@ -189,3 +189,31 @@ test('every() runs on the replay clock, never overlaps, and holds the clock whil
   job.stop();
   assert.equal(maxHolds, 1);
 });
+
+test('starting a replay again waits for the old copy to exit before the new one starts', async () => {
+  const { EventEmitter } = await import('node:events');
+  const order = [];
+  const children = [];
+  const spawnFn = () => {
+    const c = new EventEmitter();
+    c.exitCode = null;
+    c.signalCode = null;
+    c.kill = () => {
+      order.push('kill');
+      setTimeout(() => {
+        order.push('exit');
+        c.exitCode = 0;
+        c.emit('exit', 0);
+      }, 20);
+    };
+    order.push('spawn');
+    children.push(c);
+    return c;
+  };
+  const m = new ReplayManager({ config: { port: 5000 }, spawnFn, fetchFn: async () => ({ ok: false }), readyTimeoutMs: 50 });
+  m.days = async () => [{ day: DAY }];
+  await m.start({ day: DAY, speed: 1 });
+  await m.start({ day: DAY, speed: 5 });
+  assert.deepEqual(order, ['spawn', 'kill', 'exit', 'spawn']);
+  m.stop();
+});
