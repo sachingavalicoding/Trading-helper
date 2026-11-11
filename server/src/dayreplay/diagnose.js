@@ -36,8 +36,10 @@ export function settingsItems({ optionSettings, autoSettings }) {
   }
   const a = autoSettings;
   if (!a?.enabled) out.push(item('warn', 'Auto shares is OFF (Account > Entries), so no share will be bought.'));
-  else if (!normalizeCombos(a.combos).some((c) => c.on)) out.push(item('warn', 'Auto shares is on, but no share combination is ON. Shares are bought only on your combinations.'));
-  else out.push(item('ok', `Auto shares is on with ${normalizeCombos(a.combos).filter((c) => c.on).length} combination(s).`));
+  else {
+    const n = normalizeCombos(a.combos).filter((c) => c.on).length;
+    out.push(item('ok', `Auto shares is on and buys scanner ideas of score ${a.minScore ?? 70}+ that pass your entry rules${n ? `, plus ${n} combination(s)` : ''}.`));
+  }
   return out;
 }
 
