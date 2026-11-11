@@ -7,7 +7,9 @@ import { daysCsv, tradesCsv } from '../report/pnlCsv.js';
 import { pnlSummary } from '../report/pnlSummary.js';
 import { guideText } from '../guide/guide.js';
 import { buildDayReport } from '../report/dayReport.js';
-import { summarizeIdeas } from '../scanner/stats.js';
+import { summarizeIdeas, whatWins } from '../scanner/stats.js';
+import { sizeOf } from '../scanner/backtest.js';
+import { roundTripCharges } from '../services/charges.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { logger } from '../utils/logger.js';
 import { lastTradingDayKey } from '../market/marketHours.js';
@@ -15,6 +17,13 @@ import { lastTradingDayKey } from '../market/marketHours.js';
 const query = z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
 const day10 = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const pnlQuery = z.object({ from: day10.optional(), to: day10.optional(), segment: z.enum(['all', 'EQ', 'OPT']).default('all'), by: z.enum(['trade', 'day']).default('trade') });
+
+/** Round-trip charges of the trade an idea would make (sized to the Account stop and max amount), in risk units. */
+const chargesInR = (riskAmount, maxAmount) => (i) => {
+  const qty = sizeOf(i, { riskAmount, maxAmount: maxAmount || 0 });
+  const risk = qty * Math.abs(i.entry - i.stopLoss);
+  return qty && risk ? roundTripCharges({ qty, price: i.entry }) / risk : null;
+};
 
 /** One text report of a day, for copying into a chat. */
 export function reportRoutes({ engine, market, review }) {
@@ -29,12 +38,13 @@ export function reportRoutes({ engine, market, review }) {
       AutoLog.find({ user: req.userId, day, segment: 'OPT' }).sort({ decidedAt: 1 }).lean(),
       AutoSettings.findOne({ user: req.userId }).lean(),
       OptionSettings.findOne({ user: req.userId }).lean(),
-      ScanIdea.find({ status: { $ne: 'OPEN' } }, 'setup side status entry stopLoss exitPrice score createdAt').lean(),
+      ScanIdea.find({ status: { $ne: 'OPEN' } }, 'setup side status entry stopLoss exitPrice score createdAt bestR worstR card.checks card.facts').lean(),
     ]);
     const auto = autoDoc || new AutoSettings({ user: req.userId }).toObject();
     const opt = optDoc || new OptionSettings({ user: req.userId }).toObject();
     const reviewDay = review ? await review.day(req.userId, day).catch((e) => (logger.warn(`report: review failed: ${e.message}`), null)) : null;
     const status = market.status();
+    const shareRules = await loadRules(req.userId, 'EQ');
     const text = buildDayReport({
       day,
       generatedAt: new Date(),
@@ -42,13 +52,14 @@ export function reportRoutes({ engine, market, review }) {
       settings: {
         auto,
         options: opt,
-        rules: { shares: await loadRules(req.userId, 'EQ'), options: await loadRules(req.userId, 'OPT') },
+        rules: { shares: shareRules, options: await loadRules(req.userId, 'OPT') },
       },
       ideas,
       eqLog,
       optLog,
       review: reviewDay,
       track: summarizeIdeas(finished.map((i) => ({ ...i, openedAt: i.createdAt }))),
+      wins: whatWins(finished.map((i) => ({ ...i, openedAt: i.createdAt })), { chargesR: chargesInR(shareRules.stopLoss, auto.maxTradeAmount) }),
     });
     res.json({ day, text });
   });

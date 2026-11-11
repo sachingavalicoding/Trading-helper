@@ -8,6 +8,8 @@ import { findPairs, findCombos, pairStart } from './pairFinder.js';
 import { evaluate, evaluateBy, netResult, targetTable } from '../scanner/backtest.js';
 import { istParts } from '../market/marketHours.js';
 import { scoreStudy } from './scoreParts.js';
+import { ruleTest } from './ruleTest.js';
+import { niftyTrendTimeline } from '../scanner/marketTrend.js';
 
 // The shares study: the live scanner's rules replayed over past 1-minute candles of the Nifty 50, as paper trades sized to the Account stop.
 // It reads history and changes nothing. The replay has no order book. Its exits are in rupees on the shares it would buy: your profit
@@ -27,13 +29,15 @@ export async function runSharesStudy({ nifty1, history, params, onProgress = () 
   const opts = { riskAmount: params.riskAmount || 1000, slippagePct: params.slippagePct ?? 0.05 };
   const target = params.target > 0 ? params.target : 0;
   const exitMin = params.exitMin > 0 ? params.exitMin : 15 * 60 + 15;
-  const money = { ...opts, steps: params.steps ?? [], target, exitMin };
+  const money = { ...opts, steps: params.steps ?? [], target, exitMin, ...(params.maxAmount > 0 ? { maxAmount: params.maxAmount } : {}) };
   const ideas = [];
   const every = []; // every enterable idea whatever its score, for the score study
   const symbols = Object.keys(history).filter((s) => history[s]?.length > 100);
+  const marketAt = niftyTrendTimeline(nifty1); // Nifty's own trend minute by minute, as the live scanner reads it
+  const live = []; // the ideas as the live scanner would raise them, for "Test the new entry rules" (study/ruleTest.js)
   for (const [n, symbol] of params.finderOnly ? [] : symbols.entries()) {
     onProgress(`Replaying the scanner on ${symbol} (${n + 1}/${symbols.length})`);
-    ideas.push(...replayStock({ symbol, c1: history[symbol], nifty: nifty1, days: params.days, exits: 'live', money, collect: every }));
+    ideas.push(...replayStock({ symbol, c1: history[symbol], nifty: nifty1, days: params.days, exits: 'live', money, collect: every, marketAt, live }));
     await yieldTurn();
   }
   const needRank = params.finderOnly ? (params.pairFind && !params.pairFirst) || params.comboFind : params.rank !== false;
@@ -55,6 +59,7 @@ export async function runSharesStudy({ nifty1, history, params, onProgress = () 
     byExit: rows((i) => i.exit, (k) => EXIT_WORD[k] || k),
     firstTarget: targetTable(ideas),
     scoreStudy: scoreStudy(every, opts),
+    ruleTest: ruleTest(live, params.settings ?? null, { ...opts, maxAmount: params.maxAmount || 0 }),
     ...extra,
     recent: traded.slice(0, 15).map(({ i, r }) => ({ symbol: i.symbol, setup: i.setup, side: i.side, openedAt: i.openedAt, entry: i.entry, stopLoss: i.stopLoss, exit: EXIT_WORD[i.exit] || i.exit, exitPrice: i.exitPrice, qty: r.qty, net: r.net })),
   };

@@ -1,6 +1,7 @@
 import { summarizeLog } from '../auto/logSummary.js';
 import { summarizeIdeas, resultR } from '../scanner/stats.js';
 import { TRADE_DEFAULTS, ladderText } from '../models/TradeDefaults.js';
+import { shareRulesOf } from '../scanner/entryRules.js';
 
 // One day of everything the scanner, the auto trader and the options trader did, as plain text, so it can be copied
 // from the app and pasted into a chat for review. No secrets and no personal data: only prices, rules and results.
@@ -40,9 +41,28 @@ export const ownExitsText = (x) => {
   return parts.length ? ` [own exits: ${parts.join(', ')}]` : '';
 };
 
+/** The share entry rules (Account > Entries > Shares) in words. */
+export function shareRulesText(sr) {
+  return [
+    sr.marketAgree ? 'Nifty must agree' : 'Nifty not checked',
+    sr.minVsNifty > 0 ? `at least ${sr.minVsNifty}% stronger than Nifty` : null,
+    sr.minRelVol > 0 ? `volume at least ${sr.minRelVol}x normal` : null,
+    sr.confirmBar ? 'waits for a 5-minute close past the entry' : 'buys when the idea appears',
+    `no buy once ${sr.noChaseR}R past the entry`,
+    `smallest stop ${sr.minStopPct}%`,
+    sr.stopAfterLosses > 0 ? `no new trade after ${sr.stopAfterLosses} losses in a day` : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+}
+
 function rules({ auto, options, rules: lock = TRADE_DEFAULTS }) {
   const lines = [];
-  if (auto) lines.push(`- Auto shares: ${auto.enabled ? 'ON' : 'off'}, min score ${auto.minScore}, max ${auto.maxOpen} open, stop for the day after -${auto.dailyLossPct}%, max ₹${auto.maxTradeAmount} a trade, no sale target; ${lockText(lock.shares)}.`);
+  if (auto) {
+    const sr = shareRulesOf(auto.shareRules);
+    lines.push(`- Auto shares: ${auto.enabled ? 'ON' : 'off'}, min score ${auto.minScore}, max ${auto.maxOpen} open, stop for the day after -${auto.dailyLossPct}%, max ₹${auto.maxTradeAmount} a trade, ${sr.target > 0 ? `sell at +₹${sr.target}` : 'no sale target'}; ${lockText(lock.shares)}.`);
+    lines.push(`- Share entry rules: ${shareRulesText(sr)}.`);
+  }
   if (options) lines.push(`- Auto options: ${options.enabled ? 'ON' : 'off'}, ${(options.indexes ?? ['NIFTY']).join(' + ')}, buys on ${optionSources(options)}, budget ₹${options.budget}, max ${options.maxLots} lots, ${options.maxTrades > 0 ? `${options.maxTrades} trades a day` : 'no daily trade limit'}, chart stop (closed 1-minute candle), no target, ${optionExits(options)}; ${lockText(lock.options, 'loss limit')}.`);
   return lines;
 }
@@ -92,7 +112,25 @@ function newsLines(review) {
 }
 
 /** The whole report as text. Every part tolerates missing data. */
-export function buildDayReport({ day, generatedAt, market, settings = {}, ideas = [], eqLog = [], optLog = [], review = null, track = null }) {
+const band = (rows) => rows.map((g) => `${g.key} ${g.count} (${g.winRate}%, ${signed(g.avgR, 'R')})`).join('; ');
+
+/** The track record split by what was true when each idea was raised (scanner/stats.js whatWins). */
+function winsLines(w) {
+  if (!w?.count) return [];
+  const lines = [`## What wins in the track record (${w.count} finished ideas: count, % that reached target 1, average result in risks)`];
+  if (w.chargesR != null) lines.push(`Charges cost about ${w.chargesR}R a trade at your stop size, so a group must average more than +${w.chargesR}R to make money.`);
+  lines.push(`- Stop distance: ${band(w.byStop)}`);
+  if (w.byMarket.length) lines.push(`- Market: ${band(w.byMarket)}`);
+  if (w.byVsNifty.length) lines.push(`- Share vs Nifty: ${band(w.byVsNifty)}`);
+  if (w.byVolume.length) lines.push(`- Volume vs normal: ${band(w.byVolume)}`);
+  lines.push(`- Side: ${band(w.bySide)}`);
+  lines.push(`- Hour: ${band(w.byHour)}`);
+  if (w.quickFails) lines.push(`- Stopped ideas that never got +0.2R first (bought at the wrong moment): ${w.quickFails.neverHalfR} of ${w.quickFails.stopped}`);
+  if (w.soldAtHalfR && w.asIs) lines.push(`- Sold at +0.5R when reached: ${signed(w.soldAtHalfR.avgR, 'R')} a trade; at +1R: ${signed(w.soldAtOneR.avgR, 'R')}; as they ended: ${signed(w.asIs.avgR, 'R')} (${w.asIs.count} ideas with best/worst saved)`);
+  return [...lines, ''];
+}
+
+export function buildDayReport({ day, generatedAt, market, settings = {}, ideas = [], eqLog = [], optLog = [], review = null, track = null, wins = null }) {
   const out = [`# Nifty paper trader: day report for ${day}`, `Generated ${clock(generatedAt)} IST. Feed: ${market?.provider || 'unknown'}${market?.simulated ? ' (SIMULATED prices)' : ''}. Paper money only.`, '', '## Rules in force', ...rules(settings), ''];
   out.push(...ideaLines(ideas), '');
   out.push(...tradeLines('Auto share trades', eqLog), '');
@@ -101,5 +139,6 @@ export function buildDayReport({ day, generatedAt, market, settings = {}, ideas 
   if (track?.overall?.count) {
     out.push(`## Scanner track record (all finished ideas)`, `${track.overall.count} ideas, ${track.overall.winRate}% reached target 1, avg ${signed(track.overall.avgR, 'R')}. By setup: ${track.bySetup.slice(0, 8).map((g) => `${g.key} ${g.count} (${g.winRate}%, ${signed(g.avgR, 'R')})`).join('; ')}`, '');
   }
+  out.push(...winsLines(wins));
   return out.join('\n').trimEnd() + '\n';
 }

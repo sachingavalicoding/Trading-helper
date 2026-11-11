@@ -250,7 +250,17 @@ export function scoreCandidate(ctx, c, { legacy = false, weights = null } = {}) 
     penalties.push(`Price is ${Math.abs(ctx.vwapStretch).toFixed(1)} ATR from VWAP, so chasing here is risky`);
   }
   const gates = runGates(ctx, d, vwapOk, newsDelta, c, legacy);
-  return { ...c, score: Math.max(0, Math.min(100, score)), checks, penalties, gates, blocked: gates.filter((g) => !g.pass).map((g) => g.text), news: ctx.news ?? null };
+  // The raw readings behind the score, saved with the idea so the track record can be split by them (day report "What wins") and the
+  // auto trader's entry rules (scanner/entryRules.js) can be checked against them.
+  const facts = {
+    niftyTrend: ctx.marketState?.niftyTrend ?? null,
+    breadthUp: ctx.marketState?.breadthUp ?? null,
+    niftyChangePct: ctx.niftyChangePct ?? null,
+    relStrength: ctx.relStrength == null ? null : round2(ctx.relStrength),
+    relVol: ctx.relVol == null ? null : round2(ctx.relVol),
+    stopPct: c.entry ? round2((Math.abs(c.entry - c.stopLoss) / c.entry) * 100) : null,
+  };
+  return { ...c, score: Math.max(0, Math.min(100, score)), checks, penalties, gates, blocked: gates.filter((g) => !g.pass).map((g) => g.text), news: ctx.news ?? null, facts };
 }
 
 /** Only suggest entries between 09:30 and 15:15 IST. */

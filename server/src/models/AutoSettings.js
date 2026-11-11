@@ -18,6 +18,17 @@ const autoSettingsSchema = new mongoose.Schema(
     trendScore: { type: Boolean, default: false }, // also buy "Trend score" ideas (the score-led entry, scanner/setups.js); off until switched on
     skipSetups: { type: [String], default: [] }, // setups the auto trader leaves alone (Account tab); the scanner still shows them
     maxTradeAmount: { type: Number, default: 30000, min: 1000 }, // most money put into one trade
+    // Extra entry rules (scanner/entryRules.js), added 11 Nov 2026. Defaults keep the trader as it was: only the old 0.5% smallest stop and 0.5R no-chase.
+    shareRules: {
+      marketAgree: { type: Boolean, default: false },
+      minVsNifty: { type: Number, default: 0, min: 0, max: 5 },
+      minRelVol: { type: Number, default: 0, min: 0, max: 10 },
+      confirmBar: { type: Boolean, default: false },
+      noChaseR: { type: Number, default: 0.5, min: 0.1, max: 2 },
+      minStopPct: { type: Number, default: 0.5, min: 0, max: 2 },
+      stopAfterLosses: { type: Number, default: 0, min: 0, max: 20 },
+      target: { type: Number, default: 0, min: 0, max: 100000 },
+    },
     combos: { type: [comboSchema], default: [] }, // the user's own entry combinations (Account > Entries); see combos/combos.js
   },
   { timestamps: true },
