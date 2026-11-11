@@ -10,6 +10,7 @@ import { normalizeCombos } from '../combos/combos.js';
 import { bars5Of, breadthByTime, comboMoney, shareChart, shareIdeas, newsDirection } from '../combos/shares.js';
 import { logger } from '../utils/logger.js';
 import { roundToTick } from '../utils/money.js';
+const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -254,6 +255,12 @@ export class AutoTrader {
     const own = idea.comboSnap ? comboMoney(idea.comboSnap, { riskAmount: rules.stopLoss, maxAmount: settings.maxTradeAmount, steps: rules.steps, target: 0, exitMin: rules.exitMin }) : null;
     const exitAt = own?.exitMin ?? rules.exitMin;
     if (this.config.enforceMarketHours && istParts(new Date()).minutes >= exitAt) return { skipped: own && exitAt !== rules.exitMin ? 'past the exit time set for this combination' : 'past the exit time set in the Account tab' };
+    if (this.config.enforceMarketHours) {
+      const nowMin = istParts(new Date()).minutes;
+      const from = settings.entryFrom ?? 555;
+      const to = settings.entryTo ?? 915;
+      if (nowMin < from || nowMin >= to) return { skipped: `outside your share entry hours (${hhmm(from)} to ${hhmm(to)})` };
+    }
     if (!idea.combo && settings.skipSetups?.includes(idea.setup)) return { skipped: `${idea.setup} is switched off in the Account tab` };
     if (idea.setup === 'News gap' && settings.earlyNews === false) return { skipped: 'news gap trades are switched off' };
     if (idea.setup === TREND_SCORE && settings.trendScore !== true) return { skipped: 'Trend score trades are switched off (Account > Entries > Shares)' };
@@ -263,6 +270,7 @@ export class AutoTrader {
     const funds = await getFunds(userId, this.config.startingBalance);
     const today = await this.todaySummary(userId);
     if (today.open >= settings.maxOpen) return { skipped: `already ${today.open} auto trades open` };
+    if (settings.maxTrades > 0 && today.trades >= settings.maxTrades) return { skipped: `already took ${today.trades} auto trades today (your limit is ${settings.maxTrades})` };
     if (today.pnl <= -(funds.balance * settings.dailyLossPct) / 100) return { skipped: 'daily loss limit reached' };
 
     const size = sizePosition({

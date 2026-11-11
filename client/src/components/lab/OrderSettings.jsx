@@ -74,7 +74,7 @@ export function ExitsBlock({ exits, onChange }) {
 const rs = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
 const num = (v) => Number(String(v).replace(/[^\d.]/g, '')) || 0;
 const clock = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-export const EXIT_TIMES = Array.from({ length: 23 }, (_, i) => 9 * 60 + 30 + i * 15); // 09:30 to 15:00 every 15 minutes, then 15:15
+export const EXIT_TIMES = Array.from({ length: 24 }, (_, i) => 9 * 60 + 15 + i * 15); // 09:15 to 15:00 every 15 minutes, then 15:15
 EXIT_TIMES.push(15 * 60 + 15);
 
 function Money({ label, value, placeholder, onChange, aria }) {

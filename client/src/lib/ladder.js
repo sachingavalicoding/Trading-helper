@@ -43,12 +43,12 @@ export function ladderSummary(steps) {
 }
 
 export const DEFAULT_EXIT_MIN = 15 * 60 + 15;
-export const FIRST_EXIT_MIN = 9 * 60 + 30;
+export const FIRST_EXIT_MIN = 9 * 60 + 15;
 
 /** Minutes after midnight as "14:15", the value of a time input. */
 export const timeText = (min) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 
-/** "14:15" as minutes after midnight, or null when it is blank or outside 09:30 to 15:15. */
+/** "14:15" as minutes after midnight, or null when it is blank or outside 09:15 to 15:15. */
 export function minOfTime(text) {
   const m = /^(\d{2}):(\d{2})$/.exec(text ?? '');
   if (!m) return null;

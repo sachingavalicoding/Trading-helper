@@ -48,7 +48,7 @@ export function studyText(r) {
   if (!r) return '';
   const lines = [
     `Options study ${r.period.from} to ${r.period.to} (${r.period.days} trading days), ${sizingText(r.params)}, charges and slippage included, ${pricingText(r)}.`,
-    `${exitText(r.params)}; ${stopRuleText(r.params.stopRule)}${r.params.trail ? `; ${trailText(r.params.trail)}` : ''}${r.params.breakEven ? `; ${breakEvenText(r.params.breakEven)}` : ''}; closed at ${timeText(r.params.exitMin ?? DEFAULT_EXIT_MIN)}; at most ${r.params.maxPerDay} trades a day; stops wider than ${r.params.maxStopAtr} ATR skipped.`,
+    `${exitText(r.params)}; ${stopRuleText(r.params.stopRule)}${r.params.trail ? `; ${trailText(r.params.trail)}` : ''}${r.params.breakEven ? `; ${breakEvenText(r.params.breakEven)}` : ''}; closed at ${timeText(r.params.exitMin ?? DEFAULT_EXIT_MIN)}; ${r.params.maxPerDay > 0 ? `at most ${r.params.maxPerDay} trades a day` : 'no daily trade limit'}; stops wider than ${r.params.maxStopAtr} ATR skipped.`,
     '',
   ];
   for (const t of r.techniques) {

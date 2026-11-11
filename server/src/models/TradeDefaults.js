@@ -12,7 +12,7 @@ const rules = (stopLoss, lockStart, lockGap) => ({
   lockGap: { type: Number, default: lockGap, min: 1 }, // rupees the stop stays behind the best profit
   steps: { type: [{ _id: false, at: Number, keep: Number }], default: [] }, // the typed ladder; empty = use lockStart and lockGap
   lockOn: { type: Boolean, default: true }, // false = no profit lock for new trades; the typed rows are kept so the lock can be switched back on
-  exitMin: { type: Number, default: 915, min: 570, max: 915 }, // minutes after midnight IST when the auto trader closes its trades: 915 = 15:15, the square-off
+  exitMin: { type: Number, default: 915, min: 555, max: 915 }, // minutes after midnight IST when the auto trader closes its trades: 915 = 15:15, the square-off
 });
 
 const tradeDefaultsSchema = new mongoose.Schema(

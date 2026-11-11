@@ -486,7 +486,7 @@ export class OptionTrader {
     if (today.open >= settings.maxOpen) return stop(`already ${today.open} option trade${today.open > 1 ? 's' : ''} open`);
     if (!manual) {
       if (settings.pausedOn && settings.pausedOn === this.engine.marketStatus().istDate) return stop('new automatic buys are paused for today (your switch in Options)');
-      if (today.trades >= settings.maxTrades) return stop(`already took ${today.trades} option trades today`);
+      if (settings.maxTrades > 0 && today.trades >= settings.maxTrades) return stop(`already took ${today.trades} option trades today`);
       if (today.pnl <= -(settings.budget * settings.dailyLossPct) / 100) return stop('daily loss limit reached');
       const streak = settings.lossStreak ?? 2;
       if (streak > 0) {

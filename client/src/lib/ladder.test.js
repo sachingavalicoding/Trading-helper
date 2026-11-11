@@ -31,12 +31,12 @@ describe('profit ladder rows', () => {
 });
 
 describe('exit time', () => {
-  it('turns a typed time into minutes and back, and refuses one outside 09:30 to 15:15', () => {
+  it('turns a typed time into minutes and back, and refuses one outside 09:15 to 15:15', () => {
     expect(minOfTime('14:15')).toBe(855);
     expect(timeText(855)).toBe('14:15');
     expect(minOfTime('15:15')).toBe(915);
     expect(minOfTime('15:16')).toBeNull();
-    expect(minOfTime('09:29')).toBeNull();
+    expect(minOfTime('09:14')).toBeNull();
     expect(minOfTime('')).toBeNull();
   });
 });

@@ -276,13 +276,13 @@ export function OptionsStudy() {
         </div>
         <div className="space-y-1">
           <p className="text-[11px] leading-snug text-muted"><b className="text-fg">Trades a day.</b> The most trades one day may take in this study.</p>
-          <Segmented className="w-full" size="sm" value={maxTrades} onChange={setMaxTrades} options={[{ value: 0, label: 'My setting' }, { value: 3, label: '3' }, { value: 5, label: '5' }, { value: 10, label: '10' }]} />
+          <Segmented className="w-full" size="sm" value={maxTrades} onChange={setMaxTrades} options={[{ value: 0, label: 'My setting' }, { value: 3, label: '3' }, { value: 5, label: '5' }, { value: 10, label: '10' }, { value: -1, label: 'No limit' }]} />
         </div>
         {targetBad && <p className="text-xs text-down">The target must be between ₹100 and ₹1,00,000.</p>}
         <Segmented className="w-full" size="sm" value={days} onChange={setDays} options={DAYS} />
         {days > 30 && <p className="text-[11px] leading-snug text-muted">Longer than 30 days reads the saved candles (Research, Data tab), so download them first.</p>}
         <div className="flex justify-end">
-          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin, autoFind: find, pairFind: pair, pairFirst: pairFirst || undefined, comboFind: finder, research, index, realPrices, live, ...(maxTrades ? { maxTrades } : {}) })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
+          <button type="button" onClick={() => run(days, { exit, target: targetValue || 1000, fixedLots: lots, exitMin: time.exitMin, autoFind: find, pairFind: pair, pairFirst: pairFirst || undefined, comboFind: finder, research, index, realPrices, live, ...(maxTrades ? { maxTrades: Math.max(0, maxTrades) } : {}) })} disabled={running || targetBad || time.exitMin == null} className="btn btn-primary btn-sm shrink-0">
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : finderOn ? 'Run finder' : 'Run study'}
           </button>
         </div>

@@ -43,7 +43,7 @@ export const ownExitsText = (x) => {
 function rules({ auto, options, rules: lock = TRADE_DEFAULTS }) {
   const lines = [];
   if (auto) lines.push(`- Auto shares: ${auto.enabled ? 'ON' : 'off'}, min score ${auto.minScore}, max ${auto.maxOpen} open, stop for the day after -${auto.dailyLossPct}%, max ₹${auto.maxTradeAmount} a trade, no sale target; ${lockText(lock.shares)}.`);
-  if (options) lines.push(`- Auto options: ${options.enabled ? 'ON' : 'off'}, ${(options.indexes ?? ['NIFTY']).join(' + ')}, buys on ${optionSources(options)}, budget ₹${options.budget}, max ${options.maxLots} lots, ${options.maxTrades} trades a day, chart stop (closed 1-minute candle), no target, ${optionExits(options)}; ${lockText(lock.options, 'loss limit')}.`);
+  if (options) lines.push(`- Auto options: ${options.enabled ? 'ON' : 'off'}, ${(options.indexes ?? ['NIFTY']).join(' + ')}, buys on ${optionSources(options)}, budget ₹${options.budget}, max ${options.maxLots} lots, ${options.maxTrades > 0 ? `${options.maxTrades} trades a day` : 'no daily trade limit'}, chart stop (closed 1-minute candle), no target, ${optionExits(options)}; ${lockText(lock.options, 'loss limit')}.`);
   return lines;
 }
 

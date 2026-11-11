@@ -35,8 +35,8 @@ const runSchema = z.object({
   research: z.boolean().default(false), // options only: also try other stop amounts, profit ladders and trailing stops on Breakout + Engulfing
   realPrices: z.boolean().default(true), // options only: price the trades from the real option candles saved each evening (only the days and contracts saved), not from the model. On by default; a run with no saved prices falls back to the model and says so
   live: z.boolean().default(true), // options only: trade the signals by the live rules (cooldowns, one call and one put at a time, the daily trade cap and loss limit); off = one trade at a time, 3 a day
-  maxTrades: z.coerce.number().int().min(1).max(10).optional(), // options only: trades a day for this run; left out = the Account setting
-  exitMin: z.coerce.number().int().min(9 * 60 + 30).max(15 * 60 + 15).optional(), // the time everything is closed; left out = the one in Account Limits
+  maxTrades: z.coerce.number().int().min(0).max(10000).optional(), // options only: trades a day for this run (0 = no limit); left out = the Account setting
+  exitMin: z.coerce.number().int().min(9 * 60 + 15).max(15 * 60 + 15).optional(), // the time everything is closed; left out = the one in Account Limits
 });
 const MAX_DAYS = { options: 65, shares: 15, ladder: 30, moved: 30 }; // a share replay runs the whole scanner on 50 stocks, so it is kept short; options can use the saved three months
 

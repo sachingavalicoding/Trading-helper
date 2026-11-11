@@ -11,12 +11,12 @@ import { STOP_ATRS, STOP_MODES, STOP_POINTS } from '../../lib/stops.js';
 
 const FIELDS = [
   { key: 'budget', label: 'Money for options (₹)', step: 1000, min: 5000, max: 100000000 },
-  { key: 'maxLots', label: 'Most lots in one trade', step: 1, min: 1, max: 20 },
-  { key: 'maxOpen', label: 'Most trades open at once', step: 1, min: 1, max: 3 },
-  { key: 'maxTrades', label: 'Most trades a day', step: 1, min: 1, max: 10 },
-  { key: 'dailyLossPct', label: 'Stop for the day after losing (%)', step: 1, min: 2, max: 30 },
-  { key: 'lossStreak', label: 'Stop for the day after this many losses in a row (0 = off)', step: 1, min: 0, max: 5 },
-  { key: 'benchAfter', label: 'Switch a combination off after this many live losses in a row (0 = off)', step: 1, min: 0, max: 10 },
+  { key: 'maxLots', label: 'Most lots in one trade', step: 1, min: 1, max: 1000 },
+  { key: 'maxOpen', label: 'Most trades open at once', step: 1, min: 1, max: 100 },
+  { key: 'maxTrades', label: 'Most trades a day (0 = no limit)', step: 1, min: 0, max: 10000 },
+  { key: 'dailyLossPct', label: 'Stop for the day after losing (%)', step: 0.5, min: 0.5, max: 100 },
+  { key: 'lossStreak', label: 'Stop for the day after this many losses in a row (0 = off)', step: 1, min: 0, max: 100 },
+  { key: 'benchAfter', label: 'Switch a combination off after this many live losses in a row (0 = off)', step: 1, min: 0, max: 100 },
 ];
 
 const STUDY_WINNERS = ['breakout', 'engulfing']; // 30-day study: over 20 trades each and a win rate above the roughly 61% break-even (inside bar and EMA cross made money on only 6 and 7 trades)
