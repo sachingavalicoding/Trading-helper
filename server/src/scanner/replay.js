@@ -4,6 +4,7 @@ import { evaluateStock, MIN_SCORE } from './evaluate.js';
 import { roundToTick } from '../utils/money.js';
 import { LOCK_CHARGES_MULT, roundTripCharges } from '../services/charges.js';
 import { sizeOf } from './backtest.js';
+import { confirmEntry } from './entryRules.js';
 
 const STEP = 5; // look for ideas every 5 minutes, like a person glancing at the screen
 const MIN_BARS = 60;
@@ -126,12 +127,46 @@ export const partsOf = (c) => Object.fromEntries((c.checks ?? []).filter((k) => 
  * bar are given to the scanner, so it never sees the future. Older sessions still feed the indicators.
  * `legacy` scores with the rules from before ADX, EMA 50 and sector strength were added.
  */
-export function replayStock({ symbol, c1, nifty = null, days = 3, legacy = false, skipDays = 0, exits = 'target1', stopScale = 1, ladder = LADDER, money = null, collect = null }) {
+// Setups the live scanner never raises (scanner/service.js ALWAYS_OFF).
+const LIVE_OFF = new Set(['Level retest', 'VWAP pullback']);
+// Fixed rupee targets the rule test also tries, in place of the profit ladder (you asked for ₹200-300 a trade, 11 Nov 2026).
+export const TRY_TARGETS = [200, 250, 300];
+
+/**
+ * One idea as the live scanner would raise it, for the entry-rule test (study/ruleTest.js): the first candidate with the scanner's minimum score
+ * that is not blocked, not missed and not a switched-off setup, with its facts, its normal result, the result had it waited for a 5-minute
+ * close (scanner/entryRules.js confirmEntry), and the result with each fixed target in TRY_TARGETS.
+ */
+function liveIdea(symbol, c1, i, candidates, now, ladder, money) {
+  const top = candidates.find((c) => c.score >= MIN_SCORE && c.status !== 'MISSED' && !c.blocked.length && !LIVE_OFF.has(c.setup));
+  if (!top || top.status !== 'ENTRY') return null;
+  const idea = { symbol, setup: top.setup, side: top.side, score: top.score, entry: top.entry, stopLoss: top.stopLoss, target1: top.target1, target2: top.target2, target3: top.target3, openedAt: now.toISOString(), facts: top.facts ?? null };
+  const out = { ...idea, ...followLive(c1, i, idea, ladder, money), targets: {} };
+  for (const t of TRY_TARGETS) {
+    const r = followLive(c1, i, idea, ladder, { ...money, target: t });
+    out.targets[t] = { status: r.status, exit: r.exit, exitPrice: r.exitPrice, exitTime: r.exitTime, sizedQty: r.sizedQty };
+  }
+  const conf = confirmEntry(c1, i, idea);
+  if (conf.index != null) {
+    const later = { ...idea, entry: conf.price, openedAt: new Date(conf.time * 1000 + 60_000).toISOString() };
+    const r = followLive(c1, conf.index, later, ladder, money);
+    out.confirmed = { entry: conf.price, openedAt: later.openedAt, status: r.status, exit: r.exit, exitPrice: r.exitPrice, exitTime: r.exitTime, sizedQty: r.sizedQty, targets: {} };
+    for (const t of TRY_TARGETS) {
+      const rt = followLive(c1, conf.index, later, ladder, { ...money, target: t });
+      out.confirmed.targets[t] = { status: rt.status, exit: rt.exit, exitPrice: rt.exitPrice, exitTime: rt.exitTime, sizedQty: rt.sizedQty };
+    }
+  } else out.confirmed = { dropped: conf.dropped || 'not enough candles after the idea' };
+  return out;
+}
+
+export function replayStock({ symbol, c1, nifty = null, days = 3, legacy = false, skipDays = 0, exits = 'target1', stopScale = 1, ladder = LADDER, money = null, collect = null, marketAt = null, live = null }) {
   const dayOf = (b) => istDay(b.time);
   const sessions = [...new Set(c1.map(dayOf))];
   const replayDays = new Set(sessions.slice(Math.max(0, sessions.length - days - skipDays), sessions.length - skipDays));
   const raised = new Set();
   const raisedAll = new Set();
+  const raisedLive = new Set();
+  const liveStock = { day: null, count: 0, openUntil: 0, stopped: false };
   const ideas = [];
 
   for (let i = MIN_BARS; i < c1.length; i += STEP) {
@@ -148,7 +183,25 @@ export function replayStock({ symbol, c1, nifty = null, days = 3, legacy = false
     }
     const tick = tickAt(c1, i, dayStart, prevBar.close, niftyChangePct);
     const now = new Date(c1[i].time * 1000);
-    const { candidates } = evaluateStock({ symbol, tick, c1: c1.slice(0, i + 1), niftyChangePct }, { now, enforceWindows: true, legacy });
+    const marketState = marketAt ? marketAt(c1[i].time) : null;
+    const { candidates } = evaluateStock({ symbol, tick, c1: c1.slice(0, i + 1), niftyChangePct, marketState }, { now, enforceWindows: true, legacy });
+    if (live && money && !(money.exitMin && istParts(now).minutes >= money.exitMin)) {
+      const top = candidates.find((c) => c.score >= MIN_SCORE && c.status !== 'MISSED' && !c.blocked.length && !LIVE_OFF.has(c.setup));
+      const keyLive = top && `${day}|${top.setup}|${top.side}`;
+      if (liveStock.day !== day) Object.assign(liveStock, { day, count: 0, openUntil: 0, stopped: false });
+      // like the live scanner: one open idea per stock, at most 2 a day, none after a stop on that stock
+      const free = c1[i].time >= liveStock.openUntil && liveStock.count < 2 && !liveStock.stopped;
+      if (free && top?.status === 'ENTRY' && !raisedLive.has(keyLive)) {
+        raisedLive.add(keyLive);
+        const one = liveIdea(symbol, c1, i, candidates, now, ladder, money);
+        if (one) {
+          live.push(one);
+          liveStock.count += 1;
+          liveStock.openUntil = one.exitTime ?? Infinity;
+          if (one.exit === 'STOP') liveStock.stopped = true;
+        }
+      }
+    }
     if (collect) {
       // the score study: every idea that could be entered, whatever its score, with what each part of the score said
       const any = candidates.find((c) => c.status === 'ENTRY' && !c.blocked.length);

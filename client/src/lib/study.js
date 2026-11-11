@@ -84,6 +84,15 @@ export function sharesExitText(p) {
 }
 
 /** The shares study as plain text, to paste into the chat. */
+const VERDICT = { better: 'BETTER', mixed: 'more money but worse in one half', worse: 'worse', few: 'too few trades', on: 'already on' };
+
+/** The "Test the new entry rules" part of the shares study as lines of text (empty when the study has none). */
+export function ruleTestText(t) {
+  if (!t) return [];
+  const row = (x) => `${x.label}: ${x.trades} trades, ${x.winRate ?? '-'}% win, net ${formatPnl(x.totalNet)}, avg ${formatPnl(x.avgNet)}, halves ${formatPnl(x.halves[0])} / ${formatPnl(x.halves[1])}${x.verdict ? ` -> ${VERDICT[x.verdict] ?? x.verdict}` : ''}`;
+  return ['', `New entry rules test (${t.ideas} ideas as the live scanner raises them, ${t.days.length} days, min score ${t.minScore}):`, row(t.now), ...t.rows.map(row), ...(t.together ? [row(t.together)] : []), ...(t.warning ? [t.warning] : [])];
+}
+
 export function sharesText(r) {
   if (!r) return '';
   if (r.finderOnly) {
@@ -121,6 +130,7 @@ export function sharesText(r) {
     if (ss.check) lines.push(`Newer days from ${ss.check.from}: all ${st(ss.check.all)}; best third by score now ${st(ss.check.now)}; before 9 Nov ${st(ss.check.before)}${ss.check.suggested ? `; suggested weights ${st(ss.check.suggested)}` : ''}`);
     if (ss.suggested) lines.push(`Suggested weights (${ss.fitOn}): ${Object.entries(ss.suggested).filter(([, w]) => w > 0).map(([id, w]) => `${id} ${w}`).join(', ')}`);
   }
+  lines.push(...ruleTestText(r.ruleTest));
   if (r.combos?.length) {
     lines.push('', 'My combinations:');
     for (const x of r.combos) lines.push(`${line({ ...x, key: x.label.replace('My combination: ', '') })}; buys ${formatPnl(x.buys.net)} (${x.buys.trades}), sells ${formatPnl(x.sells.net)} (${x.sells.trades}); halves ${formatPnl(x.halves[0])} / ${formatPnl(x.halves[1])}; ${x.text}`);

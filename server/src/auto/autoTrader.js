@@ -10,6 +10,7 @@ import { normalizeCombos } from '../combos/combos.js';
 import { bars5Of, breadthByTime, comboMoney, shareChart, shareIdeas, newsDirection } from '../combos/shares.js';
 import { logger } from '../utils/logger.js';
 import { roundToTick } from '../utils/money.js';
+import { confirmEntry, ruleBlock, shareRulesOf } from '../scanner/entryRules.js';
 const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -17,7 +18,7 @@ const round2 = (n) => Math.round(n * 100) / 100;
 const MIN_PROFIT_TO_CHARGES = 3; // skip a trade whose profit at target 1 is under this many times its round-trip charges
 // There is no sale target. The order engine puts the user's profit lock (Account tab) on every new position: once the profit reaches
 // the lock start the stop follows a fixed gap behind the best profit. A trade ends at its stop or at the 15:15 square-off.
-const MIN_STOP_PCT = 0.5; // skip an idea whose stop is closer than this % of the entry: on 27-28 Oct the 4 trades with stops under 0.5% away lost 3 times within minutes
+// The smallest stop (was a fixed 0.5%) and how far price may have run past the entry (was a fixed 0.5R) are now settings: shareRules in AutoSettings, scanner/entryRules.js.
 const MAX_CHARGES_OF_RISK = 0.25; // skip a trade whose round-trip charges are more than this share of the money it risks: its stop is too tight for its size
 
 /**
@@ -40,6 +41,7 @@ export class AutoTrader {
     this.timed = new Set(); // `${userId}|${symbol}` of trades closed by the exit time, so the log says TIME
     this.comboSlot = 0; // the 5-minute slot the combinations were last read for
     this.comboBusy = false;
+    this.pending = new Map(); // `${userId}|${ideaId}` -> { settings, idea }: ideas waiting for a 5-minute close (shareRules.confirmBar)
     this.onEntry = (idea) => {
       this.handle(idea).catch((e) => logger.error('auto-trader failed', e));
     };
@@ -51,6 +53,7 @@ export class AutoTrader {
     this.engine.on('update', this.onUpdate);
     this.timer = every(30_000, () => this.closeOnTime(), { onError: (e) => logger.warn(`auto time exit failed: ${e.message}`) });
     this.comboTimer = every(20_000, () => this.scanCombos(), { onError: (e) => logger.warn(`combination scan failed: ${e.message}`) });
+    this.confirmTimer = every(10_000, () => this.checkPending(), { onError: (e) => logger.warn(`confirmation check failed: ${e.message}`) });
   }
 
   stop() {
@@ -59,6 +62,7 @@ export class AutoTrader {
     this.engine.off('update', this.onUpdate);
     this.timer?.stop();
     this.comboTimer?.stop();
+    this.confirmTimer?.stop();
   }
 
   /** Close the auto trader's open share trades once the clock reaches the exit time set in the Account tab (15:15 unless changed). */
@@ -239,6 +243,8 @@ export class AutoTrader {
 
   async #decide(settings, idea, seen) {
     const userId = settings.user;
+    const sr = shareRulesOf(settings.shareRules);
+    if (idea.dropReason) return { skipped: idea.dropReason };
 
     // The idea was raised a moment ago; skip it if price has already run away from the entry.
     const ltp = this.engine.market.getLtp(idea.symbol);
@@ -247,9 +253,9 @@ export class AutoTrader {
     if (ltp && risk) {
       const movedR = ((idea.side === 'BUY' ? 1 : -1) * (ltp - idea.entry)) / risk;
       seen.movedR = round2(movedR);
-      if (movedR > 0.5 || movedR < -0.3) return { skipped: `price already moved ${movedR.toFixed(2)}R from the entry` };
+      if (movedR > sr.noChaseR || movedR < -0.3) return { skipped: `price already moved ${movedR.toFixed(2)}R from the entry` };
     }
-    if (risk && idea.entry && (risk / idea.entry) * 100 < MIN_STOP_PCT) return { skipped: `the stop is only ${round2((risk / idea.entry) * 100)}% from the entry, under the ${MIN_STOP_PCT}% minimum, so normal wiggle would hit it` };
+    if (risk && idea.entry && (risk / idea.entry) * 100 < sr.minStopPct) return { skipped: `the stop is only ${round2((risk / idea.entry) * 100)}% from the entry, under the ${sr.minStopPct}% minimum, so normal wiggle would hit it` };
     const rules = await loadRules(userId, 'EQ');
     // a combination's own order settings (Combination Lab or Account > Entries) replace the Account ones for its trades
     const own = idea.comboSnap ? comboMoney(idea.comboSnap, { riskAmount: rules.stopLoss, maxAmount: settings.maxTradeAmount, steps: rules.steps, target: 0, exitMin: rules.exitMin }) : null;
@@ -266,6 +272,12 @@ export class AutoTrader {
     if (idea.setup === TREND_SCORE && settings.trendScore !== true) return { skipped: 'Trend score trades are switched off (Account > Entries > Shares)' };
     if (!idea.combo && idea.score < settings.minScore) return { skipped: `score ${idea.score} is below ${settings.minScore}` };
     if (await Position.findOne({ user: userId, symbol: idea.symbol, status: 'OPEN' })) return { skipped: 'already in this stock' };
+    const blocked = ruleBlock(sr, this.liveFacts(idea), idea.side);
+    if (blocked) return { skipped: blocked };
+    if (sr.stopAfterLosses > 0) {
+      const lost = await AutoLog.countDocuments({ user: userId, day: this.engine.marketStatus().istDate, segment: { $ne: 'OPT' }, status: 'CLOSED', 'outcome.netPnl': { $lt: 0 } });
+      if (lost >= sr.stopAfterLosses) return { skipped: `already ${lost} losing share trades today (your limit is ${sr.stopAfterLosses})` };
+    }
 
     const funds = await getFunds(userId, this.config.startingBalance);
     const today = await this.todaySummary(userId);
@@ -308,7 +320,51 @@ export class AutoTrader {
     // A rejected order (market closed, not enough funds) opened nothing, so it must not be logged as a placed trade.
     if (order.status !== 'FILLED') return { skipped: order.rejectReason || `order was ${String(order.status).toLowerCase()}` };
     if (own) await this.#ownExits(userId, idea, order, own);
+    if (sr.target > 0 && !(own && (idea.comboSnap.order?.target > 0 || Array.isArray(idea.comboSnap.exits?.steps)))) await this.#fixedTarget(userId, idea, order, sr.target);
     return { order };
+  }
+
+  /** Account > Entries > Shares "fixed profit target": sell at that profit in place of the ladder. */
+  async #fixedTarget(userId, idea, order, rupees) {
+    const d = idea.side === 'BUY' ? 1 : -1;
+    const fill = order.avgFillPrice ?? idea.entry;
+    try {
+      await this.engine.setExits(userId, idea.symbol, { target: roundToTick(fill + (d * rupees) / order.qty), lockTrigger: null, lockAmount: null, lockSteps: [] });
+    } catch (e) {
+      logger.warn(`fixed target for ${idea.symbol} not set: ${e.message}`);
+    }
+  }
+
+  /** What the entry rules read right now: Nifty's trend, the share's strength against Nifty, and the volume the scanner saw. */
+  liveFacts(idea) {
+    const nifty = this.engine.market.getTick('NIFTY 50')?.changePct;
+    const pct = this.engine.market.getTick(idea.symbol)?.changePct;
+    const saved = idea.card?.facts ?? idea.facts ?? {};
+    return {
+      niftyTrend: this.scanner?.marketState?.niftyTrend ?? saved.niftyTrend ?? null,
+      relStrength: nifty != null && pct != null ? pct - nifty : saved.relStrength ?? null,
+      relVol: saved.relVol ?? null,
+    };
+  }
+
+  /**
+   * Ideas waiting for a 5-minute close past the entry (shareRules.confirmBar): buy at the price then, or record why not.
+   * The bars are the scanner's own 1-minute candles.
+   */
+  async checkPending() {
+    for (const [key, { settings, idea }] of this.pending) {
+      const c1 = this.scanner?.store?.get(idea.symbol);
+      const t = Math.floor(new Date(idea.createdAt ?? Date.now()).getTime() / 60_000) * 60;
+      const from = c1 ? c1.findLastIndex((b) => b.time <= t) : -1;
+      let res;
+      if (from < 0) res = Date.now() - new Date(idea.createdAt).getTime() > 15 * 60_000 ? { dropped: 'no candles to confirm the entry on' } : { waiting: true };
+      else res = confirmEntry(c1, from, idea, { noChaseR: shareRulesOf(settings.shareRules).noChaseR });
+      if (res.waiting) continue;
+      this.pending.delete(key);
+      const next = res.dropped ? { ...idea, dropReason: `waited for a 5-minute close: ${res.dropped}` } : { ...idea, entry: res.price, confirmedAt: new Date(res.time * 1000 + 60_000) };
+      const r = await this.consider(settings, next);
+      if (r.skipped) logger.info(`auto skip ${idea.symbol} ${idea.side} for ${settings.user}: ${r.skipped}`);
+    }
   }
 
   /** A combination with its own target or profit ladder: put them on the new position in place of the Account ladder it was given. */
@@ -329,6 +385,10 @@ export class AutoTrader {
   async handle(idea) {
     const all = await AutoSettings.find({ enabled: true }).lean();
     for (const s of all) {
+      if (shareRulesOf(s.shareRules).confirmBar && !idea.combo && !idea.comboSnap) {
+        this.pending.set(`${s.user}|${idea._id}`, { settings: s, idea });
+        continue;
+      }
       try {
         const r = await this.consider(s, idea);
         if (r.skipped) logger.info(`auto skip ${idea.symbol} ${idea.side} for ${s.user}: ${r.skipped}`);

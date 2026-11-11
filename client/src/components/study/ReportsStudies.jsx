@@ -12,6 +12,7 @@ import { FinderStudy } from './FinderStudy.jsx';
 import { HistoryData } from './HistoryData.jsx';
 import { resultLine, resultTone } from '../../lib/results.js';
 import { ComboBuilder } from './ComboBuilder.jsx';
+import { ShareEntryRules } from './ShareEntryRules.jsx';
 
 const STUDIES = [
   { value: 'report', label: 'Report' },
@@ -142,6 +143,8 @@ export function EntryChoices() {
                 <ShareSetups data={auto.data} reload={auto.reload} />
                 {auto.data && (
                   <>
+                    <hr className="border-line" />
+                    <ShareEntryRules data={auto.data} reload={auto.reload} />
                     <hr className="border-line" />
                     <ComboBuilder kind="shares" endpoint="/auto" combos={auto.data.settings.combos} reload={auto.reload} />
                   </>

@@ -9,8 +9,7 @@ import { evaluateStock, MIN_SCORE } from './evaluate.js';
 import { TREND_SCORE } from './setups.js';
 import { buildPlan } from './plan.js';
 import { resultR } from './stats.js';
-import { aggregateCandles } from '../market/providers/BaseProvider.js';
-import { ema, sessionVwap } from '../signals/indicators.js';
+import { niftyTrendOf } from './marketTrend.js';
 
 // Setups that lost money over the whole track record (Level retest -0.81R over 47 ideas, VWAP pullback -0.47R over 8): never traded.
 const ALWAYS_OFF = [
@@ -142,15 +141,7 @@ export class ScannerService extends EventEmitter {
     try {
       const c1 = await this.market.getCandles('NIFTY 50', '1m');
       const tick = this.market.getTick('NIFTY 50');
-      const c5 = c1.length >= 40 ? aggregateCandles(c1, '5m') : [];
-      if (c5.length >= 22 && tick) {
-        const vwap = sessionVwap(c1);
-        const e9 = ema(c5, 9).at(-1)?.value;
-        const e21 = ema(c5, 21).at(-1)?.value;
-        const up = tick.ltp > (vwap ?? tick.ltp) && e9 > e21;
-        const down = tick.ltp < (vwap ?? tick.ltp) && e9 < e21;
-        niftyTrend = up ? 1 : down ? -1 : 0;
-      }
+      if (tick) niftyTrend = niftyTrendOf(c1, tick.ltp); // the index has no volume: the day's average price stands in for VWAP (scanner/marketTrend.js)
     } catch (err) {
       logger.warn(`Nifty 50 trend unavailable: ${err.message}`);
     }
