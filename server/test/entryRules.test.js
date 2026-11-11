@@ -167,7 +167,8 @@ test('what wins: the track record split by stop size, market, strength and volum
     { setup: 'Opening range breakout', side: 'BUY', status: 'STOPPED', entry: 100, stopLoss: 99.1, exitPrice: 99.1, openedAt: at(5), bestR: 0.1, card: { facts: { niftyTrend: 0, relStrength: -0.1, relVol: 0.9 } } },
     { setup: 'Trend score', side: 'BUY', status: 'STOPPED', entry: 100, stopLoss: 99.4, exitPrice: 99.4, openedAt: at(5), bestR: 0.8, card: { checks: [{ id: 'strength', points: 8, max: 8 }, { id: 'volume', points: 0, max: 8 }, { id: 'niftyTrend', points: 1, max: 3 }] } },
   ];
-  const w = whatWins(ideas, { chargesR: () => 0.12 });
+  const w = whatWins([...ideas, { ...ideas[1], openedAt: '2026-11-08T19:00:00.000Z' }], { chargesR: () => 0.12 });
+  assert.equal(w.outOfHours, 1, 'an idea raised at 00:30 IST is left out');
   assert.equal(w.count, 3);
   assert.deepEqual(w.byStop.map((g) => g.key).sort(), ['0.5-0.8%', '0.8% or more', 'under 0.4%']);
   assert.ok(w.byMarket.some((g) => g.key === 'Nifty sideways'));

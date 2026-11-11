@@ -126,12 +126,19 @@ function soldAt(ideas, k) {
  * is the round-trip charges of the trade the idea would make, in risk units, so the break-even line can be shown.
  */
 export function whatWins(ideas, { chargesR = null } = {}) {
-  const done = ideas.filter((i) => i.status && i.status !== 'OPEN');
+  // ideas raised outside market hours (a test run on the sample feed at night) are not real trades: left out, but counted
+  const inHours = (i) => {
+    const m = istParts(new Date(i.openedAt)).minutes;
+    return m >= 9 * 60 + 15 && m < 15 * 60 + 30;
+  };
+  const finished = ideas.filter((i) => i.status && i.status !== 'OPEN');
+  const done = finished.filter(inHours);
   const by = (keyOf) => group(done.filter((i) => keyOf(i) != null), keyOf).sort((a, b) => (b.avgR ?? -9) - (a.avgR ?? -9));
   const stopped = done.filter((i) => i.status === 'STOPPED' && i.bestR != null);
   const charges = chargesR ? done.map(chargesR).filter((x) => x != null && Number.isFinite(x)) : [];
   return {
     count: done.length,
+    outOfHours: finished.length - done.length,
     byStop: by(stopBand),
     byMarket: by(marketBand),
     byVsNifty: by(vsNiftyBand),
