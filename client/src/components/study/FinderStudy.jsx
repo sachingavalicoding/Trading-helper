@@ -92,7 +92,7 @@ export function FinderStudy() {
   const r = state?.result?.finderOnly && !state.result.winFound ? state.result : null;
 
   function start() {
-    run(dates ? undefined : days, {
+    run(dates ? undefined : options ? days : Math.min(days, 15), { // shares read at most 15 days; the picker shows 15 while the state may still hold 30
       index,
       from: dates ? from : undefined,
       to: dates ? to : undefined,
