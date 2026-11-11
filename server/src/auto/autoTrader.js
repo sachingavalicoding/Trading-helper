@@ -10,7 +10,7 @@ import { normalizeCombos } from '../combos/combos.js';
 import { bars5Of, breadthByTime, comboMoney, shareChart, shareIdeas, newsDirection } from '../combos/shares.js';
 import { logger } from '../utils/logger.js';
 import { roundToTick } from '../utils/money.js';
-import { confirmEntry, ruleBlock, shareRulesOf } from '../scanner/entryRules.js';
+import { confirmEntry, rLadder, ruleBlock, shareRulesOf } from '../scanner/entryRules.js';
 const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -320,7 +320,17 @@ export class AutoTrader {
     // A rejected order (market closed, not enough funds) opened nothing, so it must not be logged as a placed trade.
     if (order.status !== 'FILLED') return { skipped: order.rejectReason || `order was ${String(order.status).toLowerCase()}` };
     if (own) await this.#ownExits(userId, idea, order, own);
-    if (sr.target > 0 && !(own && (idea.comboSnap.order?.target > 0 || Array.isArray(idea.comboSnap.exits?.steps)))) await this.#fixedTarget(userId, idea, order, sr.target);
+    const ownSell = own && (idea.comboSnap.order?.target > 0 || Array.isArray(idea.comboSnap.exits?.steps));
+    if (sr.target > 0 && !ownSell) await this.#fixedTarget(userId, idea, order, sr.target);
+    else if (sr.lockFromR > 0 && !ownSell) {
+      // the profit lock in risks of this trade (scanner/entryRules.js R_LADDERS) in place of the rupee ladder
+      const steps = rLadder(sr.lockFromR, order.qty * Math.abs((order.avgFillPrice ?? idea.entry) - idea.stopLoss));
+      try {
+        if (steps.length) await this.engine.setExits(userId, idea.symbol, { lockTrigger: null, lockAmount: null, lockSteps: steps });
+      } catch (e) {
+        logger.warn(`lock in risks for ${idea.symbol} not set: ${e.message}`);
+      }
+    }
     return { order };
   }
 

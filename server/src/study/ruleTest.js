@@ -18,6 +18,7 @@ const DAY = (iso) => iso.slice(0, 10);
 export function tradesFor(ideas, { minScore, setupOn, rules }) {
   const out = [];
   const exit = rules.target > 0 ? rules.target : 'ladder';
+  const lockKey = !(rules.target > 0) && rules.lockFromR > 0 ? String(rules.lockFromR) : null; // the profit lock in risks, when on
   for (const i of ideas) {
     if (!setupOn(i.setup) || i.score < minScore) continue;
     const at = istParts(new Date(i.openedAt)).minutes;
@@ -27,11 +28,12 @@ export function tradesFor(ideas, { minScore, setupOn, rules }) {
     if (ruleBlock(rules, i.facts, i.side)) continue;
     let t = { side: i.side, setup: i.setup, entry: i.entry, stopLoss: i.stopLoss, target1: i.target1, openedAt: i.openedAt, status: i.status, exit: i.exit, exitPrice: i.exitPrice, exitTime: i.exitTime, sizedQty: i.sizedQty };
     if (exit !== 'ladder' && i.targets?.[exit]) t = { ...t, ...i.targets[exit] };
+    else if (lockKey && i.rlocks?.[lockKey]) t = { ...t, ...i.rlocks[lockKey] };
     if (rules.confirmBar) {
       if (!i.confirmed || i.confirmed.dropped) continue;
       const c = i.confirmed;
       // waiting for the close changes the entry, and the exit is followed from there
-      const x = exit !== 'ladder' && c.targets?.[exit] ? c.targets[exit] : c;
+      const x = exit !== 'ladder' && c.targets?.[exit] ? c.targets[exit] : lockKey && c.rlocks?.[lockKey] ? c.rlocks[lockKey] : c;
       t = { ...t, entry: c.entry, openedAt: c.openedAt, status: x.status, exit: x.exit, exitPrice: x.exitPrice, exitTime: x.exitTime, sizedQty: x.sizedQty };
     }
     if (!t.sizedQty) continue;
@@ -88,6 +90,8 @@ export const TRIES = [
   rule('stopAfterLosses', 'No new trade after 2 losses in a day', { stopAfterLosses: 2 }),
   { key: 'until1130', label: 'No new trade after 11:30', rules: { entryTo: 690 }, body: { entryTo: 690 } },
   { key: 'until1230', label: 'No new trade after 12:30', rules: { entryTo: 750 }, body: { entryTo: 750 } },
+  rule('lockR05', 'Profit lock in risks: from +0.5R keep +0.25R', { lockFromR: 0.5 }),
+  rule('lockR035', 'Profit lock in risks: from +0.35R keep +0.2R', { lockFromR: 0.35 }),
   ...TRY_TARGETS.map((t) => rule(`target${t}`, `Sell at +₹${t} (no ladder)`, { target: t }, { target: t })),
 ];
 
@@ -115,10 +119,11 @@ export function ruleTest(ideas, settings, opts) {
   });
   // Everything that was better on its own, together (the best fixed target only, if one was better).
   const good = rows.filter((r) => r.verdict === 'better');
-  const bestTarget = good.filter((r) => r.target).sort((a, b) => b.totalNet - a.totalNet)[0] ?? null;
+  const isExit = (r) => r.target || r.patch?.lockFromR; // a fixed target and a lock in risks are both ways to sell: only the best one joins
+  const bestTarget = good.filter(isExit).sort((a, b) => b.totalNet - a.totalNet)[0] ?? null;
   // of the rows that change the same setting (two stop sizes, two last entry times) only the one that made the most joins in
   const goodRules = good
-    .filter((r) => !r.target)
+    .filter((r) => !isExit(r))
     .sort((a, b) => b.totalNet - a.totalNet)
     .filter((r, i, list) => list.findIndex((x) => Object.keys(x.patch).join() === Object.keys(r.patch).join()) === i);
   let together = null;

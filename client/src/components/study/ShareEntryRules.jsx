@@ -14,6 +14,7 @@ const NUMBERS = [
   { key: 'noChaseR', label: 'Do not chase past (R)', hint: 'Skip when the price already ran this many risks past the entry. 0.5 was the old fixed value.', step: '0.1' },
   { key: 'minStopPct', label: 'Smallest stop (% of price)', hint: 'Skip ideas with a closer stop. 0.5 was the old fixed value; 0 = off.', step: '0.1' },
   { key: 'stopAfterLosses', label: 'No new trade after this many losses a day', hint: '0 = off.', step: '1' },
+  { key: 'lockFromR', label: 'Profit lock in risks (0, 0.35 or 0.5)', hint: '0 = your rupee ladder. 0.5: once a trade is up half its risk the stop keeps a quarter of it, then follows. Works the same for any stop size. Check it in the study first.', step: '0.05' },
   { key: 'target', label: 'Sell at a fixed profit (₹)', hint: '0 = use your profit ladder. For example 250 sells once the trade is up ₹250.', step: '50' },
 ];
 

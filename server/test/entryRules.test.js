@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { confirmEntry, ruleBlock, shareRulesOf, DEFAULT_SHARE_RULES } from '../src/scanner/entryRules.js';
+import { confirmEntry, rLadder, ruleBlock, shareRulesOf, DEFAULT_SHARE_RULES } from '../src/scanner/entryRules.js';
 import { niftyTrendOf, niftyTrendTimeline } from '../src/scanner/marketTrend.js';
 import { ruleTest, tradesFor } from '../src/study/ruleTest.js';
 import { runSharesStudy } from '../src/study/sharesStudy.js';
@@ -108,6 +108,13 @@ const idea = (over) => ({
   ...over,
 });
 
+test('profit lock in risks: rupee rows from the risk of each trade, nearest ladder, off at 0', () => {
+  assert.deepEqual(rLadder(0.5, 300), [{ at: 150, keep: 75 }, { at: 225, keep: 135 }, { at: 300, keep: 210 }, { at: 450, keep: 345 }]);
+  assert.deepEqual(rLadder(0.4, 1000)[0], { at: 350, keep: 200 }, '0.4 picks the 0.35 ladder');
+  assert.deepEqual(rLadder(0, 300), []);
+  assert.match(shareRulesText(shareRulesOf({ lockFromR: 0.5 })), /profit lock in risks from \+0.5R/);
+});
+
 test('rule test: each rule filters the same ideas, a rule is better only when both halves agree, and the patch is what to save', () => {
   const days = ['2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06'];
   const ideas = [];
@@ -142,6 +149,12 @@ test('rule test: each rule filters the same ideas, a rule is better only when bo
   assert.equal(until1130.trades, 8, 'only the 09:30 and 10:30 ideas');
   assert.deepEqual(until1130.body, { entryTo: 690 });
   assert.deepEqual(t200.body, { shareRules: { target: 200 } });
+  // a lock in risks uses the replay's own outcome for it
+  const locked = ideas.map((i) => ({ ...i, rlocks: { 0.5: { status: 'LOCKED', exit: 'LOCK', exitPrice: 1003, exitTime: i.exitTime, sizedQty: 50 }, 0.35: { status: 'STOPPED', exit: 'STOP', exitPrice: 994, exitTime: i.exitTime, sizedQty: 50 } } }));
+  const lr = ruleTest(locked, settings, { riskAmount: 300, slippagePct: 0.05 });
+  assert.ok(lr.rows.find((x) => x.key === 'lockR05').totalNet > 0);
+  assert.deepEqual(lr.rows.find((x) => x.key === 'lockR05').body, { shareRules: { lockFromR: 0.5 } });
+  assert.ok(lr.rows.find((x) => x.key === 'lockR035').totalNet < 0);
   // a rule already on says so
   assert.equal(ruleTest(ideas, { ...settings, shareRules: { marketAgree: true } }, { riskAmount: 300 }).rows.find((x) => x.key === 'marketAgree').verdict, 'on');
 });
@@ -151,7 +164,8 @@ test('the shares study also tests the new entry rules on the ideas the live scan
   const r = await runSharesStudy({ nifty1: walk(12, 7), history, params: { days: 5, riskAmount: 300, maxAmount: 100000, settings: { minScore: 70, skipSetups: [], trendScore: true, shareRules: {} } } });
   const t = r.ruleTest;
   assert.ok(t, 'rule test in the result');
-  assert.equal(t.rows.length, 12);
+  assert.equal(t.rows.length, 14);
+  assert.ok(t.rows.find((x) => x.key === 'lockR05').trades <= t.now.trades);
   assert.ok(t.now.trades >= 0);
   for (const row of t.rows) {
     assert.ok(['better', 'mixed', 'worse', 'few', 'on'].includes(row.verdict), row.verdict);
@@ -167,9 +181,12 @@ test('what wins: the track record split by stop size, market, strength and volum
     { setup: 'Opening range breakout', side: 'BUY', status: 'STOPPED', entry: 100, stopLoss: 99.1, exitPrice: 99.1, openedAt: at(5), bestR: 0.1, card: { facts: { niftyTrend: 0, relStrength: -0.1, relVol: 0.9 } } },
     { setup: 'Trend score', side: 'BUY', status: 'STOPPED', entry: 100, stopLoss: 99.4, exitPrice: 99.4, openedAt: at(5), bestR: 0.8, card: { checks: [{ id: 'strength', points: 8, max: 8 }, { id: 'volume', points: 0, max: 8 }, { id: 'niftyTrend', points: 1, max: 3 }] } },
   ];
+  for (let k = 0; k < 4; k++) ideas.push({ symbol: 'LOSER', setup: 'Opening range breakout', side: 'BUY', status: 'STOPPED', entry: 100, stopLoss: 99.4, exitPrice: 99.4, openedAt: at(5) });
   const w = whatWins([...ideas, { ...ideas[1], openedAt: '2026-11-08T19:00:00.000Z' }], { chargesR: () => 0.12 });
   assert.equal(w.outOfHours, 1, 'an idea raised at 00:30 IST is left out');
-  assert.equal(w.count, 3);
+  assert.equal(w.count, 7);
+  assert.equal(w.byShare.worst[0].key, 'LOSER');
+  assert.equal(w.byShare.best.length, 0);
   assert.deepEqual(w.byStop.map((g) => g.key).sort(), ['0.5-0.8%', '0.8% or more', 'under 0.4%']);
   assert.ok(w.byMarket.some((g) => g.key === 'Nifty sideways'));
   assert.ok(w.byMarket.some((g) => g.key === 'most shares moving with it'), 'older ideas fall back to the score part');
@@ -178,7 +195,7 @@ test('what wins: the track record split by stop size, market, strength and volum
   assert.equal(w.soldAtHalfR.avgR, round((0.5 - 1 + 0.5) / 3));
   assert.equal(w.chargesR, 0.12);
   const text = buildDayReport({ day: '2026-11-09', generatedAt: new Date(), market: { provider: 'mock' }, wins: w, settings: { auto: { enabled: true, minScore: 80, maxOpen: 10, dailyLossPct: 10, maxTradeAmount: 100000, shareRules: { marketAgree: true, target: 250 } } } });
-  assert.match(text, /## What wins in the track record \(3 finished ideas/);
+  assert.match(text, /## What wins in the track record \(7 finished ideas/);
   assert.match(text, /Charges cost about 0.12R a trade/);
   assert.match(text, /never got \+0.2R first .*: 1 of 2/);
   assert.match(text, /Share entry rules: Nifty must agree/);

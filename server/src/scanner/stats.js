@@ -144,6 +144,11 @@ export function whatWins(ideas, { chargesR = null } = {}) {
     byVsNifty: by(vsNiftyBand),
     byVolume: by(volumeBand),
     bySide: by((i) => i.side),
+    byShare: (() => {
+      const rows = group(done.filter((i) => i.symbol), (i) => i.symbol).filter((g) => g.count >= 4 && g.avgR != null);
+      const sorted = [...rows].sort((a, b) => a.avgR - b.avgR);
+      return { worst: sorted.filter((g) => g.avgR < 0).slice(0, 6), best: sorted.filter((g) => g.avgR > 0).reverse().slice(0, 6) };
+    })(),
     byHour: group(done, (i) => `${String(Math.floor(istParts(new Date(i.openedAt)).minutes / 60)).padStart(2, '0')}:00`, (k) => Number(k.slice(0, 2))),
     quickFails: stopped.length ? { stopped: stopped.length, neverHalfR: stopped.filter((i) => i.bestR < 0.2).length } : null,
     soldAtHalfR: soldAt(done, 0.5),
