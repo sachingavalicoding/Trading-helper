@@ -65,7 +65,7 @@ export class MarketDataService extends EventEmitter {
 
   status(now = new Date()) {
     return {
-      market: { ...getMarketStatus(now, this.holidays), enforced: this.enforceHours },
+      market: { ...getMarketStatus(now, this.holidays), enforced: this.enforceHours, replay: Boolean(this.provider.replayInfo?.()) }, // in a replay the browser clock is not the market's
       feed: {
         provider: this.provider.name,
         simulated: this.provider.isSimulated,

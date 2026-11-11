@@ -18,6 +18,13 @@ const istMinutes = (now) => {
 export function orderBlock(market, now = new Date()) {
   if (!market || !market.enforced) return null; // practice mode on the simulated feed: any time
   if (!market.tradingDay) return market.phase === 'HOLIDAY' ? 'NSE holiday: market closed' : 'Weekend: market closed';
+  if (market.replay) {
+    // a replay runs on its own clock, so trust the server's phase, not this device's time
+    if (market.phase === 'PRE_OPEN') return 'Market opens at 09:15';
+    if (market.phase === 'CLOSED') return 'Market closed (opens 09:15 tomorrow)';
+    if (market.afterSquareOff) return 'No new trades after the 15:15 square-off';
+    return null;
+  }
   const m = istMinutes(now);
   if (m < OPEN_MIN) return 'Market opens at 09:15';
   if (m >= CLOSE_MIN) return 'Market closed (opens 09:15 tomorrow)';
