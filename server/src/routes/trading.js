@@ -35,7 +35,7 @@ const rulesSchema = z.object({
   lockGap: z.coerce.number().min(1).max(10_000_000),
   steps: z.array(z.object({ at: z.coerce.number().min(0).max(10_000_000), keep: z.coerce.number().min(0).max(10_000_000) })).max(MAX_STEPS),
   lockOn: z.boolean(), // false switches the profit lock off for new trades; the rows stay saved
-  exitMin: z.coerce.number().int().min(9 * 60 + 30).max(15 * 60 + 15), // the time the auto trader closes its trades, in minutes after midnight IST
+  exitMin: z.coerce.number().int().min(9 * 60 + 15).max(15 * 60 + 15), // the time the auto trader closes its trades, in minutes after midnight IST
 }).partial();
 const defaultsSchema = z.object({ shares: rulesSchema.optional(), options: rulesSchema.optional() });
 // Shares and Nifty options are kept apart on every list: shares by default, options with ?segment=OPT.

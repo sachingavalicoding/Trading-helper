@@ -17,9 +17,12 @@ const patch = z
     earlyNews: z.boolean(),
     trendScore: z.boolean(),
     minScore: z.coerce.number().min(60).max(100),
-    maxOpen: z.coerce.number().int().min(1).max(10),
+    maxOpen: z.coerce.number().int().min(1).max(100),
+    maxTrades: z.coerce.number().int().min(0).max(10000), // 0 = no limit
+    entryFrom: z.coerce.number().int().min(555).max(914),
+    entryTo: z.coerce.number().int().min(556).max(915),
     riskPct: z.coerce.number().min(0.1).max(3),
-    dailyLossPct: z.coerce.number().min(0.5).max(10),
+    dailyLossPct: z.coerce.number().min(0.5).max(100),
     maxShares: z.coerce.number().int().min(0).max(100000),
     maxTradeAmount: z.coerce.number().min(1000).max(100_000_000),
     skipSetups: z.array(z.enum(SHARE_SETUPS)).max(SHARE_SETUPS.length),
@@ -33,7 +36,7 @@ export function autoRoutes({ autoTrader }) {
   const view = async (userId, doc) => {
     const s = doc || new AutoSettings({ user: userId });
     return {
-      settings: { enabled: s.enabled, minScore: s.minScore, maxOpen: s.maxOpen, riskPct: s.riskPct, dailyLossPct: s.dailyLossPct, maxShares: s.maxShares, maxTradeAmount: s.maxTradeAmount, earlyNews: s.earlyNews !== false, trendScore: s.trendScore === true, skipSetups: [...(s.skipSetups ?? [])], combos: normalizeCombos(s.combos ?? []) },
+      settings: { enabled: s.enabled, minScore: s.minScore, maxOpen: s.maxOpen, maxTrades: s.maxTrades ?? 0, entryFrom: s.entryFrom ?? 555, entryTo: s.entryTo ?? 915, riskPct: s.riskPct, dailyLossPct: s.dailyLossPct, maxShares: s.maxShares, maxTradeAmount: s.maxTradeAmount, earlyNews: s.earlyNews !== false, trendScore: s.trendScore === true, skipSetups: [...(s.skipSetups ?? [])], combos: normalizeCombos(s.combos ?? []) },
       setupChoices: SHARE_SETUPS,
       rules: await loadRules(userId, 'EQ'),
       today: await autoTrader.todaySummary(userId),
@@ -46,6 +49,12 @@ export function autoRoutes({ autoTrader }) {
   });
 
   router.put('/', validate(patch), async (req, res) => {
+    if (req.body.entryFrom !== undefined || req.body.entryTo !== undefined) {
+      const cur = await AutoSettings.findOne({ user: req.userId }).lean();
+      const from = req.body.entryFrom ?? cur?.entryFrom ?? 555;
+      const to = req.body.entryTo ?? cur?.entryTo ?? 915;
+      if (!(from < to)) return res.status(400).json({ error: { code: 'VALIDATION', message: 'The last time for a new trade must be after the first' } });
+    }
     const body = req.body.combos ? { ...req.body, combos: normalizeCombos(req.body.combos) } : req.body;
     const doc = await AutoSettings.findOneAndUpdate({ user: req.userId }, { $set: body, $setOnInsert: { user: req.userId } }, { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true });
     res.json(await view(req.userId, doc));

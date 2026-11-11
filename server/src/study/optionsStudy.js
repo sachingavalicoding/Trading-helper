@@ -262,7 +262,7 @@ export function lossesInARow(nets) {
 export function liveSkip(s, trades, { maxPerDay, dailyLoss = 0, lossStreak = 0 }) {
   const day = dayKey(s.time);
   const today = trades.filter((t) => dayKey(t.entryTime) === day);
-  if (today.length >= maxPerDay) return 'trades';
+  if (maxPerDay > 0 && today.length >= maxPerDay) return 'trades';
   if (lossStreak > 0 && lossesInARow(today.filter((t) => t.exitTime <= s.time).sort((a, b) => a.exitTime - b.exitTime).map((t) => t.net)) >= lossStreak) return 'loss streak';
   if (trades.some((t) => t.side === s.side && t.exitTime > s.time)) return 'holding';
   if (dailyLoss > 0 && today.filter((t) => t.exitTime <= s.time).reduce((sum, t) => sum + t.net, 0) <= -dailyLoss) return 'loss limit';
@@ -311,7 +311,7 @@ export function tradesFor(signals, { c1, byTime, params }) {
         skips[why] = (skips[why] || 0) + 1;
         continue;
       }
-    } else if (s.time < busyUntil || (perDay.get(day) || 0) >= cap) continue;
+    } else if (s.time < busyUntil || (cap > 0 && (perDay.get(day) || 0) >= cap)) continue;
     // live buys a little after the 5-minute bar closes (the broker's candles refresh every 30 seconds and it looks every 15): one minute later here
     const at = live && byTime.has(s.time + LIVE_DELAY_SEC) ? s.time + LIVE_DELAY_SEC : s.time;
     const entry = byTime.get(at) != null ? c1[byTime.get(at)].open : s.close;

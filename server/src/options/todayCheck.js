@@ -51,7 +51,7 @@ export function marketMood(c1, daily = []) {
 /**
  * The verdict: 'go' (green), 'care' (amber) or 'stop' (red), with every reason in plain words.
  * @param mood    marketMood(), or null before 09:45
- * @param me      { pnl, trades, maxTrades, dailyLoss (rupees), lossesInARow, lossStreak (0 = off), paused, open, capLoss, benched: [names] }
+ * @param me      { pnl, trades, maxTrades (0 = no limit), dailyLoss (rupees), lossesInARow, lossStreak (0 = off), paused, open, capLoss, benched: [names] }
  */
 export function todayVerdict(mood, me, { minutes = null } = {}) {
   const reasons = [];
@@ -64,7 +64,8 @@ export function todayVerdict(mood, me, { minutes = null } = {}) {
   if (me.dailyLoss > 0 && me.pnl <= -me.dailyLoss) say(2, `Today is ₹${Math.round(-me.pnl).toLocaleString('en-IN')} down, past your daily limit of ₹${Math.round(me.dailyLoss).toLocaleString('en-IN')}. Stop for the day.`);
   if (me.lossStreak > 0 && me.lossesInARow >= me.lossStreak) say(2, `${me.lossesInARow} losing trades in a row today. The bot takes no new buy until tomorrow; a hand-made trade now is usually revenge.`);
   else if (me.lossesInARow >= 1) say(1, `The last trade lost. ${me.lossStreak > 0 ? `${me.lossStreak - me.lossesInARow} more loss in a row stops the bot for today.` : 'Consider a pause before the next one.'}`);
-  if (me.trades >= me.maxTrades) say(2, `All ${me.maxTrades} trades for today are used.`);
+  if (!(me.maxTrades > 0)) say(0, `${me.trades} trade${me.trades === 1 ? '' : 's'} today; no daily trade limit set.`);
+  else if (me.trades >= me.maxTrades) say(2, `All ${me.maxTrades} trades for today are used.`);
   else say(0, `${me.maxTrades - me.trades} of ${me.maxTrades} trades left today.`);
   if (me.benched?.length) say(1, `Switched off by themselves after losses in a row: ${me.benched.join(', ')}. Look at their trades before turning them on.`);
   if (minutes != null && minutes < 9 * 60 + 45) say(1, 'Before 09:45 the first moves often reverse.');

@@ -19,13 +19,13 @@ export const OPTIONS_DISCLAIMER = 'Options are paper (virtual) trades only. Abou
 const patch = z
   .object({
     enabled: z.boolean(),
-    maxLots: z.coerce.number().int().min(1).max(20),
-    maxOpen: z.coerce.number().int().min(1).max(3),
-    maxTrades: z.coerce.number().int().min(1).max(10),
+    maxLots: z.coerce.number().int().min(1).max(1000),
+    maxOpen: z.coerce.number().int().min(1).max(100),
+    maxTrades: z.coerce.number().int().min(0).max(10000), // 0 = no limit
     budget: z.coerce.number().min(5000).max(100_000_000),
-    dailyLossPct: z.coerce.number().min(2).max(30),
-    lossStreak: z.coerce.number().int().min(0).max(5),
-    benchAfter: z.coerce.number().int().min(0).max(10),
+    dailyLossPct: z.coerce.number().min(0.5).max(100),
+    lossStreak: z.coerce.number().int().min(0).max(100),
+    benchAfter: z.coerce.number().int().min(0).max(100),
     scoreEntries: z.boolean(),
     minScore: z.coerce.number().int().min(60).max(100),
     patternEntries: z.boolean(),
@@ -51,7 +51,7 @@ const patch = z
     movedCheck: z.enum(['off', ...MOVED_KEYS]),
     movedLimit: z.coerce.number().min(0).max(100),
     withDay: z.boolean(),
-    comboStreak: z.coerce.number().int().min(0).max(5),
+    comboStreak: z.coerce.number().int().min(0).max(100),
     probation: z.boolean(),
     pauseToday: z.boolean(), // true: no new automatic buy for the rest of today; false: buy again
     patterns: z.array(z.enum(LIVE_PATTERNS.map((p) => p.key))).max(LIVE_PATTERNS.length),
@@ -59,7 +59,7 @@ const patch = z
   })
   .partial();
 
-const buySchema = z.object({ type: z.enum(['CE', 'PE']), lots: z.coerce.number().int().min(1).max(20).default(1), index: z.enum(INDEX_KEYS).default(DEFAULT_INDEX) });
+const buySchema = z.object({ type: z.enum(['CE', 'PE']), lots: z.coerce.number().int().min(1).max(1000).default(1), index: z.enum(INDEX_KEYS).default(DEFAULT_INDEX) });
 const indexQuery = z.enum(INDEX_KEYS).default(DEFAULT_INDEX);
 const dayOf = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -84,7 +84,7 @@ export function optionRoutes({ optionTrader }) {
       const cur = await OptionSettings.findOne({ user: req.userId }).lean();
       const from = req.body.entryFrom ?? cur?.entryFrom ?? 555;
       const to = req.body.entryTo ?? cur?.entryTo ?? 915;
-      if (!(from + 15 <= to)) return res.status(400).json({ error: { code: 'VALIDATION', message: 'The last time for a new trade must be at least 15 minutes after the first' } });
+      if (!(from < to)) return res.status(400).json({ error: { code: 'VALIDATION', message: 'The last time for a new trade must be after the first' } });
     }
     const { pauseToday, ...rest } = req.body;
     const body = rest.combos ? { ...rest, combos: normalizeCombos(rest.combos) } : { ...rest };

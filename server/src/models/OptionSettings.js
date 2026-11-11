@@ -9,9 +9,9 @@ const optionSettingsSchema = new mongoose.Schema(
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
     enabled: { type: Boolean, default: false },
     minScore: { type: Number, default: 70, min: 60, max: 100 },
-    maxLots: { type: Number, default: 2, min: 1, max: 20 }, // most lots in one trade
-    maxOpen: { type: Number, default: 1, min: 1, max: 3 },
-    maxTrades: { type: Number, default: 3, min: 1, max: 10 }, // entries per day: options punish overtrading
+    maxLots: { type: Number, default: 2, min: 1, max: 1000 }, // most lots in one trade
+    maxOpen: { type: Number, default: 1, min: 1, max: 100 },
+    maxTrades: { type: Number, default: 3, min: 0, max: 10000 }, // entries per day, your own number; 0 = no limit
     budget: { type: Number, default: 60000, min: 5000 }, // money set aside for options, shared by Nifty and Sensex; premiums in open trades never exceed it
     indexes: { type: [{ type: String, enum: INDEX_KEYS }], default: () => ['NIFTY'] }, // the indexes the bot watches and buys on; nothing saved means Nifty only
     mirror: { type: Boolean, default: false }, // false: one call and one put at a time across both indexes; true: each index may hold its own
@@ -19,7 +19,7 @@ const optionSettingsSchema = new mongoose.Schema(
     patterns: { type: [String], default: () => ['breakout', 'insideBar', 'emaCross'] }, // the 30-day study's winners: more than 12 trades and a profit
     patternStopMode: { type: String, enum: ['chart', 'cap', 'atr', 'fixed'], default: 'chart' }, // where an entry puts its stop: the chart level, the chart level pulled in to patternStopAtr, always patternStopAtr from the entry, or always patternStopPoints Nifty points from it
     entryFrom: { type: Number, default: 555, min: 555, max: 914 }, // minutes after midnight IST: no new trade before it (555 = 09:15)
-    entryTo: { type: Number, default: 915, min: 556, max: 915 }, // ...and none from it on (915 = 15:15)
+    entryTo: { type: Number, default: 915, min: 556, max: 915 }, // ...and none from it on (915 = 15:15, the square-off; any gap of a minute or more is allowed)
     patternStopAtr: { type: Number, default: 2, min: 0.8, max: 2.5 }, // in 5-minute ATRs
     patternStopPoints: { type: Number, default: 30, min: 10, max: 150 }, // Nifty points, for the 'fixed' stop
     trailMode: { type: String, enum: ['off', 'points'], default: 'off' }, // 'points': once the index has moved trailStart points your way, the chart stop follows the best price trailPoints behind it and never moves back
@@ -31,15 +31,15 @@ const optionSettingsSchema = new mongoose.Schema(
     movedCheck: { type: String, enum: ['off', ...MOVED_KEYS], default: 'off' }, // the "already moved" check on the index (options/moved.js): which measure...
     movedLimit: { type: Number, default: 0, min: 0, max: 100 }, // ...and the most it may show in the trade's direction (0 = off)
     withDay: { type: Boolean, default: false }, // the "with the day" check (options/dayBias.js): calls only above today's open and average, puts only below both
-    comboStreak: { type: Number, default: 0, min: 0, max: 5 }, // 0 = off; otherwise an entry (pattern or combination) that lost this many times in a row today rests until tomorrow
+    comboStreak: { type: Number, default: 0, min: 0, max: 100 }, // 0 = off; otherwise an entry (pattern or combination) that lost this many times in a row today rests until tomorrow
     probation: { type: Boolean, default: true }, // a combination with fewer than PROBATION_TRADES closed live trades is bought with 1 lot only
     pausedOn: { type: String, default: null }, // 'YYYY-MM-DD' (IST): no new automatic buy on that day; open trades are still managed
     comboMinScore: { type: Number, default: 0, min: 0, max: 95 }, // 0 = off; otherwise a combination is bought only while the chart score of its side is at least this
     patternMinScore: { type: Number, default: 0, min: 0, max: 95 }, // 0 = off; otherwise a pattern is bought only while the chart score of its side is at least this (the study's "Patterns, score 70+")
     scoreEntries: { type: Boolean, default: false }, // buy when the indicator score (all chart checks, options/signal.js) reaches minScore with a fresh trigger; off by default
-    lossStreak: { type: Number, default: 2, min: 0, max: 5 }, // 0 = off; otherwise no new automatic buy today after this many losing option trades in a row today (any entry)
-    benchAfter: { type: Number, default: 3, min: 0, max: 10 }, // 0 = off; otherwise a combination is switched off by itself after this many live losing trades in a row (it stays saved, marked benchedOn)
-    dailyLossPct: { type: Number, default: 10, min: 2, max: 30 }, // stop opening trades after losing this % of the budget today
+    lossStreak: { type: Number, default: 2, min: 0, max: 100 }, // 0 = off; otherwise no new automatic buy today after this many losing option trades in a row today (any entry)
+    benchAfter: { type: Number, default: 3, min: 0, max: 100 }, // 0 = off; otherwise a combination is switched off by itself after this many live losing trades in a row (it stays saved, marked benchedOn)
+    dailyLossPct: { type: Number, default: 10, min: 0.5, max: 100 }, // stop opening trades after losing this % of the budget today
     entryClock: { type: String, enum: ['5m', '1m', '1s'], default: '5m' }, // when a combination may buy: the 5-minute candle closed, each minute, or the second it turns true on the forming candle
     exitClock: { type: String, enum: ['5m', '1m', '1s'], default: '1m' }, // when the chart stop may sell: a 5-minute close beyond it, a 1-minute close beyond it, or the second the index touches it
     secondConfirm: { type: Number, default: 3, min: 0, max: 15 }, // seconds a 1-second entry must stay true before it buys

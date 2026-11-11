@@ -47,8 +47,8 @@ function RulesForm({ title, rules, onSave, onLock, saved, stopLabel = 'Stop loss
         <input className={NUM} inputMode="numeric" value={v.stopLoss} onChange={(e) => edit({ stopLoss: e.target.value })} />
       </label>
       <label className="block text-xs text-muted">
-        Close the auto trader's trades at (IST, 09:30 to 15:15)
-        <input type="time" min="09:30" max="15:15" className={NUM} value={v.exitTime} onChange={(e) => edit({ exitTime: e.target.value })} />
+        Close the auto trader's trades at (IST, 09:15 to 15:15)
+        <input type="time" min="09:15" max="15:15" className={NUM} value={v.exitTime} onChange={(e) => edit({ exitTime: e.target.value })} />
       </label>
       <div className="flex items-center justify-between gap-3 pt-1">
         <div className="text-xs font-semibold">Profit lock (book profit)</div>
@@ -89,7 +89,7 @@ function RulesForm({ title, rules, onSave, onLock, saved, stopLabel = 'Stop loss
       <div className="space-y-1 text-[11px] leading-snug text-muted">
         {rules.lockOn !== false && steps.length > 0 && !problem ? ladderLines(steps).map((l) => <p key={l.at}>{l.text}</p>) : null}
         {rules.lockOn !== false && steps.length > 0 && !problem && <p>The stop never moves back. When the profit reaches the next row, that row takes over.</p>}
-        <p>{exitMin == null ? 'Enter a time from 09:30 to 15:15.' : `The auto trader closes its trades at ${v.exitTime} and takes no new one after it. The studies use this time too. A trade you place by hand is only closed by the 15:15 square-off.`}</p>
+        <p>{exitMin == null ? 'Enter a time from 09:15 to 15:15.' : `The auto trader closes its trades at ${v.exitTime} and takes no new one after it. The studies use this time too. A trade you place by hand is only closed by the 15:15 square-off.`}</p>
         <p>{stopNote ?? (Number(v.stopLoss) > 0 ? `Every trade starts with a stop that loses at most ₹${Number(v.stopLoss)}.` : 'No automatic stop.')}</p>
       </div>
     </div>
@@ -100,19 +100,19 @@ const rs = (v) => `₹${Number(v).toLocaleString('en-IN')}`;
 
 const clockOf = (min) => timeText(min);
 
-/** Account > Limits: the hours new option trades may be taken (09:15 to 15:15 unless changed). */
-function EntryHours({ data, reload }) {
+/** Account > Limits: the hours new auto trades may be taken (09:15 to 15:15 unless changed), for options (`/options`) or shares (`/auto`). */
+function EntryHours({ data, reload, path = '/options', title = 'Options: when new trades may start', note = 'Applies to the bot, the studies, Review and the Lab alike, so a study shows what these hours would have done. Trades you open by hand, and the time the bot closes its trades, are not affected.' }) {
   const s = data.settings;
   const [from, setFrom] = useState(clockOf(s.entryFrom ?? 555));
   const [to, setTo] = useState(clockOf(s.entryTo ?? 915));
   const a = minOfTime(from);
   const b = minOfTime(to);
-  const bad = a == null || b == null || a < 555 || b > 915 || a + 15 > b;
+  const bad = a == null || b == null || a < 555 || b > 915 || a >= b;
   const changed = a !== (s.entryFrom ?? 555) || b !== (s.entryTo ?? 915);
   async function put() {
     try {
-      await api('/options', { method: 'PUT', body: { entryFrom: a, entryTo: b } });
-      toast.success('Saved. The bot, studies, Review and the Lab use these hours.');
+      await api(path, { method: 'PUT', body: { entryFrom: a, entryTo: b } });
+      toast.success('Saved. New automatic trades use these hours.');
       reload();
     } catch (e) {
       toast.error(e.message || 'Could not save');
@@ -120,22 +120,22 @@ function EntryHours({ data, reload }) {
   }
   return (
     <div className="space-y-2 border-t border-line pt-3">
-      <h4 className="text-sm font-semibold">Options: when new trades may start</h4>
+      <h4 className="text-sm font-semibold">{title}</h4>
       <div className="grid grid-cols-2 gap-2">
         <label className="block text-xs text-muted">
           First entry (09:15 or later)
-          <input type="time" min="09:15" max="15:00" className={NUM} value={from} onChange={(e) => setFrom(e.target.value)} />
+          <input type="time" min="09:15" max="15:14" className={NUM} value={from} onChange={(e) => setFrom(e.target.value)} />
         </label>
         <label className="block text-xs text-muted">
           Last entry (up to 15:15)
-          <input type="time" min="09:30" max="15:15" className={NUM} value={to} onChange={(e) => setTo(e.target.value)} />
+          <input type="time" min="09:16" max="15:15" className={NUM} value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
       </div>
-      {bad && <p className="text-xs text-down">Pick times between 09:15 and 15:15, at least 15 minutes apart.</p>}
+      {bad && <p className="text-xs text-down">Pick times between 09:15 and 15:15, the last one after the first.</p>}
       <button type="button" disabled={bad || !changed} onClick={put} className="btn btn-primary w-full">
         {changed ? 'Save entry hours' : 'Saved'}
       </button>
-      <p className="text-[11px] leading-snug text-muted">Applies to the bot, the studies, Review and the Lab alike, so a study shows what these hours would have done. Trades you open by hand, and the time the bot closes its trades, are not affected.</p>
+      <p className="text-[11px] leading-snug text-muted">{note}</p>
     </div>
   );
 }
@@ -144,6 +144,7 @@ function EntryHours({ data, reload }) {
 function TradingRules() {
   const { data, reload } = useApi('/trade-defaults', []);
   const options = useApi('/options', []);
+  const auto = useApi('/auto', []);
   const [saved, setSaved] = useState('');
   const [open, setOpen] = useState(false);
   if (!data) return <Skeleton className="h-20" />;
@@ -185,6 +186,7 @@ function TradingRules() {
         <RulesForm key={`s${JSON.stringify(data.shares)}`} title="Shares" rules={data.shares} onSave={save('shares')} onLock={lock('shares')} saved={saved === 'shares'} />
         <RulesForm key={`o${JSON.stringify(data.options)}`} title="Options" rules={data.options} onSave={save('options')} onLock={lock('options')} saved={saved === 'options'} stopLabel="Most one trade may lose (₹)" stopNote={Number(data.options.stopLoss) > 0 ? `The bot sells when the Nifty chart level breaks, and buys only as many lots as keep that loss within ₹${data.options.stopLoss}. A hard stop sits behind it for a fast fall.` : 'No loss limit.'} />
         {options.data && <EntryHours data={options.data} reload={options.reload} />}
+        {auto.data && <EntryHours data={auto.data} reload={auto.reload} path="/auto" title="Shares: when new auto trades may start" note="The auto share trader buys only inside these hours (and before the close time above). The scanner's own setups still start at 09:20 (news gap) and 09:30 (opening range); your share combinations can buy from 09:15." />}
         {options.data && <StopPlacement data={options.data} reload={options.reload} />}
         {options.data && <TrailStop data={options.data} reload={options.reload} />}
         <div className="space-y-2 border-t border-line pt-3">

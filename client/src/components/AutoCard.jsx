@@ -9,8 +9,9 @@ import { Badge, Card, Fold, Skeleton } from './ui.jsx';
 const FIELDS = [
   { key: 'maxShares', label: 'Max shares per trade (0 = auto)', step: 1, min: 0, max: 100000 },
   { key: 'maxTradeAmount', label: 'Max ₹ per trade', step: 1000, min: 1000, max: 100000000 },
-  { key: 'maxOpen', label: 'Max open trades', step: 1, min: 1, max: 10 },
-  { key: 'dailyLossPct', label: 'Stop for the day after losing (%)', step: 0.5, min: 0.5, max: 10 },
+  { key: 'maxOpen', label: 'Max open trades', step: 1, min: 1, max: 100 },
+  { key: 'maxTrades', label: 'Most trades a day (0 = no limit)', step: 1, min: 0, max: 10000 },
+  { key: 'dailyLossPct', label: 'Stop for the day after losing (%)', step: 0.5, min: 0.5, max: 100 },
 ];
 
 /** Switch for the paper auto-trader: it places VIRTUAL orders from scanner ideas, nothing real. */

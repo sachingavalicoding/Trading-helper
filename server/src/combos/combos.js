@@ -50,7 +50,7 @@ export function normalizeCombo(raw, index = 0) {
   return out;
 }
 
-export const ORDER_LIMITS = { risk: [50, 1_000_000], maxAmount: [1000, 100_000_000], stopPct: [0.3, 5], target: [50, 10_000_000], exitMin: [9 * 60 + 30, 15 * 60 + 15] };
+export const ORDER_LIMITS = { risk: [50, 1_000_000], maxAmount: [1000, 100_000_000], stopPct: [0.3, 5], target: [50, 10_000_000], exitMin: [9 * 60 + 15, 15 * 60 + 15] };
 
 /**
  * A share combination's own order settings, each optional (0 or missing = the Account one): `risk` (rupees lost at the stop, sizes the trade),
