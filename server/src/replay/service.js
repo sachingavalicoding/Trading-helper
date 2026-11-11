@@ -18,6 +18,7 @@ import { round2, roundToTick } from '../utils/money.js';
 import { notFound } from '../utils/errors.js';
 import { lessons, minuteRows, pathSummary, replayIndexStop, replayPriceStop } from './path.js';
 import { closedBars5, entryReasons, sourceOf } from './why.js';
+import { shareSkips } from './skips.js';
 
 export const REPLAY_NOTE = 'Rebuilt from 1-minute candles. The live engine checks every tick, so a stop can have moved a little earlier or later than shown. Paper trading for learning. Not investment advice.';
 
@@ -114,6 +115,19 @@ export class TradeReplayService {
     // why it was taken
     const why = await this.#why({ userId, pos, log, option, index, indexMinutes, long, entryTime, day });
 
+    // share auto trades: which entry rules would have skipped it
+    let skips = null;
+    if (!option && log && !d.manual) {
+      try {
+        const settings = await AutoSettings.findOne({ user: userId }).lean();
+        const bought = new Date(entryTime * 1000);
+        const losers = await AutoLog.find({ user: userId, day, segment: { $ne: 'OPT' }, 'outcome.netPnl': { $lt: 0 }, _id: { $ne: log._id }, updatedAt: { $lte: bought } }).select('_id').lean();
+        skips = shareSkips({ log, settings: settings ?? {}, lossesBefore: losers.length, net: open ? null : net, entryTime });
+      } catch {
+        skips = null;
+      }
+    }
+
     const events = buildEvents({ rows, entryTime, exitTime, avg, long, open, exitLabel, exitPrice, summary, stopEvents, indexEvents, initialStop, index: index ? INDEXES[index].short : null });
 
     const from = entryTime - BEFORE_MIN * 60;
@@ -143,6 +157,7 @@ export class TradeReplayService {
       chart: candles.filter((c) => c.time >= from && c.time <= to).map(pick),
       indexChart: indexMinutes.filter((c) => c.time >= from && c.time <= to).map(pick),
       why,
+      skips,
       note: REPLAY_NOTE,
     };
   }

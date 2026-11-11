@@ -277,6 +277,34 @@ function WhyTaken({ why, side }) {
   );
 }
 
+/** Share auto trades: each entry rule tried on this trade, and the score parts that agreed but went with worse results. */
+function SkipRules({ s }) {
+  if (!s) return null;
+  return (
+    <Card className="space-y-2 p-3">
+      <h3 className="text-sm font-semibold">{s.lost ? 'Why it lost: what could have skipped it' : 'What could have skipped it'}</h3>
+      <p className="text-xs leading-snug">{s.text}</p>
+      <ul className="space-y-1 text-[12px]">
+        {s.rules.map((r) => (
+          <li key={r.key} className="flex items-start justify-between gap-2">
+            <span className="min-w-0">
+              <b className={r.skip ? 'text-down' : 'text-fg'}>{r.skip === true ? '✗ ' : r.skip === false ? '✓ ' : '? '}{r.label}</b>
+              <span className="text-muted"> · {r.value}</span>
+            </span>
+            <span className={`shrink-0 text-[11px] ${r.on ? 'text-up' : 'text-muted'}`}>{r.on ? 'on' : r.rule}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-[11px] leading-snug text-muted">✗ = this rule would have skipped the trade, ✓ = it passed, ? = no reading saved. Values are the ones your Shares study liked.</p>
+      {s.late?.length > 0 && (
+        <p className="rounded-lg bg-warn/15 px-2.5 py-2 text-xs leading-snug">
+          <b>Late-entry signs:</b> {s.late.map((c) => c.label).join(', ')} agreed here. In your 10-day study, ideas where these agreed did worse: the move was often already done.
+        </p>
+      )}
+    </Card>
+  );
+}
+
 function PlanVsResult({ d }) {
   const r = d.result;
   const ladder = d.exits.lockSteps?.length ? d.exits.lockSteps.map((s) => `+${rupees(s.at).slice(1)} keeps ${rupees(s.keep).slice(1)}`).join(', ') : d.exits.lockTrigger ? `from +${rupees(d.exits.lockTrigger).slice(1)} keeps ${rupees(d.exits.lockAmount).slice(1)}` : 'none';
@@ -387,6 +415,7 @@ export function TradeReplaySheet({ positionId, title, onClose }) {
           )}
           {d.minutes.length > 0 && <MinuteTable data={d} picked={picked} onPick={setPicked} />}
           <WhyTaken why={d.why} side={d.side} />
+          <SkipRules s={d.skips} />
           <PlanVsResult d={d} />
           <p className="text-center text-[11px] text-muted">{d.note}</p>
         </div>
