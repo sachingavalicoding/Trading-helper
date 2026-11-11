@@ -28,6 +28,7 @@ const autoSettingsSchema = new mongoose.Schema(
       minStopPct: { type: Number, default: 0.5, min: 0, max: 2 },
       stopAfterLosses: { type: Number, default: 0, min: 0, max: 20 },
       target: { type: Number, default: 0, min: 0, max: 100000 },
+      lockFromR: { type: Number, default: 0, min: 0, max: 2 },
     },
     combos: { type: [comboSchema], default: [] }, // the user's own entry combinations (Account > Entries); see combos/combos.js
   },

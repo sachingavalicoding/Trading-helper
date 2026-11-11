@@ -11,6 +11,7 @@ export const DEFAULT_SHARE_RULES = Object.freeze({
   noChaseR: 0.5, // skip when the price has already run this many risks past the entry (the old fixed 0.5R)
   minStopPct: 0.5, // skip an idea whose stop is closer than this % of the entry
   stopAfterLosses: 0, // no new share trade today after this many losing auto trades
+  lockFromR: 0, // profit lock measured in risks of each trade (R_LADDERS) in place of the rupee ladder; 0 = the rupee ladder (Account)
   target: 0, // sell a share trade once its profit reaches this many rupees, in place of the profit ladder; 0 = the ladder (Account)
 });
 
@@ -23,6 +24,7 @@ export const RULE_LABELS = {
   minStopPct: 'Smallest stop',
   stopAfterLosses: 'Stop after losses',
   target: 'Fixed profit target',
+  lockFromR: 'Profit lock in risks',
 };
 
 /** The user's rules with every missing one filled from the defaults. */
@@ -81,3 +83,20 @@ export function confirmEntry(c1, from, idea, { noChaseR = 0.5, bars = CONFIRM_BA
 
 /** Minute of the day (IST) of a unix time in seconds. */
 export const minuteOf = (t) => istParts(new Date(t * 1000)).minutes;
+
+/**
+ * Profit locks in risks (R) of each trade, added 11 Nov 2026: a rupee ladder starting at +₹300 is +0.3R on a ₹1,000-risk trade but +1R
+ * on a ₹315 one, so it caught the 30 Oct winners and missed the 9-11 Nov ones. Rows of [profit, kept] in R; above the last row the stop
+ * follows that row's gap behind the best profit. The key is where the lock starts.
+ */
+export const R_LADDERS = {
+  0.35: [[0.35, 0.2], [0.6, 0.4], [1, 0.75], [1.5, 1.2]],
+  0.5: [[0.5, 0.25], [0.75, 0.45], [1, 0.7], [1.5, 1.15]],
+};
+
+/** The R ladder starting nearest `fromR`, as rupee rows for a trade that risks `riskRupees`; [] when off. */
+export function rLadder(fromR, riskRupees) {
+  if (!(fromR > 0) || !(riskRupees > 0)) return [];
+  const key = Object.keys(R_LADDERS).map(Number).sort((a, b) => Math.abs(a - fromR) - Math.abs(b - fromR))[0];
+  return R_LADDERS[key].map(([at, keep]) => ({ at: Math.round(at * riskRupees), keep: Math.max(1, Math.round(keep * riskRupees)) }));
+}

@@ -38,7 +38,7 @@ export function reportRoutes({ engine, market, review }) {
       AutoLog.find({ user: req.userId, day, segment: 'OPT' }).sort({ decidedAt: 1 }).lean(),
       AutoSettings.findOne({ user: req.userId }).lean(),
       OptionSettings.findOne({ user: req.userId }).lean(),
-      ScanIdea.find({ status: { $ne: 'OPEN' } }, 'setup side status entry stopLoss exitPrice score createdAt bestR worstR card.checks card.facts').lean(),
+      ScanIdea.find({ status: { $ne: 'OPEN' } }, 'symbol setup side status entry stopLoss exitPrice score createdAt bestR worstR card.checks card.facts').lean(),
     ]);
     const auto = autoDoc || new AutoSettings({ user: req.userId }).toObject();
     const opt = optDoc || new OptionSettings({ user: req.userId }).toObject();

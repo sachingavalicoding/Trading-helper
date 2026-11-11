@@ -51,6 +51,7 @@ export function shareRulesText(sr) {
     `no buy once ${sr.noChaseR}R past the entry`,
     `smallest stop ${sr.minStopPct}%`,
     sr.stopAfterLosses > 0 ? `no new trade after ${sr.stopAfterLosses} losses in a day` : null,
+    sr.lockFromR > 0 && !(sr.target > 0) ? `profit lock in risks from +${sr.lockFromR}R (replaces the rupee ladder)` : null,
   ]
     .filter(Boolean)
     .join(', ');
@@ -125,6 +126,8 @@ function winsLines(w) {
   if (w.byVsNifty.length) lines.push(`- Share vs Nifty: ${band(w.byVsNifty)}`);
   if (w.byVolume.length) lines.push(`- Volume vs normal: ${band(w.byVolume)}`);
   lines.push(`- Side: ${band(w.bySide)}`);
+  if (w.byShare?.worst.length) lines.push(`- Shares that lose most (4+ ideas): ${band(w.byShare.worst)}`);
+  if (w.byShare?.best.length) lines.push(`- Shares that do best (4+ ideas): ${band(w.byShare.best)}`);
   lines.push(`- Hour: ${band(w.byHour)}`);
   if (w.quickFails) lines.push(`- Stopped ideas that never got +0.2R first (bought at the wrong moment): ${w.quickFails.neverHalfR} of ${w.quickFails.stopped}`);
   if (w.soldAtHalfR && w.asIs) lines.push(`- Sold at +0.5R when reached: ${signed(w.soldAtHalfR.avgR, 'R')} a trade; at +1R: ${signed(w.soldAtOneR.avgR, 'R')}; as they ended: ${signed(w.asIs.avgR, 'R')} (${w.asIs.count} ideas with best/worst saved)`);

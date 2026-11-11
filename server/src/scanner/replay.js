@@ -4,7 +4,7 @@ import { evaluateStock, MIN_SCORE } from './evaluate.js';
 import { roundToTick } from '../utils/money.js';
 import { LOCK_CHARGES_MULT, roundTripCharges } from '../services/charges.js';
 import { sizeOf } from './backtest.js';
-import { confirmEntry } from './entryRules.js';
+import { confirmEntry, rLadder, R_LADDERS } from './entryRules.js';
 
 const STEP = 5; // look for ideas every 5 minutes, like a person glancing at the screen
 const MIN_BARS = 60;
@@ -137,6 +137,18 @@ export const TRY_TARGETS = [200, 250, 300];
  * that is not blocked, not missed and not a switched-off setup, with its facts, its normal result, the result had it waited for a 5-minute
  * close (scanner/entryRules.js confirmEntry), and the result with each fixed target in TRY_TARGETS.
  */
+/** The idea followed with each profit lock in risks (scanner/entryRules.js R_LADDERS), sized like the live trade. */
+function rLocks(c1, i, idea, ladder, money) {
+  const qty = sizeOf(idea, money);
+  const risk = qty * Math.abs(idea.entry - idea.stopLoss);
+  const out = {};
+  for (const k of Object.keys(R_LADDERS)) {
+    const r = followLive(c1, i, idea, ladder, { ...money, target: 0, steps: rLadder(Number(k), risk) });
+    out[k] = { status: r.status, exit: r.exit, exitPrice: r.exitPrice, exitTime: r.exitTime, sizedQty: r.sizedQty };
+  }
+  return out;
+}
+
 function liveIdea(symbol, c1, i, candidates, now, ladder, money) {
   const top = candidates.find((c) => c.score >= MIN_SCORE && c.status !== 'MISSED' && !c.blocked.length && !LIVE_OFF.has(c.setup));
   if (!top || top.status !== 'ENTRY') return null;
@@ -146,6 +158,7 @@ function liveIdea(symbol, c1, i, candidates, now, ladder, money) {
     const r = followLive(c1, i, idea, ladder, { ...money, target: t });
     out.targets[t] = { status: r.status, exit: r.exit, exitPrice: r.exitPrice, exitTime: r.exitTime, sizedQty: r.sizedQty };
   }
+  out.rlocks = rLocks(c1, i, idea, ladder, money);
   const conf = confirmEntry(c1, i, idea);
   if (conf.index != null) {
     const later = { ...idea, entry: conf.price, openedAt: new Date(conf.time * 1000 + 60_000).toISOString() };
@@ -155,6 +168,7 @@ function liveIdea(symbol, c1, i, candidates, now, ladder, money) {
       const rt = followLive(c1, conf.index, later, ladder, { ...money, target: t });
       out.confirmed.targets[t] = { status: rt.status, exit: rt.exit, exitPrice: rt.exitPrice, exitTime: rt.exitTime, sizedQty: rt.sizedQty };
     }
+    out.confirmed.rlocks = rLocks(c1, conf.index, later, ladder, money);
   } else out.confirmed = { dropped: conf.dropped || 'not enough candles after the idea' };
   return out;
 }

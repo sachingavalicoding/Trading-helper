@@ -38,6 +38,7 @@ const patch = z
         minStopPct: z.coerce.number().min(0).max(2),
         stopAfterLosses: z.coerce.number().int().min(0).max(20),
         target: z.coerce.number().min(0).max(100000),
+        lockFromR: z.coerce.number().min(0).max(2),
       })
       .partial(),
   })
