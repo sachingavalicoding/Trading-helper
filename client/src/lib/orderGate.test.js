@@ -24,3 +24,11 @@ describe('orderBlock', () => {
     expect(orderBlock(null)).toBeNull();
   });
 });
+
+describe('orderBlock in a replay', () => {
+  it('follows the server replay clock, not the device time', () => {
+    const late = new Date('2026-11-11T10:45:00Z'); // 16:15 IST on the device
+    expect(orderBlock({ enforced: true, tradingDay: true, replay: true, phase: 'OPEN', afterSquareOff: false }, late)).toBe(null);
+    expect(orderBlock({ enforced: true, tradingDay: true, replay: true, phase: 'OPEN', afterSquareOff: true }, late)).toMatch(/15:15/);
+  });
+});
