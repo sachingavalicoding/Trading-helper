@@ -137,6 +137,11 @@ test('rule test: each rule filters the same ideas, a rule is better only when bo
   // the setups you switched off and the minimum score count
   assert.equal(tradesFor(ideas, { minScore: 90, setupOn: () => true, rules: shareRulesOf(null) }).length, 0);
   assert.equal(ruleTest(ideas, { ...settings, skipSetups: ['Opening range breakout'] }, { riskAmount: 300 }).now.trades, 0);
+  // the last entry time: ideas at 04:00-07:00 UTC are 09:30-12:30 IST
+  const until1130 = r.rows.find((x) => x.key === 'until1130');
+  assert.equal(until1130.trades, 8, 'only the 09:30 and 10:30 ideas');
+  assert.deepEqual(until1130.body, { entryTo: 690 });
+  assert.deepEqual(t200.body, { shareRules: { target: 200 } });
   // a rule already on says so
   assert.equal(ruleTest(ideas, { ...settings, shareRules: { marketAgree: true } }, { riskAmount: 300 }).rows.find((x) => x.key === 'marketAgree').verdict, 'on');
 });
@@ -146,7 +151,7 @@ test('the shares study also tests the new entry rules on the ideas the live scan
   const r = await runSharesStudy({ nifty1: walk(12, 7), history, params: { days: 5, riskAmount: 300, maxAmount: 100000, settings: { minScore: 70, skipSetups: [], trendScore: true, shareRules: {} } } });
   const t = r.ruleTest;
   assert.ok(t, 'rule test in the result');
-  assert.equal(t.rows.length, 9);
+  assert.equal(t.rows.length, 12);
   assert.ok(t.now.trades >= 0);
   for (const row of t.rows) {
     assert.ok(['better', 'mixed', 'worse', 'few', 'on'].includes(row.verdict), row.verdict);
