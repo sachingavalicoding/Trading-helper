@@ -26,8 +26,8 @@ function Row({ x, onUse, busy }) {
       {v && (
         <div className="flex items-center justify-between gap-2">
           <span className={`text-[11px] font-semibold ${v.cls}`}>{v.text}</span>
-          {x.patch && x.verdict === 'better' && (
-            <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => onUse(x.patch)}>
+          {x.body && x.verdict === 'better' && (
+            <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => onUse(x.body)}>
               Turn on
             </button>
           )}
@@ -41,10 +41,10 @@ function Row({ x, onUse, busy }) {
 export function RuleTest({ t }) {
   const [busy, setBusy] = useState(false);
   if (!t) return null;
-  async function use(patch) {
+  async function use(body) {
     setBusy(true);
     try {
-      await api('/auto', { method: 'PUT', body: { shareRules: patch } });
+      await api('/auto', { method: 'PUT', body });
       toast.success('Saved. The auto trader uses it from the next idea.');
     } catch (e) {
       toast.error(e.message || 'Could not save');
