@@ -118,6 +118,7 @@ const band = (rows) => rows.map((g) => `${g.key} ${g.count} (${g.winRate}%, ${si
 function winsLines(w) {
   if (!w?.count) return [];
   const lines = [`## What wins in the track record (${w.count} finished ideas: count, % that reached target 1, average result in risks)`];
+  if (w.outOfHours) lines.push(`Left out: ${w.outOfHours} ideas raised outside market hours (09:15-15:30), from runs on the sample feed.`);
   if (w.chargesR != null) lines.push(`Charges cost about ${w.chargesR}R a trade at your stop size, so a group must average more than +${w.chargesR}R to make money.`);
   lines.push(`- Stop distance: ${band(w.byStop)}`);
   if (w.byMarket.length) lines.push(`- Market: ${band(w.byMarket)}`);
