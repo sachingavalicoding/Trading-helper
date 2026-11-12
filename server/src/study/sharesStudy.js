@@ -40,7 +40,7 @@ export async function runSharesStudy({ nifty1, history, params, onProgress = () 
     ideas.push(...replayStock({ symbol, c1: history[symbol], nifty: nifty1, days: params.days, exits: 'live', money, collect: every, marketAt, live }));
     await yieldTurn();
   }
-  const needRank = params.finderOnly ? (params.pairFind && !params.pairFirst) || params.comboFind : params.rank !== false;
+  const needRank = params.finderOnly ? (params.pairFind && !params.pairFirst) || params.comboFind || Boolean(params.learn) : params.rank !== false;
   const extra = await comboStudy({ nifty1, history, symbols, params: { ...params, rank: needRank }, money, opts, onProgress });
   if (params.finderOnly) return { generatedAt: new Date().toISOString(), finderOnly: true, period: { days: params.days, stocks: symbols.length }, params: { days: params.days, riskAmount: opts.riskAmount, slippagePct: opts.slippagePct, exit: target ? 'target' : 'lock', target, steps: money.steps, exitMin }, ...extra };
   const rows = (keyOf, label = (k) => k) => evaluateBy(ideas, keyOf, opts).map((r) => ({ ...r, key: label(r.key) }));
@@ -72,8 +72,8 @@ export async function runSharesStudy({ nifty1, history, params, onProgress = () 
 async function comboStudy({ nifty1, history, symbols, params, money, opts, onProgress }) {
   const wanted = params.finderOnly ? [] : (params.combos || []).filter((c) => c.on !== false);
   const rank = params.rank !== false;
-  const pairWanted = Boolean(params.pairFind || params.comboFind);
-  if (!wanted.length && !rank && !pairWanted) return { combos: [], indicators: [], combosSkipped: [], pairs: null, comboFound: null };
+  const pairWanted = Boolean(params.pairFind || params.comboFind || params.learn);
+  if (!wanted.length && !rank && !pairWanted) return { combos: [], indicators: [], combosSkipped: [], pairs: null, comboFound: null, learned: null };
   onProgress('Working out the 50-stock breadth');
   const stocks5 = Object.fromEntries(symbols.map((s) => [s, bars5Of(history[s])]));
   const timeline = aggregateCandles(nifty1, '5m');
@@ -138,6 +138,7 @@ async function comboStudy({ nifty1, history, symbols, params, money, opts, onPro
     .sort((a, b) => b.net - a.net);
   let pairs = null;
   let comboFound = null;
+  let learned = null;
   if (pairWanted) {
     const trainDay = dayList[Math.floor((dayList.length * 2) / 3)];
     const dayOfIdea = (i) => DAY(Date.parse(i.openedAt) / 1000);
@@ -158,6 +159,21 @@ async function comboStudy({ nifty1, history, symbols, params, money, opts, onPro
     const { first, bases, missing } = pairStart(params.pairFirst, params.combos, { parts: params.pairParts });
     if (params.pairFind) pairs = missing ? { skipped: 'that combination is no longer saved' } : await findPairs({ ...common, first, bases, depth: params.finderOnly ? params.pairDepth ?? 3 : 1, show: params.pairShow, goal: params.pairGoal === 'winrate' ? 'winrate' : 'profit' });
     if (params.comboFind) comboFound = await findCombos({ ...common, show: params.pairShow ?? undefined, goal: params.pairGoal === 'winrate' ? 'winrate' : 'profit' });
+    if (params.learn) {
+      // the auto-learner (learner/learn.js): whole saved combinations (side lock, own order settings) traded on every stock; one read of each chart serves all of them
+      const evaluateSets = async (sets) => {
+        const unique = new Map();
+        for (const set of sets) for (const c of set) unique.set(JSON.stringify(c), c);
+        const setJobs = [...unique.entries()].map(([key, combo]) => ({ key, combo, mine: true }));
+        const by = await collect(setJobs, `Learner (${setJobs.length} combinations)`);
+        return sets.map((set) => {
+          const ideas = set.flatMap((c) => by.get(JSON.stringify(c)) ?? []);
+          const all = evaluate(ideas, opts);
+          return { train: part(ideas.filter((i) => dayOfIdea(i) < trainDay)), test: part(ideas.filter((i) => dayOfIdea(i) >= trainDay)), all: { trades: all.trades, net: all.totalNet, winRate: all.winRate } };
+        });
+      };
+      learned = await params.learn({ ...common, evaluateSets, onProgress });
+    }
   }
-  return { combos: combos.sort((a, b) => b.totalNet - a.totalNet), indicators, combosSkipped, pairs, comboFound };
+  return { combos: combos.sort((a, b) => b.totalNet - a.totalNet), indicators, combosSkipped, pairs, comboFound, learned };
 }

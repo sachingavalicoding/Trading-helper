@@ -17,6 +17,8 @@ import { attachSocket } from './socket/index.js';
 import { prepareReplay } from './dayreplay/boot.js';
 import { mongoSettingsSync } from './dayreplay/settingsLink.js';
 import { dayReplayRoutesDeps } from './dayreplay/manager.js';
+import { StudyService } from './study/service.js';
+import { LearnerService } from './learner/service.js';
 import { logger } from './utils/logger.js';
 
 async function main() {
@@ -66,7 +68,10 @@ async function main() {
   const ticks = new TickRecorder({ market, config: env });
   ticks.start();
   const dayReplay = dayReplayRoutesDeps({ config: env, clock: replay?.clock ?? null, market, optionTrader, scanner, engine });
-  const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history, optionHistory, ticks, dayReplay });
+  const study = new StudyService({ market, config: env });
+  const learner = new LearnerService({ study, market, config: env });
+  if (!replay) learner.schedule(); // each trading evening, for users who switched auto on
+  const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history, optionHistory, ticks, dayReplay, study, learner });
   const server = http.createServer(app);
   const io = attachSocket(server, { market, engine, config: env, scanner });
 
@@ -85,6 +90,7 @@ async function main() {
     optionTrader.stop();
     history.stop();
     optionHistory.stop();
+    learner.stop();
     await ticks.stop();
     scanner.stop();
     news.stop();

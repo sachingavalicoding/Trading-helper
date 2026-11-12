@@ -50,6 +50,24 @@ export class StudyService {
     return job;
   }
 
+  /**
+   * A learner run (learner/service.js): the finder run of the options (real prices where saved) or shares study with `learn` called inside it.
+   * It keeps its own job (`learn-<kind>`), so it never blocks or overwrites the user's own study. Resolves with the study result.
+   */
+  async learnRun(userId, kind, { learn, days, realPrices = true, onStep = () => {} }) {
+    const key = `${userId}|learn-${kind}`;
+    if (this.jobs.get(key)?.state === 'running') throw conflict('The learner is already running');
+    const job = { state: 'running', step: 'Starting', startedAt: Date.now() };
+    const watch = setInterval(() => onStep(job.step), 1000);
+    this.jobs.set(key, job);
+    try {
+      return kind === 'shares' ? await this.#runShares(userId, job, { days, learn }) : await this.#runOptions(userId, job, { days, realPrices, live: true, learn });
+    } finally {
+      clearInterval(watch);
+      this.jobs.delete(key);
+    }
+  }
+
   async #save(userId, kind, result) {
     const simulated = Boolean(this.market.provider.isSimulated);
     await StudyRun.findOneAndUpdate({ user: userId, kind }, { result, simulated }, { upsert: true, new: true });
@@ -71,7 +89,7 @@ export class StudyService {
     return { nifty1, calendar };
   }
 
-  async #runOptions(userId, job, { realPrices = false, live = true, maxTrades, days, iv, target = 0, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch, pairParts, winFind = false, winMinWin, winMinTrades }) {
+  async #runOptions(userId, job, { realPrices = false, live = true, maxTrades, days, iv, target = 0, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch, pairParts, winFind = false, winMinWin, winMinTrades, learn = null }) {
     // with the real prices on, the study covers only the days that were saved (inside any dates asked for), and takes only trades whose contract was saved
     let prices = null;
     let noPrices = false;
@@ -144,7 +162,8 @@ export class StudyService {
       winFind,
       winMinWin,
       winMinTrades,
-      finderOnly: pairFind || comboFind || winFind, // with a finder on, only the finders run, not the normal study
+      learn,
+      finderOnly: pairFind || comboFind || winFind || Boolean(learn), // with a finder (or the learner) on, only the finders run, not the normal study
       research,
       lossLimit: rules.stopLoss ?? 0,
       maxLots: settings?.maxLots ?? 2,
@@ -155,6 +174,7 @@ export class StudyService {
     };
     const result = await runOptionsStudy({ nifty1, stocks5, params, onProgress: (step) => { job.step = step; } });
     result.pricing = prices ? prices.describe() : { mode: 'estimated', iv, ...(noPrices ? { note: 'No real option prices are saved for this index yet (one day is saved each evening after 15:40), so the premiums are estimated.' } : {}) };
+    if (learn) return result; // the learner keeps its own result (learner/service.js), not the user's last study
     await this.#save(userId, 'options', result);
   }
 
@@ -243,7 +263,7 @@ export class StudyService {
     return { nifty1, stocks5, params, prices, settings };
   }
 
-  async #runShares(userId, job, { days, target = 0, exitMin, pairFind = false, pairFirst = null, comboFind = false, pairDepth, pairShow, pairGoal, pairParts }) {
+  async #runShares(userId, job, { days, target = 0, exitMin, pairFind = false, pairFirst = null, comboFind = false, pairDepth, pairShow, pairGoal, pairParts, learn = null }) {
     const { nifty1, calendar } = await this.#nifty(job, days);
     const history = {};
     let failed = 0;
@@ -257,7 +277,8 @@ export class StudyService {
       }
     }
     const [rules, auto] = await Promise.all([loadRules(userId, 'EQ'), AutoSettings.findOne({ user: userId }).lean()]);
-    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, target, exitMin: exitMin ?? rules.exitMin, maxAmount: auto?.maxTradeAmount ?? 0, settings: auto ?? null, combos: normalizeCombos(auto?.combos), pairFind, pairFirst, comboFind, pairDepth, pairShow, pairGoal, pairParts, finderOnly: pairFind || comboFind }, onProgress: (step) => { job.step = step; } });
+    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, target, exitMin: exitMin ?? rules.exitMin, maxAmount: auto?.maxTradeAmount ?? 0, settings: auto ?? null, combos: normalizeCombos(auto?.combos), pairFind, pairFirst, comboFind, pairDepth, pairShow, pairGoal, pairParts, learn, finderOnly: pairFind || comboFind || Boolean(learn) }, onProgress: (step) => { job.step = step; } });
+    if (learn) return result;
     await this.#save(userId, 'shares', result);
   }
 }
