@@ -17,6 +17,8 @@ import { reviewRoutes } from './routes/review.js';
 import { reportRoutes } from './routes/report.js';
 import { studyRoutes } from './routes/study.js';
 import { comboRoutes } from './routes/combos.js';
+import { learnerRoutes } from './routes/learner.js';
+import { LearnerService } from './learner/service.js';
 import { ReviewService } from './review/service.js';
 import { StudyService } from './study/service.js';
 import { LabService } from './lab/service.js';
@@ -34,7 +36,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 export const DISCLAIMER = 'Paper trading for learning. Not investment advice.';
 
-export function createApp({ market, engine, config, tracker, scanner, news, autoTrader, optionTrader, review = new ReviewService({ market, config }), study = new StudyService({ market, config }), lab = new LabService({ market, config }), replay = new TradeReplayService({ market, config }), history = new HistorySync({ market }), optionHistory = null, ticks = null, dayReplay = null }) {
+export function createApp({ market, engine, config, tracker, scanner, news, autoTrader, optionTrader, review = new ReviewService({ market, config }), study = new StudyService({ market, config }), learner = new LearnerService({ study, market, config }), lab = new LabService({ market, config }), replay = new TradeReplayService({ market, config }), history = new HistorySync({ market }), optionHistory = null, ticks = null, dayReplay = null }) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
@@ -61,6 +63,7 @@ export function createApp({ market, engine, config, tracker, scanner, news, auto
   if (news) app.use('/api/news', auth, newsRoutes({ news }));
   app.use('/api/review', auth, reviewRoutes({ review }));
   app.use('/api/study', auth, studyRoutes({ study }));
+  app.use('/api/learner', auth, learnerRoutes({ learner }));
   app.use('/api/lab', auth, labRoutes({ lab }));
   app.use('/api/replay', auth, replayRoutes({ replay }));
   app.use('/api/combos', auth, comboRoutes());

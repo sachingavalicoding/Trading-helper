@@ -665,9 +665,9 @@ async function finderOnlyRun({ complete, byTime, bars5, breadth, flow, prep, stu
   const chart = buildChart(bars5, { breadth, flow, prep });
   const inStudy = (s) => s.time - 300 >= fromTime;
   const trainEnd = complete.find((b) => DAY(b.time) === studyDays[Math.floor((studyDays.length * 2) / 3)])?.time ?? null;
-  const needRank = (params.pairFind && !params.pairFirst) || params.comboFind || params.winFind;
+  const needRank = (params.pairFind && !params.pairFirst) || params.comboFind || params.winFind || Boolean(params.learn);
   const indicators = needRank ? await rankIndicators({ chart, inStudy, midTime, complete, byTime, params, onProgress }) : [];
-  const { pairs, combos: comboFound, wins: winFound } = await finders({ chart, inStudy, trainEnd, midTime, studyDays: studyDays.length, complete, byTime, params, indicators, onProgress });
+  const { pairs, combos: comboFound, wins: winFound, learned } = await finders({ chart, inStudy, trainEnd, midTime, studyDays: studyDays.length, complete, byTime, params, indicators, onProgress });
   return {
     generatedAt: new Date().toISOString(),
     finderOnly: true,
@@ -682,6 +682,7 @@ async function finderOnlyRun({ complete, byTime, bars5, breadth, flow, prep, stu
     pairs,
     comboFound,
     winFound: winFound ?? null,
+    learned: learned ?? null,
     research: null,
     combosSkipped: [],
     breadth: null,
@@ -757,7 +758,20 @@ async function finders({ chart, inStudy, trainEnd, midTime = null, studyDays, co
     }
   }
   const wins = params.winFind ? await findWinners({ indicators, have: chart.have, studyDays, evaluateMany, minWin: params.winMinWin ?? undefined, minTrades: params.winMinTrades ?? undefined }) : null;
-  return { pairs, combos: params.comboFind ? await findCombos({ ...common, show: params.pairShow ?? undefined }) : null, wins };
+  // the auto-learner (learner/learn.js): whole saved combinations (side lock, own stop) traded together, one at a time, by the live rules
+  const evaluateSets = async (sets) => {
+    const out = [];
+    for (const set of sets) {
+      const signals = set.flatMap((c) => comboSignals(chart, c, { when: whenOf(params), label: `combo:${c.id}` }).filter(inStudy));
+      const { trades } = tradesFor(signals, { c1: complete, byTime, params });
+      const all = summarize(trades);
+      out.push({ train: part(trades.filter((t) => t.entryTime < trainEnd)), test: part(trades.filter((t) => t.entryTime >= trainEnd)), all: { trades: all.trades, net: all.net, winRate: all.winRate } });
+      await yieldTurn();
+    }
+    return out;
+  };
+  const learned = params.learn ? await params.learn({ ...common, evaluateSets, onProgress }) : null;
+  return { pairs, combos: params.comboFind ? await findCombos({ ...common, show: params.pairShow ?? undefined }) : null, wins, learned };
 }
 
 /** Every check of the combination builder on its own: how a trade taken each time it turns true would have done. The keepers are the ones to build combinations from. */
