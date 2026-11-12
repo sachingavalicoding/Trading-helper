@@ -1,5 +1,6 @@
 import { every } from '../utils/every.js';
-import { AutoLog, OptionSettings, Order, Position, Trade } from '../models/index.js';
+import { AutoLog, EntryClaim, OptionSettings, Order, Position, Trade } from '../models/index.js';
+import { EntryGuard, mongoClaims } from './entryGuard.js';
 import { getFunds } from '../services/walletService.js';
 import { INDEXES, DEFAULT_INDEX, INDEX_KEYS, indexKeyOf, isOptionSymbol, optionLabel, parseOptionSymbol } from './symbols.js';
 import { forIndex } from './indexSettings.js';
@@ -20,6 +21,18 @@ import { istParts } from '../market/marketHours.js';
 import { logger } from '../utils/logger.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
+
+/**
+ * When a buy was added to a position that was already open in the same contract, both log rows point at one position. Once it closes,
+ * the first row carries the whole result; the others are closed with nothing counted, so the day report does not show them as
+ * "still open" for ever or count the money twice.
+ */
+async function closeJoinedLogs(userId, pos, outcome) {
+  await AutoLog.updateMany(
+    { user: userId, segment: 'OPT', position: pos._id, status: 'OPEN' },
+    { status: 'CLOSED', reason: 'added to an earlier buy of the same contract; the result is counted on that trade', outcome: { exitReason: outcome.exitReason, exitPrice: outcome.exitPrice, grossPnl: 0, charges: 0, netPnl: 0, resultR: null, minutesHeld: outcome.minutesHeld, closedAt: outcome.closedAt ?? pos.closedAt } },
+  );
+}
 
 const SCAN_MS = 15000;
 const SECOND_MS = 1000; // how often the "act on the second" entries look at the forming 5-minute bar
@@ -88,6 +101,7 @@ export class OptionTrader {
     this.bars5 = new Map(); // index key -> the 5-minute bar being built from its ticks
     this.secondExit = new Map(); // user id -> the minute they close, for the second entries
     this.holds = new Holds();
+    this.entryGuard = new EntryGuard({ claims: mongoClaims(EntryClaim) }); // one new buy per user at a time, also across two servers on one database
     this.onTick = (t) => this.#onTick(t);
     this.onUpdate = (u) => {
       if (u.kind === 'stopoff') {
@@ -103,6 +117,12 @@ export class OptionTrader {
   /** Pick up trades that were open when the server last stopped, so their chart stops keep working. */
   async init() {
     for (const log of await AutoLog.find({ segment: 'OPT', status: 'OPEN' }).lean()) {
+      const pos = log.position ? await Position.findById(log.position, 'status closedAt').lean() : null;
+      if (pos?.status === 'CLOSED') {
+        // a second buy that was added to an earlier position of the same contract (the 12 Nov double buy): that trade is over
+        await closeJoinedLogs(log.user, pos, { exitReason: 'MANUAL', closedAt: pos.closedAt });
+        continue;
+      }
       this.#watch(log.user, log.symbol, {
         type: log.detail?.type,
         index: log.detail?.index ?? parseOptionSymbol(log.symbol)?.index ?? DEFAULT_INDEX,
@@ -479,7 +499,17 @@ export class OptionTrader {
     return result;
   }
 
-  async #enter(settings, read, side, { manual = false, lots = null } = {}) {
+  // Every buy goes through the entry guard: the checks below (already holding this side, trades open, budget left) and the order run as
+  // one step per user, so two entries that start together cannot both pass the checks and double the position.
+  async #enter(settings, read, side, opts = {}) {
+    const r = await this.entryGuard.run(String(settings.user), () => this.#enterNow(settings, read, side, opts));
+    if (!r?.busy) return r;
+    const reason = 'another option buy for this account was being placed at the same moment (is a second copy of the app running on the same database?)';
+    logger.warn(`options entry skipped for ${settings.user}: ${reason}`);
+    return opts.manual ? { skipped: reason } : this.#skip(settings, side, reason);
+  }
+
+  async #enterNow(settings, read, side, { manual = false, lots = null } = {}) {
     const userId = settings.user;
     const today = await this.todaySummary(userId);
     const stop = (reason) => (manual ? { skipped: reason } : this.#skip(settings, side, reason));
@@ -759,6 +789,7 @@ export class OptionTrader {
       closedAt: pos.closedAt,
     };
     await AutoLog.updateOne({ _id: log._id, status: 'OPEN' }, { status: 'CLOSED', outcome });
+    await closeJoinedLogs(userId, pos, outcome);
     if (outcome.netPnl < 0 && !log.detail?.manual && log.detail?.comboId) await this.benchIfCold(userId, log.detail.comboId).catch((e) => logger.warn(`bench check failed: ${e.message}`));
   }
 

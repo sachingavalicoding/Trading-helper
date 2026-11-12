@@ -376,6 +376,22 @@ function callRead(spotNow, stopGap = 40) {
 // The all-checks score no longer buys; these tests use a chart read's best side as the entry to check the sizing, the stops and the exits.
 const consider = (settings, read) => optionTrader.enterRead(settings, read, read.best);
 
+test('two entries started at the same moment buy once, also from a second server on the same database (the 12 Nov double buy)', async () => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  ctx.provider.setPrice('NIFTY 50', 25000);
+  const s = (await OptionSettings.create({ user: uid, enabled: true, maxLots: 2 })).toObject();
+  const read = callRead(25000);
+  const second = new OptionTrader({ market: ctx.market, engine: ctx.engine, config: ctx.config, scanner: ctx.scanner });
+  const results = await Promise.all([consider(s, read), consider(s, read), second.enterRead(s, read, read.best)]);
+  assert.equal(results.filter((r) => r.order).length, 1, JSON.stringify(results.map((r) => r.skipped)));
+  assert.equal(await Order.countDocuments({ user: uid, role: 'ENTRY', segment: 'OPT' }), 1);
+  const pos = await Position.findOne({ user: uid, segment: 'OPT', status: 'OPEN' }).lean();
+  assert.ok(pos.netQty <= 2 * 65, `at most the 2 lots allowed, got ${pos.netQty}`);
+  assert.equal(await AutoLog.countDocuments({ user: uid, segment: 'OPT', decision: 'PLACED' }), 1);
+  await api().post('/api/positions/exit-all').set(fresh.auth).expect(200);
+});
+
 test('the trader buys a call sized to the loss limit, with a hard stop and the Account profit lock, no target and no trailing stop, and logs it as an option trade', async () => {
   const fresh = await registerUser(app);
   const uid = fresh.user.id || fresh.user._id;
