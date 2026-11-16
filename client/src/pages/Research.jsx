@@ -1,10 +1,11 @@
 import { lazy, Suspense } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
-import { Brain, Database, FlaskConical, ClipboardCopy, Layers, Search, TrendingUp } from 'lucide-react';
+import { GraduationCap, Brain, Database, FlaskConical, ClipboardCopy, Layers, Search, TrendingUp } from 'lucide-react';
 import { Picker, Skeleton } from '../components/ui.jsx';
 
 // each tab loads only when it is opened, so the Research page itself opens fast
 const Lab = lazy(() => import('./Lab.jsx'));
+const LearnLab = lazy(() => import('../components/lab/LearnLab.jsx').then((m) => ({ default: m.LearnLab })));
 const Learner = lazy(() => import('../components/study/Learner.jsx').then((m) => ({ default: m.Learner })));
 const OptionsStudy = lazy(() => import('../components/options/OptionsStudy.jsx').then((m) => ({ default: m.OptionsStudy })));
 const SharesStudy = lazy(() => import('../components/study/SharesStudy.jsx').then((m) => ({ default: m.SharesStudy })));
@@ -16,6 +17,7 @@ const DayReportButton = lazy(() => import('../components/DayReportButton.jsx').t
 
 // The auto-learner first (it does the rest by itself), then in the order you use them: test one combination, make it better, then tune its exits. The rest is reference.
 export const RESEARCH_TABS = [
+  { value: 'learn', label: 'Learn better settings', icon: GraduationCap, hint: 'Tries your combinations, limits, stop, profit ladder and indicators on saved days, checks them on hidden days: Passed or Failed, then Apply' },
   { value: 'learner', label: 'Auto-learner', icon: Brain, hint: 'Finds a better combination on the saved days each evening, checked on days it never saw. One switch to use it on paper' },
   { value: 'lab', label: '1. Test a combination', icon: FlaskConical, hint: 'Pick one combination or pattern: every entry over weeks, a chart, a trust check, and the indicator that would skip each loss' },
   { value: 'finder', label: '2. Find a better one', icon: Search, hint: 'Tries every extra indicator on top of yours, checked on days it never saw. Update yours or save a new one' },
@@ -31,7 +33,7 @@ export const RESEARCH_TABS = [
 export default function Research() {
   const [params, setParams] = useSearchParams();
   const asked = params.get('tab');
-  const tab = RESEARCH_TABS.some((t) => t.value === asked) ? asked : 'learner';
+  const tab = RESEARCH_TABS.some((t) => t.value === asked) ? asked : 'learn';
   const setTab = (value) => {
     const next = new URLSearchParams(params);
     next.set('tab', value);
@@ -47,6 +49,7 @@ export default function Research() {
     <div className="space-y-3">
       <Picker title="Research section" value={tab} onChange={setTab} options={RESEARCH_TABS} />
       <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+        {tab === 'learn' && <LearnLab />}
         {tab === 'learner' && <Learner />}
         {tab === 'lab' && <Lab embedded />}
         {tab === 'options' && <OptionsStudy />}
