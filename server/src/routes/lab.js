@@ -55,8 +55,21 @@ function editOf(text) {
   return parsed.data;
 }
 
-export function labRoutes({ lab }) {
+export const LEARN_NOTE = 'Learn tries changes to your paper options settings on the saved days and judges them on steady profit: fewer and smaller losing days and a better win/loss ratio, not only the total. The newest days (about 1 in 4) are hidden while it learns; old and new settings are then replayed on them, and only a result that did better there passes. With many settings tried, some look good by luck, and a few hidden days are a small test: paper-trade a passed result before trusting it. Not investment advice.';
+
+export function labRoutes({ lab, learn = null }) {
   const router = Router();
+
+  // Lab > Learn: the settings learner (learner/learnService.js). Registered before '/' only for readability; the paths do not overlap.
+  if (learn) {
+    router.get('/learn', async (req, res) => res.json({ ...(await learn.view(req.userId)), note: LEARN_NOTE }));
+    router.post('/learn/run', validate(z.object({ days: z.coerce.number().int().default(30) }).default({ days: 30 })), (req, res) => {
+      const job = learn.start(req.userId, { days: req.body.days });
+      res.status(202).json({ status: { state: job.state, step: job.step } });
+    });
+    router.post('/learn/apply', validate(z.object({ force: z.boolean().default(false) }).default({ force: false })), async (req, res) => res.json({ ...(await learn.apply(req.userId, { force: req.body.force })), note: LEARN_NOTE }));
+    router.post('/learn/undo', async (req, res) => res.json({ ...(await learn.undo(req.userId)), note: LEARN_NOTE }));
+  }
 
   router.get('/', validate(query, 'query'), async (req, res) => {
     const q = req.valid;

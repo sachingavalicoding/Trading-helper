@@ -8,7 +8,8 @@
     "build": "vite build",
     "build:phone": "vite build --outDir ../phone-app --emptyOutDir",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "lightweight-charts": "^5.2.1",
@@ -26,6 +27,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
     "vite": "^8.3.5",
     "vitest": "^5.0.5"
   }

@@ -9,6 +9,7 @@ import { breakEvenOf, trailOf } from '../study/simulate.js';
 import { TECHNIQUES, prepare, findSignals, turnoverSeries, ruleStop, stopRuleOf, MIN_STOP_ATR, MAX_STOP_ATR } from '../study/patterns.js';
 import { breadthSeries, lossesInARow } from '../study/optionsStudy.js';
 import { buildChart } from '../combos/conditions.js';
+import { LiveChain, combosNeedChain } from './liveChain.js';
 import { comboSignals, normalizeCombos, comboFitsIndex } from '../combos/combos.js';
 import { roundToTick } from '../utils/money.js';
 import { planTrade } from './plan.js';
@@ -76,8 +77,9 @@ export function activeIndexes(settings) {
  * It only ever calls the paper order engine.
  */
 export class OptionTrader {
-  constructor({ market, engine, config, scanner = null, now = () => new Date() }) {
+  constructor({ market, engine, config, scanner = null, now = () => new Date(), chain = null }) {
     this.market = market;
+    this.chain = chain ?? new LiveChain({ market, now }); // the option chain for combinations with an options check (PCR, OI, IV, max pain, greeks)
     this.engine = engine;
     this.config = config;
     this.scanner = scanner;
@@ -368,7 +370,7 @@ export class OptionTrader {
     const bars = read.market.done5;
     const last = bars.at(-1);
     if (!last || this.now() - (last.time + 300) * 1000 > PATTERN_FRESH_MS) return { skipped: 'no fresh bar' };
-    const chart = this.#comboChart(read.index ?? DEFAULT_INDEX, bars);
+    const chart = await this.#comboChart(read.index ?? DEFAULT_INDEX, bars, combosNeedChain(combos));
     // read the last few bars, as the study reads the whole chart, so a combination that fired 1 to 3 bars ago waits out its cooldown here too
     // (live used to look at the newest bar alone and could buy a repeat signal the study never takes); only a signal on the newest bar is acted on
     const newest = bars.length - 1;
@@ -431,7 +433,8 @@ export class OptionTrader {
           const forming = formingBar(base.c1, ltp, nowSec);
           const bars = [...base.market.done5, forming];
           const stocks5 = this.#stocks5();
-          const chart = buildChart(bars, { breadth: breadthSeries(bars, stocks5), flow: turnoverSeries(bars, stocks5), from: Math.max(15, bars.length - 14) });
+          const options = await this.chain.seriesFor(index, bars, { need: combosNeedChain(combos), wait: false });
+          const chart = buildChart(bars, { breadth: breadthSeries(bars, stocks5), flow: turnoverSeries(bars, stocks5), options, from: Math.max(15, bars.length - 14) });
           const newest = bars.length - 1;
           const names = new Map(combos.map((c) => [`combo:${c.id}`, c.name]));
           const ready = [];
@@ -455,15 +458,16 @@ export class OptionTrader {
   }
 
   /** An index chart with the 50 stocks' breadth and traded value from the scanner's live candles, rebuilt once per 5-minute bar. */
-  #comboChart(index, bars) {
+  async #comboChart(index, bars, needChain = false) {
     const last = bars.at(-1).time;
+    const options = await this.chain.seriesFor(index, bars, { need: needChain }); // null unless a combination uses an options check (or the chain was read already)
     const kept = this.comboCharts.get(index);
-    if (kept?.time === last) return kept.chart;
+    if (kept?.time === last && kept.options === options) return kept.chart;
     const stocks5 = this.#stocks5();
     const breadth = breadthSeries(bars, stocks5);
     const flow = turnoverSeries(bars, stocks5);
-    const chart = buildChart(bars, { breadth, flow, from: Math.max(15, bars.length - 14) }); // patterns far enough back for the combination window of the bars read below
-    this.comboCharts.set(index, { time: last, chart });
+    const chart = buildChart(bars, { breadth, flow, options, from: Math.max(15, bars.length - 14) }); // patterns far enough back for the combination window of the bars read below
+    this.comboCharts.set(index, { time: last, chart, options });
     return chart;
   }
 

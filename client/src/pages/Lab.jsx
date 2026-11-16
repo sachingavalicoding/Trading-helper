@@ -17,6 +17,7 @@ import { Badge, Card, EmptyState, Fold, Segmented, Skeleton } from '../component
 import { Addons, Breakdown, Equity, Summary } from '../components/lab/LabParts.jsx';
 import { LabOrders } from '../components/lab/OrderSettings.jsx';
 import { SharesLab } from '../components/lab/SharesLab.jsx';
+import { LearnLab } from '../components/lab/LearnLab.jsx';
 
 const formatPnl = (v) => rawPnl(Math.round(v));
 const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -166,11 +167,16 @@ function DayHistory({ r, onShow }) {
 }
 
 const SEGMENT = 'lab.segment';
+const MODE = 'lab.mode';
+const remembered = (key, fallback) => { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } };
+const remember = (key, value) => { try { localStorage.setItem(key, value); } catch { /* not remembered */ } };
 
 /** Combination Lab: options or shares. */
 export default function Lab({ embedded = false }) {
   const [segment, setSegment] = useState(() => { try { return localStorage.getItem(SEGMENT) || 'options'; } catch { return 'options'; } });
-  const choose = (v) => { setSegment(v); try { localStorage.setItem(SEGMENT, v); } catch { /* not remembered */ } };
+  const choose = (v) => { setSegment(v); remember(SEGMENT, v); };
+  const [mode, setMode] = useState(() => remembered(MODE, 'combo'));
+  const pickMode = (v) => { setMode(v); remember(MODE, v); };
   return (
     <div className="space-y-3">
       {!embedded && (
@@ -180,7 +186,8 @@ export default function Lab({ embedded = false }) {
         </div>
       )}
       <Segmented className="w-full" value={segment} onChange={choose} options={[{ value: 'options', label: 'Options' }, { value: 'shares', label: 'Shares' }]} />
-      {segment === 'shares' ? <SharesLab /> : <OptionsLab />}
+      {segment === 'options' && <Segmented className="w-full" size="sm" value={mode} onChange={pickMode} options={[{ value: 'combo', label: 'One combination' }, { value: 'learn', label: 'Learn' }]} />}
+      {segment === 'shares' ? <SharesLab /> : mode === 'learn' ? <LearnLab /> : <OptionsLab />}
     </div>
   );
 }

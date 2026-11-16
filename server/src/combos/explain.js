@@ -4,7 +4,7 @@
 // What each family of indicators measures, matched on the check key. The first match wins.
 const FAMILIES = [
   [/^p_/, null],
-  [/^(emaFastOverSlow|ema21Over50|emaStack|aboveEma|ema21Rising|ema50Rising|tf15Trend)/, 'EMA (exponential moving average)', 'The average closing price of the last N five-minute bars, with the newest bars counting most. A short EMA above a long one, or price above an EMA, means prices have been rising. It follows price, so it is late at turns and works best on trending days.'],
+  [/^(emaFastOverSlow|ema21Over50|emaStack|aboveEma|ema21Rising|ema50Rising|ema5Over13|ema9Rising|tf15Trend)/, 'EMA (exponential moving average)', 'The average closing price of the last N five-minute bars, with the newest bars counting most. A short EMA above a long one, or price above an EMA, means prices have been rising. It follows price, so it is late at turns and works best on trending days.'],
   [/^aboveSma/, 'SMA (simple moving average)', 'The plain average close of the last N five-minute bars. Price above it means the recent bars closed higher than the average. Slower than an EMA.'],
   [/^aboveHma/, 'Hull moving average', 'A moving average built to lag less than the others. It turns sooner, so it gives earlier but noisier signals.'],
   [/^supertrend/, 'Supertrend', 'A line drawn a set number of ATRs (average bar sizes) away from price. While price stays above it the line trails up under price; a close through it flips it. The two numbers are the ATR length and the multiplier: (10, 3) is slow and steady, (7, 2) quicker.'],
@@ -37,7 +37,7 @@ const FAMILIES = [
   [/^(up10|push6|threeUp)/, 'Price momentum', 'How far and how fast price has moved over the last few bars. ATR is the average size of a five-minute bar, so "1.5 ATR" means one and a half normal bars.'],
   [/^(bb|squeezeFire)/, 'Bollinger bands', 'A 20-bar average with a band two standard deviations above and below it. Most closes stay inside; a close outside is an unusually strong push. Narrow bands mean a quiet market that often comes before a big move.'],
   [/^keltner/, 'Keltner channel', 'A 20-bar EMA with lines 1.5 ATR above and below it. A close over the upper line is a bar that pushed well beyond the usual range.'],
-  [/^(atrExpand|roomLeft|nr7Break)/, 'ATR (average true range)', 'The average size of a five-minute bar over the last 14 bars. Rising ATR means the market is moving more; a small day range means the move may not be used up.'],
+  [/^(atrExpand|atrCalm|atrAwake|roomLeft|nr7Break)/, 'ATR (average true range)', 'The average size of a five-minute bar over the last 14 bars. Rising ATR means the market is moving more; a small day range means the move may not be used up.'],
   [/^(high20|bigBullBar)/, 'Breakouts and big bars', 'A close beyond recent highs, or a bar much bigger than usual, shows buyers pushing through a level where sellers had stopped price before.'],
   [/^(aboveVwap|vwap)/, 'VWAP (volume-weighted average price)', "The average price of the day so far, weighted by how much traded at each price. The index has no volume of its own, so the app builds it from the traded value of the 50 Nifty stocks. Above VWAP, buyers have the upper hand for the day."],
   [/^(volHigh|volSurge|heavyBuy|quietPullback|volDryBreak)/, 'Volume', 'How much traded on the bar against the average of the last 20 bars, built from the traded value of the 50 Nifty stocks. A move on heavy volume has more money behind it.'],
@@ -49,11 +49,17 @@ const FAMILIES = [
   [/^breadth/, 'Market breadth', 'How many of the 50 Nifty stocks are above yesterday close right now. When most of them move together, the index move is broad and tends to last; when few agree, it is often a few heavy stocks pulling it.'],
   [/^(morning|midday|afternoon|afterTen|notMidday|firstHour)/, 'Time of day', 'Only the clock (India time). It says nothing about direction; use it beside an entry check to keep or skip certain hours.'],
   [/^trendingNotChoppy/, 'Choppiness index', 'Compares the sum of the bar sizes with the total distance travelled over 14 bars. Under 50 means price is travelling; over 60 means it is going back and forth.'],
+  [/^pcr/, 'PCR (put-call ratio)', 'Put open interest divided by call open interest, here over the strikes near the money of the nearest expiry. Option sellers are mostly large players: many puts written (PCR over 1) is read as a floor they expect to hold. Only on days with saved real option prices, and live from the chain read every 5 minutes.'],
+  [/^oi/, 'OI change (open interest)', 'How many option contracts were added since the open, calls against puts, near the money. Puts being written faster than calls is read as support; calls faster than puts as a ceiling.'],
+  [/MaxPain$/, 'Max pain', 'The strike where option buyers as a whole would lose the most if the index closed there at expiry. Some traders expect price to drift toward it near expiry. Worked out from the open interest of the strikes near the money.'],
+  [/^iv/, 'IV percentile (implied volatility)', 'How expensive options are: the volatility the real at-the-money premium implies, ranked against the readings of the last 20 saved days (0 = the cheapest, 100 = the dearest). A buyer prefers cheap and rising IV.'],
+  [/^delta/, 'Delta', 'How much the option premium moves for a 1-point move in the index, from 0 to 1. At the money it is about 0.5; a strike already in the money is above 0.5.'],
+  [/^theta/, 'Theta (time decay)', 'How much of the premium one day of waiting costs, in percent. It grows fast in the last days before expiry, so a low theta means more time is left.'],
   [/^newsAgrees/, 'News', 'Recent headlines about the stock, rated by the app. Live only for shares: past headlines are not kept, so it cannot be studied.'],
 ];
 
 // Checks that do not pick a side: they are the same for a call and for a put.
-const NO_SIDE = new Set(['adxStrong', 'atrExpand', 'bbSqueeze', 'volHigh', 'volSurge', 'trendingNotChoppy', 'roomLeft', 'morning', 'midday', 'afternoon', 'afterTen', 'notMidday', 'firstHour']);
+const NO_SIDE = new Set(['ivLow', 'ivNotHigh', 'ivRising', 'thetaLow', 'thetaVeryLow', 'atrCalm', 'atrAwake', 'adxStrong', 'atrExpand', 'bbSqueeze', 'volHigh', 'volSurge', 'trendingNotChoppy', 'roomLeft', 'morning', 'midday', 'afternoon', 'afterTen', 'notMidday', 'firstHour']);
 
 // How traders read each chart pattern, in a line, beside the rule the app uses (the pattern's own text).
 const PATTERN_IDEA = {
@@ -111,6 +117,8 @@ export function explainCondition(cond) {
         ? 'Needs volume: built from the traded value of the 50 Nifty stocks, so it needs their candles saved (Research > Saved data).'
         : cond.needs === 'breadth'
           ? 'Needs the candles of the 50 Nifty stocks (Research > Saved data); without them it cannot be tested.'
+          : cond.needs === 'options'
+            ? 'Needs real option prices: worked out from the premiums and open interest saved each evening (Research > Saved data, the last 30 days), and live from the option chain the trader reads every 5 minutes.'
           : cond.needs === 'news'
             ? 'Needs live news: shares only, and it cannot be studied on past days.'
             : null,

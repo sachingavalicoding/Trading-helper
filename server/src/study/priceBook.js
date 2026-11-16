@@ -60,6 +60,22 @@ export class PriceBook {
     return [...set].sort();
   }
 
+  /** Every saved contract of one expiry on a day: [{ strike, type, candles: Map(time -> candle) }], by strike. */
+  chain(day, expiry) {
+    const out = [];
+    for (const [key, candles] of this.byDay.get(day) ?? []) {
+      const [e, strike, type] = key.split('|');
+      if (e === expiry) out.push({ strike: Number(strike), type, candles });
+    }
+    return out.sort((a, b) => a.strike - b.strike || a.type.localeCompare(b.type));
+  }
+
+  /** Adds (or replaces) one contract's candles of a day: the live option chain fills today's page this way. */
+  put(day, expiry, strike, type, candles) {
+    if (!this.byDay.has(day)) this.byDay.set(day, new Map());
+    this.byDay.get(day).set(keyOf(expiry, strike, type), new Map(candles.map((c) => [c.time, c])));
+  }
+
   /** The candles of one contract on a day as a Map(time -> candle), or null when it was not saved. */
   contract(day, expiry, strike, type) {
     return this.byDay.get(day)?.get(keyOf(expiry, strike, type)) ?? null;

@@ -22,6 +22,7 @@ import { LearnerService } from './learner/service.js';
 import { ReviewService } from './review/service.js';
 import { StudyService } from './study/service.js';
 import { LabService } from './lab/service.js';
+import { LearnService } from './learner/learnService.js';
 import { TradeReplayService } from './replay/service.js';
 import { replayRoutes } from './routes/replay.js';
 import { labRoutes } from './routes/lab.js';
@@ -36,7 +37,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 export const DISCLAIMER = 'Paper trading for learning. Not investment advice.';
 
-export function createApp({ market, engine, config, tracker, scanner, news, autoTrader, optionTrader, review = new ReviewService({ market, config }), study = new StudyService({ market, config }), learner = new LearnerService({ study, market, config }), lab = new LabService({ market, config }), replay = new TradeReplayService({ market, config }), history = new HistorySync({ market }), optionHistory = null, ticks = null, dayReplay = null }) {
+export function createApp({ market, engine, config, tracker, scanner, news, autoTrader, optionTrader, review = new ReviewService({ market, config }), study = new StudyService({ market, config }), learner = new LearnerService({ study, market, config }), lab = new LabService({ market, config }), learn = new LearnService({ lab, market, config }), replay = new TradeReplayService({ market, config }), history = new HistorySync({ market }), optionHistory = null, ticks = null, dayReplay = null }) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
@@ -64,7 +65,7 @@ export function createApp({ market, engine, config, tracker, scanner, news, auto
   app.use('/api/review', auth, reviewRoutes({ review }));
   app.use('/api/study', auth, studyRoutes({ study }));
   app.use('/api/learner', auth, learnerRoutes({ learner }));
-  app.use('/api/lab', auth, labRoutes({ lab }));
+  app.use('/api/lab', auth, labRoutes({ lab, learn }));
   app.use('/api/replay', auth, replayRoutes({ replay }));
   app.use('/api/combos', auth, comboRoutes());
   app.use('/api/history', auth, historyRoutes({ history }));

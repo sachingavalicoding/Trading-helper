@@ -2,6 +2,7 @@ import { prepare, findSignals, TECHNIQUES, BUFFER_ATR } from '../study/patterns.
 import { istParts } from '../market/marketHours.js';
 import * as S from './series.js';
 import { explainCondition } from './explain.js';
+import { optionView } from './optionData.js';
 
 // The checks a combination is built from. Each is written once, for a call (a rise); a put is the same check on the mirrored
 // chart (prices negated, breadth turned round), so every condition has a put twin that cannot drift out of step with it.
@@ -17,7 +18,7 @@ const crossUp = (a, b, i) => {
   return i > 0 && gt(at(a, i), at(b, i)) && num(at(a, i - 1)) && num(at(b, i - 1)) && at(a, i - 1) <= at(b, i - 1);
 };
 
-export const GROUPS = ['Trend', 'Momentum', 'Volatility', 'Volume and VWAP', 'Pivots and levels', 'Candles', 'Market', 'Time of day', 'Chart patterns', 'News'];
+export const GROUPS = ['Trend', 'Momentum', 'Volatility', 'Volume and VWAP', 'Pivots and levels', 'Candles', 'Market', 'Time of day', 'Options', 'Chart patterns', 'News'];
 
 export const CONDITIONS = [];
 const add = (group, key, label, text, test, o = {}) => CONDITIONS.push({ key, label, group, text, kind: o.event ? 'event' : 'state', needs: o.needs || null, test });
@@ -300,6 +301,52 @@ add('Volume and VWAP', 'vwapBand2Fade', 'Back inside from under VWAP - 2 standar
 add('Volume and VWAP', 'aboveVwap2d', 'Above the 2-day anchored VWAP', "Price is over the VWAP anchored at yesterday's open: buyers of the last two days are in profit.", (c, i) => gt(c.C[i], c.vwap2d()?.[i]), V);
 add('Volume and VWAP', 'mfiCross50', 'Money flow index crosses up through 50', 'The volume-weighted RSI turns to buying.', (c, i) => crossUp(c.mfi() || [], 50, i), { ...V, event: true });
 
+// ---------- More settings of the main indicators (added 16 Nov 2026 for Lab > Learn, which tries them as filters) ----------
+add('Momentum', 'rsiAbove60', 'RSI (14) above 60', 'Clear buying pressure, a step stronger than above 50.', (c, i) => gt(c.rsi(14)[i], 60));
+add('Momentum', 'rsiNotStretched', 'RSI (14) under 75', 'Not yet overbought: some room left. For a put, RSI over 25.', (c, i) => lt(c.rsi(14)[i], 75));
+add('Momentum', 'macdBothUp', 'MACD above its signal and above zero', 'Momentum is up on both counts: the line leads its signal and the 12 EMA is over the 26 EMA.', (c, i) => gt(c.macd().line[i], c.macd().signal[i]) && gt(c.macd().line[i], 0));
+add('Trend', 'ema5Over13', 'EMA 5 above EMA 13', 'A quick pair of averages: the very short trend is up.', (c, i) => gt(c.ema(5)[i], c.ema(13)[i]));
+add('Trend', 'ema9Rising', 'EMA 9 rising', 'The 9-bar average is higher than 2 bars ago.', (c, i) => i >= 2 && gt(c.ema(9)[i], c.ema(9)[i - 2]));
+add('Volume and VWAP', 'vwapNear', 'Above VWAP but within 0.5 ATR of it', 'Over the day average and not stretched away from it: a calmer entry than a chase.', (c, i) => num(c.vwap()?.[i]) && num(c.atr[i]) && c.C[i] > c.vwap()[i] && c.C[i] - c.vwap()[i] < 0.5 * c.atr[i], V);
+add('Volatility', 'bbPctB', 'Bollinger %B between 0.5 and 1', 'In the upper half of the bands but not beyond the upper band.', (c, i) => {
+  const b = c.bb();
+  const w = num(b.upper[i]) && num(b.lower[i]) ? b.upper[i] - b.lower[i] : 0;
+  if (!(w > 0)) return false;
+  const pb = (c.C[i] - b.lower[i]) / w;
+  return pb >= 0.5 && pb <= 1;
+});
+add('Volatility', 'atrCalm', 'ATR not wild (under 1.5 times its 50-bar average)', 'Bars are not unusually big: stops are less likely to be hit by noise. No direction by itself.', (c, i) => {
+  const a = c.atrFull();
+  const avg = c.get('atr50', () => S.sma(a, 50));
+  return num(a[i]) && num(avg[i]) && a[i] < 1.5 * avg[i];
+});
+add('Volatility', 'atrAwake', 'ATR above its 50-bar average', 'Bars are bigger than usual: the market is moving. No direction by itself.', (c, i) => {
+  const a = c.atrFull();
+  const avg = c.get('atr50', () => S.sma(a, 50));
+  return num(a[i]) && num(avg[i]) && a[i] > avg[i];
+});
+add('Trend', 'supertrendSlowUp', 'Supertrend (14, 3) up', 'A slower supertrend is below price: fewer flips on a choppy day.', (c, i) => c.st(14, 3).dir[i] === 1);
+add('Trend', 'adx30Up', 'ADX over 30 and +DI over -DI', 'A strong trend that buyers lead.', (c, i) => gt(c.dmi().adx[i], 30) && gt(c.dmi().pdi[i], c.dmi().ndi[i]));
+
+// ---------- Options (added 16 Nov 2026): read from the option chain, only on days with saved real option prices, and live from the chain the trader reads ----------
+// Near-the-money strikes only (the ones saved each evening), the nearest expiry for open interest, the contract the trader would buy for IV and greeks.
+const O = { needs: 'options' };
+const opt = (c) => c.opt;
+add('Options', 'pcrAbove1', 'PCR above 1 (more puts written)', 'Put open interest is larger than call open interest near the money: option sellers are backing a floor. For a put: PCR under 1.', (c, i) => gt(opt(c)?.pcr[i], 1), O);
+add('Options', 'pcrAbove12', 'PCR above 1.2', 'Clearly more puts than calls written near the money. For a put: PCR under 0.83.', (c, i) => gt(opt(c)?.pcr[i], 1.2), O);
+add('Options', 'pcrRising', 'PCR rising', 'The PCR is higher than 3 bars ago (15 minutes): put writing is growing. For a put: PCR falling.', (c, i) => i >= 3 && gt(opt(c)?.pcr[i], opt(c)?.pcr[i - 3]), O);
+add('Options', 'oiBacks', 'OI change backs this side', 'Since the open, more put OI than call OI has been added near the money (writers expect support). For a put: more call OI added.', (c, i) => gt(opt(c)?.oiEdge[i], 0), O);
+add('Options', 'oiFresh', 'Fresh OI backs this side (15 min)', 'In the last 3 bars more put OI than call OI was added. For a put: more call OI.', (c, i) => gt(opt(c)?.oiEdge3[i], 0), O);
+add('Options', 'belowMaxPain', 'Price below max pain', 'Max pain is the strike where option buyers lose the most at expiry; price is under it, so the pull, if any, is upward. For a put: price above it.', (c, i) => gt(opt(c)?.maxPain[i], c.C[i]), O);
+add('Options', 'aboveMaxPain', 'Price above max pain', 'Price has already moved past max pain in this direction. For a put: price below it.', (c, i) => gt(c.C[i], opt(c)?.maxPain[i]), O);
+add('Options', 'ivLow', 'IV percentile under 30 (cheap options)', 'The at-the-money implied volatility is lower than 70% of the readings of the last 20 saved days: premiums are cheap to buy. No direction by itself.', (c, i) => lt(opt(c)?.ivPct[i], 30), O);
+add('Options', 'ivNotHigh', 'IV percentile under 60', 'Implied volatility is not high against the last 20 saved days, so a calm-down after the buy costs less. No direction by itself.', (c, i) => lt(opt(c)?.ivPct[i], 60), O);
+add('Options', 'ivRising', 'IV rising', 'At-the-money implied volatility is higher than 3 bars ago: premiums are getting dearer, which helps a buyer. No direction by itself.', (c, i) => i >= 3 && gt(opt(c)?.atmIv[i], opt(c)?.atmIv[i - 3]), O);
+add('Options', 'deltaNearMoney', 'Delta 0.4 to 0.6', 'The at-the-money option of this side moves about half as much as the index: it is near the money, not a lottery ticket.', (c, i) => ge(opt(c)?.delta[i], 0.4) && lt(opt(c)?.delta[i], 0.6), O);
+add('Options', 'deltaStrong', 'Delta 0.5 or more', 'The strike bought is already a little in the money for this side, so the premium follows the index more closely.', (c, i) => ge(opt(c)?.delta[i], 0.5), O);
+add('Options', 'thetaLow', 'Theta under 8% a day', 'A day of waiting costs the at-the-money option less than 8% of its premium. Avoids the last days before expiry, when time eats the premium fast. No direction by itself.', (c, i) => lt(opt(c)?.thetaPct[i], 8), O);
+add('Options', 'thetaVeryLow', 'Theta under 5% a day', 'A day of waiting costs less than 5% of the premium: a contract with plenty of time left. No direction by itself.', (c, i) => lt(opt(c)?.thetaPct[i], 5), O);
+
 // ---------- Chart patterns: the study's patterns, as events ----------
 for (const t of TECHNIQUES) {
   CONDITIONS.push({
@@ -329,9 +376,9 @@ export const usable = (cond, have) => !cond.needs || Boolean(have[cond.needs]);
  * @param opts   breadth (share of the 50 stocks above yesterday close per bar), flow (traded value per bar), news (bar index -> 1, -1 or 0 for a call),
  *               only (the pattern keys to look for; all when null), from (the first bar index patterns are looked for), prep (an already prepared chart to reuse)
  */
-export function buildChart(bars, { breadth = null, flow = null, news = null, only = null, from = 15, prep: given = null } = {}) {
+export function buildChart(bars, { breadth = null, flow = null, news = null, options = null, only = null, from = 15, prep: given = null } = {}) {
   const prep = given || prepare(bars, breadth, flow);
-  const have = { breadth: Boolean(breadth), flow: Boolean(prep.turn), news: Boolean(news) };
+  const have = { breadth: Boolean(breadth), flow: Boolean(prep.turn), news: Boolean(news), options: Boolean(options) };
   const found = findSignals(prep, { only: only || TECHNIQUES.map((t) => t.key), from, windows: false });
   const patterns = { 1: new Map(), '-1': new Map() };
   for (const s of found) {
@@ -341,11 +388,11 @@ export function buildChart(bars, { breadth = null, flow = null, news = null, onl
     m.get(s.technique).set(s.i, s);
   }
   const chart = { bars, prep, have, patterns, atr: prep.atrAt, views: {}, truths: new Map() };
-  for (const d of [1, -1]) chart.views[d] = makeView(chart, d, flow, news);
+  for (const d of [1, -1]) chart.views[d] = makeView(chart, d, flow, news, options);
   return chart;
 }
 
-function makeView(chart, d, flow, news) {
+function makeView(chart, d, flow, news, options = null) {
   const { prep } = chart;
   const v = prep.views[d];
   const bars = v.bars;
@@ -362,6 +409,7 @@ function makeView(chart, d, flow, news) {
   const dayOf = chart.bars.map((b) => Math.floor((b.time + 19800) / 86400));
   const c = {
     d,
+    opt: options ? optionView(options, d) : null, // the option chain as this side sees it (combos/optionData.js)
     bars,
     C,
     O,

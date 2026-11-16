@@ -5,7 +5,7 @@ import mongoose from 'mongoose';
 const learnerStateSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    kind: { type: String, enum: ['options', 'shares'], required: true },
+    kind: { type: String, enum: ['options', 'shares', 'tune'], required: true }, // 'tune': Lab > Learn, the settings learner (learner/learnService.js)
     auto: { type: Boolean, default: false }, // use what it finds by itself (paper only); off = it only suggests
     last: { type: mongoose.Schema.Types.Mixed, default: null }, // the last run: { at, day, verdict, text, pick, baseline, candidates, period, pricing, error }
     log: { type: [mongoose.Schema.Types.Mixed], default: [] }, // newest first: { at, action, name, conds, side, text, test, baselineTest }

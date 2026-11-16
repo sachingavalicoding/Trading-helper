@@ -9,7 +9,7 @@ export const VERDICT = {
   Drop: { tone: 'down', text: 'Drop', hint: 'Lost money on its own' },
   'Too few': { tone: 'muted', text: 'Too few', hint: 'Under 15 trades, so it says nothing' },
 };
-const NEEDS_WORD = { flow: 'volume', breadth: '50-stock breadth', news: 'news' };
+const NEEDS_WORD = { flow: 'volume', breadth: '50-stock breadth', news: 'news', options: 'saved option prices' };
 
 export const blankCombo = () => ({ name: '', conds: [], need: 0, window: 3, on: true });
 
