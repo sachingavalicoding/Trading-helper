@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronDown, ChevronRight, LayoutDashboard, ListOrdered, LogOut, Plus, RotateCcw, FlaskConical, SlidersHorizontal, Sun, Moon, Trash2, Wallet } from 'lucide-react';
+import { ChevronDown, ChevronRight, LayoutDashboard, ListOrdered, LogOut, Plus, RotateCcw, FlaskConical, SlidersHorizontal, Sun, Moon, Trash2, Wallet, GraduationCap } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
@@ -286,6 +286,7 @@ export default function Account() {
           { to: '/dashboard', label: 'P&L', hint: 'Profit and loss', icon: LayoutDashboard },
           { to: '/orders', label: 'Orders', hint: 'Every order', icon: ListOrdered },
           { to: '/research', label: 'Research', hint: 'Studies, lab, finder', icon: FlaskConical },
+          { to: '/research?tab=learn', label: 'Learn', hint: 'Find better settings, checked on hidden days', icon: GraduationCap },
         ].map(({ to, label, hint, icon: Icon }) => (
           <Link key={to} to={to} className="card-shadow flex flex-col items-start gap-1 rounded-2xl border border-line bg-surface p-3 transition-colors hover:border-accent2">
             <Icon className="h-5 w-5 text-accent2" />
