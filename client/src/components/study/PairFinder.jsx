@@ -21,7 +21,7 @@ export function StartFromSelect({ kind, value, onChange }) {
   const catalog = useApi('/combos/catalog', []);
   const own = useApi(kind === 'shares' ? '/auto' : '/options', []);
   const mine = own.data?.settings?.combos || [];
-  const list = (catalog.data?.conditions || []).filter((c) => kind === 'shares' || c.needs !== 'news');
+  const list = (catalog.data?.conditions || []).filter((c) => (kind === 'shares' ? c.needs !== 'options' : c.needs !== 'news'));
   const groups = catalog.data?.groups || [];
   return (
     <label className="flex items-center justify-between gap-3 text-xs text-muted">

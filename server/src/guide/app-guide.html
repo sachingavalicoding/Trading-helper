@@ -163,6 +163,10 @@ figcaption { font-size: 12.5px; color: #4b5767; margin-top: 6px; }
 <li><strong>Market is trending (choppiness under 50)</strong> (true now): The choppiness index over 14 bars is under 50: price is travelling, not wandering. No direction by itself.</li>
 <li><strong>+DI crosses over -DI (ADX over 20)</strong> (just happened): Buyers take over the directional movement while a trend exists.</li>
 <li><strong>ADX over 25 and rising, buyers lead</strong> (true now): A strong trend that is still getting stronger, with +DI over -DI.</li>
+<li><strong>EMA 5 above EMA 13</strong> (true now): A quick pair of averages: the very short trend is up.</li>
+<li><strong>EMA 9 rising</strong> (true now): The 9-bar average is higher than 2 bars ago.</li>
+<li><strong>Supertrend (14, 3) up</strong> (true now): A slower supertrend is below price: fewer flips on a choppy day.</li>
+<li><strong>ADX over 30 and +DI over -DI</strong> (true now): A strong trend that buyers lead.</li>
 </ul>
 <h3>Momentum</h3>
 <ul>
@@ -193,6 +197,9 @@ figcaption { font-size: 12.5px; color: #4b5767; margin-top: 6px; }
 <li><strong>Three higher closes in a row</strong> (true now): Steady buying.</li>
 <li><strong>RSI (2) dip bought in an uptrend</strong> (just happened): Connors style: the 2-bar RSI was under 10 and turns back over it while price is over the 50 EMA. A short dip in a rising market.</li>
 <li><strong>RSI (2) under 10</strong> (true now): A very short-term oversold reading. On its own it fights the move; pair it with a trend check.</li>
+<li><strong>RSI (14) above 60</strong> (true now): Clear buying pressure, a step stronger than above 50.</li>
+<li><strong>RSI (14) under 75</strong> (true now): Not yet overbought: some room left. For a put, RSI over 25.</li>
+<li><strong>MACD above its signal and above zero</strong> (true now): Momentum is up on both counts: the line leads its signal and the 12 EMA is over the 26 EMA.</li>
 </ul>
 <h3>Volatility</h3>
 <ul>
@@ -210,6 +217,9 @@ figcaption { font-size: 12.5px; color: #4b5767; margin-top: 6px; }
 <li><strong>Room left in the day (range under 80% of usual)</strong> (true now): Today's range so far is under 80% of the average of the last 5 days: the move is not used up yet. No direction by itself.</li>
 <li><strong>Bollinger squeeze, then a close above the upper band</strong> (just happened): The bands were the narrowest of the last 50 bars within the last 6 bars, and price now closes over the upper band.</li>
 <li><strong>55-bar high broken (about 4.5 hours)</strong> (true now): The close beats the highest high of the 55 bars before: the turtle-style breakout.</li>
+<li><strong>Bollinger %B between 0.5 and 1</strong> (true now): In the upper half of the bands but not beyond the upper band.</li>
+<li><strong>ATR not wild (under 1.5 times its 50-bar average)</strong> (true now): Bars are not unusually big: stops are less likely to be hit by noise. No direction by itself.</li>
+<li><strong>ATR above its 50-bar average</strong> (true now): Bars are bigger than usual: the market is moving. No direction by itself.</li>
 </ul>
 <h3>Volume and VWAP</h3>
 <ul>
@@ -232,6 +242,7 @@ figcaption { font-size: 12.5px; color: #4b5767; margin-top: 6px; }
 <li><strong>Back inside from under VWAP - 2 standard deviations</strong> (just happened, needs volume of the 50 stocks): Price was under the lower 2-deviation band and closes back over it: a stretched fall snapping back.</li>
 <li><strong>Above the 2-day anchored VWAP</strong> (true now, needs volume of the 50 stocks): Price is over the VWAP anchored at yesterday's open: buyers of the last two days are in profit.</li>
 <li><strong>Money flow index crosses up through 50</strong> (just happened, needs volume of the 50 stocks): The volume-weighted RSI turns to buying.</li>
+<li><strong>Above VWAP but within 0.5 ATR of it</strong> (true now, needs volume of the 50 stocks): Over the day average and not stretched away from it: a calmer entry than a chase.</li>
 </ul>
 <h3>Pivots and levels</h3>
 <ul>
@@ -282,6 +293,23 @@ figcaption { font-size: 12.5px; color: #4b5767; margin-top: 6px; }
 <li><strong>After 10:00</strong> (true now): Skips the opening noise.</li>
 <li><strong>Not midday (skips 11:30 to 13:30)</strong> (true now): Real-price tests found the midday lull wins least often. Use it as a filter beside an entry check.</li>
 <li><strong>First hour after the open (09:30 to 10:30)</strong> (true now): The hour most big one-way days are decided.</li>
+</ul>
+<h3>Options</h3>
+<ul>
+<li><strong>PCR above 1 (more puts written)</strong> (true now, needs options): Put open interest is larger than call open interest near the money: option sellers are backing a floor. For a put: PCR under 1.</li>
+<li><strong>PCR above 1.2</strong> (true now, needs options): Clearly more puts than calls written near the money. For a put: PCR under 0.83.</li>
+<li><strong>PCR rising</strong> (true now, needs options): The PCR is higher than 3 bars ago (15 minutes): put writing is growing. For a put: PCR falling.</li>
+<li><strong>OI change backs this side</strong> (true now, needs options): Since the open, more put OI than call OI has been added near the money (writers expect support). For a put: more call OI added.</li>
+<li><strong>Fresh OI backs this side (15 min)</strong> (true now, needs options): In the last 3 bars more put OI than call OI was added. For a put: more call OI.</li>
+<li><strong>Price below max pain</strong> (true now, needs options): Max pain is the strike where option buyers lose the most at expiry; price is under it, so the pull, if any, is upward. For a put: price above it.</li>
+<li><strong>Price above max pain</strong> (true now, needs options): Price has already moved past max pain in this direction. For a put: price below it.</li>
+<li><strong>IV percentile under 30 (cheap options)</strong> (true now, needs options): The at-the-money implied volatility is lower than 70% of the readings of the last 20 saved days: premiums are cheap to buy. No direction by itself.</li>
+<li><strong>IV percentile under 60</strong> (true now, needs options): Implied volatility is not high against the last 20 saved days, so a calm-down after the buy costs less. No direction by itself.</li>
+<li><strong>IV rising</strong> (true now, needs options): At-the-money implied volatility is higher than 3 bars ago: premiums are getting dearer, which helps a buyer. No direction by itself.</li>
+<li><strong>Delta 0.4 to 0.6</strong> (true now, needs options): The at-the-money option of this side moves about half as much as the index: it is near the money, not a lottery ticket.</li>
+<li><strong>Delta 0.5 or more</strong> (true now, needs options): The strike bought is already a little in the money for this side, so the premium follows the index more closely.</li>
+<li><strong>Theta under 8% a day</strong> (true now, needs options): A day of waiting costs the at-the-money option less than 8% of its premium. Avoids the last days before expiry, when time eats the premium fast. No direction by itself.</li>
+<li><strong>Theta under 5% a day</strong> (true now, needs options): A day of waiting costs less than 5% of the premium: a contract with plenty of time left. No direction by itself.</li>
 </ul>
 <h3>Chart patterns</h3>
 <ul>

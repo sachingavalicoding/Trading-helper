@@ -5,6 +5,7 @@ import { round2 } from '../utils/money.js';
 import { TECHNIQUES, available, prepare, findSignals, turnoverSeries, ruleStop, MIN_STOP_ATR, MAX_STOP_ATR } from './patterns.js';
 import { simulateTrade, summarize } from './simulate.js';
 import { CONDITIONS, CONDITION_BY_KEY, buildChart, usable } from '../combos/conditions.js';
+import { optionSeries } from '../combos/optionData.js';
 import { comboSignals, singleCombo, missingData, describeCombo, comboFitsIndex, heldConditions } from '../combos/combos.js';
 import { verdictOf, halvesOf } from '../combos/verdict.js';
 import { runResearch } from './research.js';
@@ -409,7 +410,7 @@ export async function runOptionsStudy({ nifty1, stocks5 = null, params, onProgre
   for (const floor of SCORE_FLOORS) groups[`patternScore${floor}`] = patternsWithScore(found, bot.scores, floor);
 
   // The user's own combinations (Account > Entries): the same ones the live trader uses.
-  const chart = buildChart(bars5, { breadth, flow, prep });
+  const chart = buildChart(bars5, { breadth, flow, prep, options: params.prices ? optionSeries(bars5, params.prices, { strikeStep: params.strikeStep }) : null });
   const inStudy = (s) => s.time - 300 >= fromTime;
   const mine = {};
   const combosSkipped = [];
@@ -530,7 +531,7 @@ async function liveEntries({ nifty1, stocks5 = null, params, onProgress = () => 
   const breadth = breadthSeries(bars5, stocks5);
   const flow = turnoverSeries(bars5, stocks5);
   const prep = prepare(bars5, breadth, flow);
-  const chart = buildChart(bars5, { breadth, flow, prep });
+  const chart = buildChart(bars5, { breadth, flow, prep, options: params.prices ? optionSeries(bars5, params.prices, { strikeStep: params.strikeStep }) : null });
   const inStudy = (s) => s.time - 300 >= fromTime;
   const when = whenOf(params);
 
@@ -662,7 +663,7 @@ async function autoFind({ chart, inStudy, trainEnd, studyDays, complete, byTime,
 
 /** The finder run: only the pair finder, the combination finder and the research on what they find. None of the normal study's rows are made. */
 async function finderOnlyRun({ complete, byTime, bars5, breadth, flow, prep, studyDays, fromTime, midTime, params, onProgress }) {
-  const chart = buildChart(bars5, { breadth, flow, prep });
+  const chart = buildChart(bars5, { breadth, flow, prep, options: params.prices ? optionSeries(bars5, params.prices, { strikeStep: params.strikeStep }) : null });
   const inStudy = (s) => s.time - 300 >= fromTime;
   const trainEnd = complete.find((b) => DAY(b.time) === studyDays[Math.floor((studyDays.length * 2) / 3)])?.time ?? null;
   const needRank = (params.pairFind && !params.pairFirst) || params.comboFind || params.winFind || Boolean(params.learn);

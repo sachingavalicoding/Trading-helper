@@ -29,7 +29,7 @@ function Editor({ catalog, kind, verdicts, initial, onSave, onCancel, busy }) {
   const [query, setQuery] = useState('');
   const [showDropped, setShowDropped] = useState(false);
   const byKey = useMemo(() => new Map(catalog.conditions.map((c) => [c.key, c])), [catalog]);
-  const list = useMemo(() => pickList(catalog, { query, verdicts, hideDropped: !showDropped, usable: (c) => kind === 'shares' || c.needs !== 'news' }), [catalog, query, verdicts, showDropped, kind]);
+  const list = useMemo(() => pickList(catalog, { query, verdicts, hideDropped: !showDropped, usable: (c) => (kind === 'shares' ? c.needs !== 'options' : c.needs !== 'news') }), [catalog, query, verdicts, showDropped, kind]);
   const n = combo.conds.length;
   const need = needOf(combo);
   const hasEvent = combo.conds.some((k) => byKey.get(k)?.kind === 'event');

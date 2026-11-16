@@ -1,0 +1,17 @@
+{
+  // Type check for the files that opt in with `// @ts-check` (Lab > Learn and the option-chain checks). The rest of the server is plain
+  // JavaScript: it is read for types but not reported on. Run with `npm run typecheck`.
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": true,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.js"]
+}

@@ -2,6 +2,7 @@ import { aggregateCandles } from '../market/providers/BaseProvider.js';
 import { istParts } from '../market/marketHours.js';
 import { TECHNIQUES, available, prepare, findSignals, turnoverSeries } from '../study/patterns.js';
 import { breadthSeries, tradesFor } from '../study/optionsStudy.js';
+import { optionSeries } from '../combos/optionData.js';
 import { buildChart, CONDITIONS, CONDITION_BY_KEY, usable } from '../combos/conditions.js';
 import { entryTestOf } from '../options/signal.js';
 import { comboSignals, describeCombo, heldConditions, holdsAt, missingData } from '../combos/combos.js';
@@ -82,7 +83,7 @@ export function analyzeLab({ nifty1, stocks5 = null, params, base, from = null, 
   const breadth = breadthSeries(bars5, stocks5);
   const flow = turnoverSeries(bars5, stocks5);
   const prep = prepare(bars5, breadth, flow);
-  const chart = buildChart(bars5, { breadth, flow, prep });
+  const chart = buildChart(bars5, { breadth, flow, prep, options: params.prices ? optionSeries(bars5, params.prices, { strikeStep: params.strikeStep }) : null });
   const inRange = (s) => s.time - 300 >= fromTime;
 
   const [kind, id] = String(base).split(/:(.*)/s);

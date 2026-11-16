@@ -31,7 +31,7 @@ const sum = (xs) => round2(xs.reduce((a, n) => a + n, 0));
 export function shareLines(combos) {
   return {
     combos: combos.map((c) => ({ key: `combo:${c.id}`, label: c.name, text: describeCombo(c), off: c.on === false })),
-    checks: CONDITIONS.filter((c) => c.needs !== 'news').map((c) => ({ key: `check:${c.key}`, label: c.label, group: c.group })),
+    checks: CONDITIONS.filter((c) => c.needs !== 'news' && c.needs !== 'options').map((c) => ({ key: `check:${c.key}`, label: c.label, group: c.group })),
   };
 }
 

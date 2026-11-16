@@ -1,0 +1,17 @@
+{
+  // Type check for the files that opt in with `// @ts-check` (Lab > Learn's helpers). Run with `npm run typecheck`.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": true,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "types": []
+  },
+  "include": ["src/lib/**/*.js"]
+}

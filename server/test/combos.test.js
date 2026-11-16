@@ -78,7 +78,7 @@ test('there are 75 or more checks besides the patterns, every one has a group an
   for (const c of CONDITIONS) {
     assert.ok(GROUPS.includes(c.group), c.key);
     assert.ok(c.label && c.text && ['state', 'event'].includes(c.kind), c.key);
-    assert.ok([null, 'flow', 'breadth', 'news'].includes(c.needs), c.key);
+    assert.ok([null, 'flow', 'breadth', 'news', 'options'].includes(c.needs), c.key);
   }
   assert.equal(catalog().length, CONDITIONS.length);
   assert.ok(CONDITIONS.some((c) => c.pattern === 'orb') && CONDITIONS.some((c) => c.pattern === 'vwapReclaim'), 'the study patterns are checks too');
@@ -98,7 +98,7 @@ test('trend checks favour calls on a rising tape and puts on a falling one, and 
 
 test('checks that need the 50 stocks, or news, are unusable until that data is given, and a combination using one is not tested without it', () => {
   const bare = buildChart(tape(1));
-  assert.deepEqual(bare.have, { breadth: false, flow: false, news: false });
+  assert.deepEqual(bare.have, { breadth: false, flow: false, news: false, options: false });
   assert.equal(usable(by('aboveVwap'), bare.have), false);
   assert.equal(usable(by('breadth70'), bare.have), false);
   assert.equal(usable(by('rsiAbove50'), bare.have), true);
@@ -106,7 +106,7 @@ test('checks that need the 50 stocks, or news, are unusable until that data is g
   assert.deepEqual(missingData(combo, bare.have), ['flow', 'breadth']);
   assert.deepEqual(comboSignals(bare, combo), []);
   const full = buildChart(tape(1), { flow: flowOf(tape(1)), breadth: tape(1).map(() => 0.75), news: () => 1 });
-  assert.deepEqual(full.have, { breadth: true, flow: true, news: true });
+  assert.deepEqual(full.have, { breadth: true, flow: true, news: true, options: false });
   assert.deepEqual(missingData(combo, full.have), []);
 });
 

@@ -95,6 +95,19 @@ export class LabService {
     };
   }
 
+  /** For Lab > Learn (learner/learnService.js): the saved candles, the saved real premiums and the user's own fixed params. */
+  optionsData(index, calendar) {
+    return this.#data(index, calendar);
+  }
+
+  priceBook(index) {
+    return this.#book(index);
+  }
+
+  async optionParams(userId, index) {
+    return (await this.#params(userId, index)).params;
+  }
+
   /** The Nifty and the 50 stocks as 1-minute candles, for the shares Lab. Kept ten minutes like the options data. */
   async #shareData(calendar) {
     const key = `SHARES|${calendar}`;
