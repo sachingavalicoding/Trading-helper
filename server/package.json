@@ -10,6 +10,7 @@
     "upstox:token": "node scripts/upstox-token.js",
     "replay": "node scripts/replay.js",
     "backtest": "node scripts/backtest.js",
+    "research": "node scripts/research.js",
     "typecheck": "tsc -p tsconfig.json"
   },
   "license": "UNLICENSED",
