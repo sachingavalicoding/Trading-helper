@@ -7,6 +7,7 @@ import { CandleDay, CandleCoverage } from '../models/CandleDay.js';
 import { OptionCandleDay, OptionHistoryDay } from '../models/OptionCandleDay.js';
 import { TickChunk } from '../models/TickChunk.js';
 import { addDays } from '../market/days.js';
+import { UNDERLYING } from '../options/symbols.js';
 
 // A replay runs against its own copy of the database, so its paper trades can never touch the real paper history.
 // The copy holds: the logins and settings (so you trade with your own rules), the saved market data of the days BEFORE the replay day,
@@ -14,6 +15,7 @@ import { addDays } from '../market/days.js';
 // Everything else (orders, positions, trades, wallet, logs) starts empty. Clear a replay by starting another one: the copy is dropped first.
 
 export const REPLAY_SUFFIX = '_replay';
+export const TEST_SUFFIX = '_test_replay'; // test runs (dayreplay/ladder.js) get their own database, so a day you are replaying by hand is left alone
 export const DAY_CANDLES = 'replayday_candles'; // CandleDay documents of the replay day
 export const DAY_OPTION_CANDLES = 'replayday_option_candles'; // OptionCandleDay documents of the replay day
 
@@ -26,6 +28,14 @@ export function replayUriFor(uri) {
   return name.endsWith(REPLAY_SUFFIX) ? uri : uri.replace(new RegExp(`/${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\?|$)`), `/${name}${REPLAY_SUFFIX}$1`);
 }
 
+/** The test runs' database: the same server, the database name with `_test_replay` added (it still ends in `_replay`). */
+export function testUriFor(uri) {
+  const name = dbNameOf(uri);
+  if (!name) throw new Error('MONGO_URI must name a database to run a replay');
+  if (name.endsWith(REPLAY_SUFFIX)) throw new Error('A test run must start from the live database');
+  return uri.replace(new RegExp(`/${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\?|$)`), `/${name}${TEST_SUFFIX}$1`);
+}
+
 const COPY_ALL = [User, AutoSettings, OptionSettings, TradeDefaults];
 
 async function copy(from, to, name, filter = {}) {
@@ -34,8 +44,14 @@ async function copy(from, to, name, filter = {}) {
   return docs.length;
 }
 
-/** Drops the replay database and fills it for `day`. Refuses to touch any database whose name does not end in `_replay`. */
-export async function seedReplayDb({ sourceUri, targetUri, day }) {
+/**
+ * Drops the replay database and fills it for `day`. Refuses to touch any database whose name does not end in `_replay`.
+ * @param {object} o
+ * @param {boolean} [o.seconds]    copy the day's recorded seconds too (only needed when the replay plays them)
+ * @param {number} [o.priorDays]   copy only this many calendar days of earlier market data (a test run needs a few weeks, not three months)
+ * @param {Record<string, any[]>} [o.settings] the settings documents to use instead of the live ones (a test run's own copy)
+ */
+export async function seedReplayDb({ sourceUri, targetUri, day, seconds = true, priorDays = 0, settings = null }) {
   const srcName = dbNameOf(sourceUri);
   const dstName = dbNameOf(targetUri);
   if (!dstName.endsWith(REPLAY_SUFFIX) || srcName === dstName) throw new Error(`Refusing to replay into "${dstName}": the replay database must be a separate one ending in ${REPLAY_SUFFIX}`);
@@ -46,19 +62,27 @@ export async function seedReplayDb({ sourceUri, targetUri, day }) {
     const s = src.db;
     const d = dst.db;
     const out = {};
-    for (const M of COPY_ALL) out[M.collection.name] = await copy(s, d, M.collection.name);
+    for (const M of COPY_ALL) {
+      const name = M.collection.name;
+      if (settings?.[name]) {
+        if (settings[name].length) await d.collection(name).insertMany(settings[name]);
+        out[name] = settings[name].length;
+      } else out[name] = await copy(s, d, name);
+    }
     // market data of earlier days: what indicators and studies look back on
-    out.candles = await copy(s, d, CandleDay.collection.name, { day: { $lt: day } });
-    out.optionCandles = await copy(s, d, OptionCandleDay.collection.name, { day: { $lt: day } });
-    out.optionDays = await copy(s, d, OptionHistoryDay.collection.name, { day: { $lt: day } });
+    const before = priorDays > 0 ? { $lt: day, $gte: addDays(day, -priorDays) } : { $lt: day };
+    out.candles = await copy(s, d, CandleDay.collection.name, { day: before });
+    out.optionCandles = await copy(s, d, OptionCandleDay.collection.name, { day: before });
+    out.optionDays = await copy(s, d, OptionHistoryDay.collection.name, { day: before });
     // coverage stops the day before, so a study never reads the replay day whole
     const cov = await s.collection(CandleCoverage.collection.name).find({}).toArray();
-    const before = addDays(day, -1);
-    const kept = cov.filter((c) => c.from <= before).map((c) => ({ ...c, to: c.to > before ? before : c.to, partial: null }));
+    const lastDay = addDays(day, -1);
+    const kept = cov.filter((c) => c.from <= lastDay).map((c) => ({ ...c, to: c.to > lastDay ? lastDay : c.to, partial: null }));
     if (kept.length) await d.collection(CandleCoverage.collection.name).insertMany(kept);
     // the replay day itself, kept apart
-    out.ticks = await copy(s, d, TickChunk.collection.name, { day });
+    out.ticks = seconds ? await copy(s, d, TickChunk.collection.name, { day }) : 0;
     out.dayCandles = await copy(s, d, CandleDay.collection.name, { day });
+    out.niftyMinutes = (await d.collection(CandleDay.collection.name).findOne({ day, symbol: UNDERLYING }, { projection: { count: 1 } }))?.count ?? 0;
     if (out.dayCandles) {
       const docs = await d.collection(CandleDay.collection.name).find({ day }).toArray();
       await d.collection(DAY_CANDLES).insertMany(docs);

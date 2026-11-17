@@ -5,8 +5,10 @@ import { istParts } from '../market/marketHours.js';
 import { addDays } from '../market/days.js';
 import { logger } from '../utils/logger.js';
 
-// Plays one recorded day back as if it were live. The Nifty index and the option contracts come from the recorded seconds; shares come
-// from the saved 1-minute candles (one price a minute, so they move in steps). A price is handed out only when the virtual clock reaches
+// Plays one saved day back as if it were live. By default everything (the Nifty index, the option contracts and the shares) comes from the
+// saved 1-minute candles, so every saved day plays the same way. With `useSeconds`, the Nifty and the option contracts that were recorded
+// each second play those seconds instead (only the newest few days have them). A candle plays as four prices: its open, then its low and
+// high (the low first when it closed up, the high first when it closed down: the way that hits a stop before a target), then its close. A price is handed out only when the virtual clock reaches
 // its second, and candle history is cut at the clock, so nothing from the "future" is ever visible.
 //
 // `source` supplies the data (see mongoSource.js): tickSymbols(), readTicks(symbol), readDayCandles(symbol), readPrior(symbol, fromDay).
@@ -14,9 +16,20 @@ import { logger } from '../utils/logger.js';
 const PRIOR_DAYS = 12; // calendar days of earlier candles kept for charts and indicators
 const isIndexSymbol = (s) => INDICES.some((i) => i.symbol === s);
 
+/**
+ * The prices a 1-minute candle plays as: open at its first second, then low and high, then close at its last second. A candle that closed up
+ * goes to its low first, one that closed down to its high first, so a stop is reached before a target (the careful guess, never the rosy one).
+ */
+export function candlePath(c) {
+  const row = (time, ltp, volume = 0) => ({ time, ltp, volume, candle: c, bids: [], asks: [], totalBuyQty: 0, totalSellQty: 0 });
+  const [first, second] = c.close >= c.open ? [c.low, c.high] : [c.high, c.low];
+  return [row(c.time, c.open), row(c.time + 20, first), row(c.time + 40, second), row(c.time + 59, c.close, c.volume)];
+}
+
 export class ReplayProvider extends BaseProvider {
-  constructor({ source, clock, day, lotSize = 65, pollMs = 200 }) {
+  constructor({ source, clock, day, lotSize = 65, pollMs = 200, useSeconds = true }) {
     super();
+    this.useSeconds = useSeconds;
     this.source = source;
     this.clock = clock;
     this.day = day;
@@ -52,10 +65,10 @@ export class ReplayProvider extends BaseProvider {
   }
 
   async connect() {
-    this.tickSymbols = new Set(await this.source.tickSymbols());
+    this.tickSymbols = new Set(this.useSeconds ? await this.source.tickSymbols() : []);
     this.candleOptions = new Set((await this.source.optionCandleSymbols?.()) ?? []);
     for (const [symbol, span] of (await this.source.optionSpans?.()) ?? []) this.spans.set(symbol, { ...span, kind: 'candles' });
-    for (const [symbol, span] of (await this.source.tickSpans?.()) ?? []) this.spans.set(symbol, { ...span, kind: 'ticks' }); // seconds win over candles
+    if (this.useSeconds) for (const [symbol, span] of (await this.source.tickSpans?.()) ?? []) this.spans.set(symbol, { ...span, kind: 'ticks' }); // seconds win over candles
     this.timer = setInterval(() => this.#advance(), this.pollMs);
     this.timer.unref?.();
     this.setStatus(true, `Replay of ${this.day}`);
@@ -103,11 +116,7 @@ export class ReplayProvider extends BaseProvider {
       return { ...this.#empty(symbol), kind: 'ticks', rows, prior, prevClose, candles: [] };
     }
     const day = await this.source.readDayCandles(symbol);
-    // two prices a minute: the open at the minute's first second and the close at its last, so a price exists from the first second of the candle
-    const rows = day.flatMap((c) => [
-      { time: c.time, ltp: c.open, volume: 0, candle: c, bids: [], asks: [], totalBuyQty: 0, totalSellQty: 0 },
-      { time: c.time + 59, ltp: c.close, volume: c.volume, candle: c, bids: [], asks: [], totalBuyQty: 0, totalSellQty: 0 },
-    ]);
+    const rows = day.flatMap(candlePath);
     return { ...this.#empty(symbol), kind: 'candles', rows, day, prior, prevClose };
   }
 
@@ -158,6 +167,19 @@ export class ReplayProvider extends BaseProvider {
     };
     st.last = tick;
     return tick;
+  }
+
+  /**
+   * The price of `symbol` `seconds` after the clock: what a fill that lands a moment late gets (config.fill.delaySec). Null when the symbol
+   * is not playing. Looks ahead in the saved data only for this, never for a decision.
+   */
+  priceAfter(symbol, seconds) {
+    const st = this.states.get(symbol);
+    if (!st?.rows.length) return null;
+    const at = Math.floor(this.clock.now() / 1000) + seconds;
+    let price = null;
+    for (let i = Math.max(st.cursor - 1, 0); i < st.rows.length && st.rows[i].time <= at; i += 1) price = st.rows[i].ltp;
+    return price ?? st.last?.ltp ?? null;
   }
 
   /** 1-minute candles built from the seconds handed out so far. */

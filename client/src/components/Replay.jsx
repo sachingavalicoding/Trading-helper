@@ -164,6 +164,7 @@ export function ReplayCard() {
   const [busy, setBusy] = useState(false);
   const [inReplay, setInReplay] = useState(false);
   const [check, setCheck] = useState(null);
+  const [seconds, setSeconds] = useState(false);
 
   useEffect(() => {
     if (!tools) return undefined;
@@ -206,7 +207,7 @@ export function ReplayCard() {
   async function start() {
     setBusy(true);
     try {
-      setRun((await api('/replay-day/start', { method: 'POST', body: { day, speed } })).run);
+      setRun((await api('/replay-day/start', { method: 'POST', body: { day, speed, seconds: Boolean(seconds && chosen?.seconds) } })).run);
     } catch (e) {
       toast.error(e.message);
     } finally {
@@ -223,6 +224,7 @@ export function ReplayCard() {
       setBusy(false);
     }
   }
+  const chosen = days?.find((d) => d.day === day);
   const open = () => {
     // the replay is another address, so the login is passed along once in the link
     window.location.href = `${window.location.protocol}//${window.location.hostname}:${run.port}/#t=${encodeURIComponent(tokenStore.get() || '')}`;
@@ -233,7 +235,7 @@ export function ReplayCard() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-sm font-semibold">Replay a past day</div>
-          <div className="text-xs text-muted">Test with the market closed: the app runs a full day on recorded 1-second data.</div>
+          <div className="text-xs text-muted">Test with the market closed: the app runs a full saved day on its 1-minute candles.</div>
         </div>
         <AutoSwitch on={tools} label="Replay tools" onClick={toggle} />
       </div>
@@ -241,19 +243,28 @@ export function ReplayCard() {
       {tools && !inReplay && (
         <div className="mt-3 space-y-3">
           {days == null ? (
-            <p className="text-xs text-muted">Loading the recorded days…</p>
+            <p className="text-xs text-muted">Loading the saved days…</p>
           ) : days.length === 0 ? (
-            <p className="text-xs text-muted">No recorded seconds yet. They are saved while the live market is open (the newest 3 days are kept).</p>
+            <p className="text-xs text-muted">No saved day yet. Candles and option prices are saved each evening after the market closes.</p>
           ) : (
             <>
               <label className="block text-xs text-muted">
-                Day (only days with recorded seconds)
+                Day
                 <select className="field mt-1 !py-2" value={day} onChange={(e) => setDay(e.target.value)} disabled={run?.state === 'starting' || run?.state === 'ready'}>
                   {days.map((d) => (
-                    <option key={d.day} value={d.day}>{dayText(d.day)} ({d.day})</option>
+                    <option key={d.day} value={d.day}>{dayText(d.day)} ({d.day}){d.seconds ? ' · 1-sec too' : ''}</option>
                   ))}
                 </select>
               </label>
+              {chosen?.seconds && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-line p-3">
+                  <div className="text-xs">
+                    <div className="font-semibold">Use 1-second data</div>
+                    <div className="text-muted">This day also has the 1-second record of the Nifty and the streamed options. Off: 1-minute candles, the same as every other day.</div>
+                  </div>
+                  <AutoSwitch on={seconds} label="Use 1-second data" onClick={() => setSeconds(!seconds)} />
+                </div>
+              )}
               <div className="rounded-xl border border-line p-3">
                 <div className="mb-2 text-xs font-semibold">Replay data check for this day</div>
                 {check == null ? <p className="text-xs text-muted">Checking what is saved…</p> : <Findings items={check} />}
@@ -277,7 +288,7 @@ export function ReplayCard() {
                 )}
                 {(run?.state === 'ready' || run?.state === 'starting') && <button type="button" className="btn btn-secondary" disabled={busy} onClick={stop}>Stop</button>}
               </div>
-              <p className="text-[11px] leading-snug text-muted">Replay trades live in a separate test account and are wiped each time you start a replay. Your real paper history is never touched. Only Nifty and the option contracts that were streaming were recorded each second; shares move once a minute.</p>
+              <p className="text-[11px] leading-snug text-muted">Replay trades live in a separate test account and are wiped each time you start a replay. Your real paper history is never touched. On 1-minute candles each minute plays as open, low/high, close, so a stop is reached before a target inside a minute (the careful guess).</p>
             </>
           )}
         </div>

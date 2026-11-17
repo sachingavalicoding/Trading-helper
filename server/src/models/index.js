@@ -15,3 +15,4 @@ export { CandleDay, CandleCoverage } from './CandleDay.js';
 export { OptionCandleDay, OptionHistoryDay } from './OptionCandleDay.js';
 export { LearnerState } from './LearnerState.js';
 export { EntryClaim } from './EntryClaim.js';
+export { ReplayTest } from './ReplayTest.js';

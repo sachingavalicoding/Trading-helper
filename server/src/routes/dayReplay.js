@@ -5,15 +5,41 @@ import { SPEEDS } from '../dayreplay/manager.js';
 import { validate } from '../middleware/validate.js';
 import { checkItems, gatherCheckFacts, gatherWhyFacts, whyItems } from '../dayreplay/diagnose.js';
 import { istParts } from '../market/marketHours.js';
+import { DAY_CHOICES, DELAY_CHOICES, SLIPPAGE_CHOICES } from '../dayreplay/ladder.js';
 
-const startBody = z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), speed: z.number().int().refine((s) => SPEEDS.includes(s)).default(1) });
+const startBody = z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), speed: z.number().int().refine((s) => SPEEDS.includes(s)).default(1), seconds: z.boolean().default(false) });
+const testBody = z.object({
+  days: z.number().int().refine((d) => DAY_CHOICES.includes(d)),
+  slippagePct: z.number().refine((x) => SLIPPAGE_CHOICES.includes(x)).default(0.5),
+  fillDelaySec: z.number().int().refine((x) => DELAY_CHOICES.includes(x)).default(2),
+});
 const controlBody = z.object({ speed: z.number().refine((s) => SPEEDS.includes(s)).optional(), paused: z.boolean().optional() });
 
 const BOOT_ID = randomUUID(); // changes with every start of the process, so a page can tell a restarted replay from the old one
 
 /** Replay a recorded day: the live server starts/stops a replay copy; the replay copy reports and controls its clock. */
-export function dayReplayRoutes({ config, clock, manager, market, optionTrader, scanner, engine }) {
+export function dayReplayRoutes({ config, clock, manager, ladder = null, market, optionTrader, scanner, engine }) {
   const r = Router();
+  const errOut = (res, next) => (err) => (err.status && err.status < 500 ? res.status(err.status).json({ error: { code: err.code || 'BAD_REQUEST', message: err.message } }) : next(err));
+
+  // Replay test, step by step (dayreplay/ladder.js): your settings now, then each change Learn suggested, kept only if it beats the best so far.
+  const needLadder = (res) => (ladder ? false : (res.status(400).json({ error: { code: 'IN_REPLAY', message: 'Run replay tests from the live app.' } }), true));
+  r.get('/test', (req, res, next) => {
+    if (needLadder(res)) return;
+    ladder.view(req.userId).then((d) => res.json(d), errOut(res, next));
+  });
+  r.post('/test/start', validate(testBody), (req, res, next) => {
+    if (needLadder(res)) return;
+    ladder.start(req.userId, req.body).then((d) => res.json(d), errOut(res, next));
+  });
+  r.post('/test/stop', (req, res, next) => {
+    if (needLadder(res)) return;
+    ladder.stop(req.userId).then((d) => res.json(d), errOut(res, next));
+  });
+  r.post('/test/apply', (req, res, next) => {
+    if (needLadder(res)) return;
+    ladder.apply(req.userId).then((d) => res.json(d), errOut(res, next));
+  });
 
   r.get('/status', (_req, res) => {
     if (config.replay) return res.json({ mode: 'replay', bootId: BOOT_ID, day: config.replay.day, livePort: config.replay.livePort, speeds: SPEEDS, ...clock.info() });
