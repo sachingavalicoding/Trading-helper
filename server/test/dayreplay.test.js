@@ -56,6 +56,10 @@ test('the replay database is a separate one and never the live one', () => {
   assert.equal(replayUriFor('mongodb://127.0.0.1:27017/nifty_paper_trader'), 'mongodb://127.0.0.1:27017/nifty_paper_trader_replay');
   assert.equal(replayUriFor('mongodb://u:p@h:27017/app?retryWrites=true'), 'mongodb://u:p@h:27017/app_replay?retryWrites=true');
   assert.equal(replayUriFor('mongodb://h/app_replay'), 'mongodb://h/app_replay');
+  // an address with no database name uses MongoDB's own default, "test"
+  assert.equal(replayUriFor('mongodb+srv://u:p@cluster0.abc.mongodb.net/?retryWrites=true&w=majority'), 'mongodb+srv://u:p@cluster0.abc.mongodb.net/test_replay?retryWrites=true&w=majority');
+  assert.equal(replayUriFor('mongodb+srv://u:p@cluster0.abc.mongodb.net'), 'mongodb+srv://u:p@cluster0.abc.mongodb.net/test_replay');
+  assert.equal(replayUriFor('mongodb://h1:1,h2:2/?replicaSet=rs'), 'mongodb://h1:1,h2:2/test_replay?replicaSet=rs');
 });
 
 const rows = (symbol, from, prices) => prices.map((ltp, i) => ({ time: from + i, ltp, volume: 100 * (i + 1), totalBuyQty: 0, totalSellQty: 0, bids: [{ price: ltp - 0.05, qty: 10 }], asks: [{ price: ltp + 0.05, qty: 10 }] }));
