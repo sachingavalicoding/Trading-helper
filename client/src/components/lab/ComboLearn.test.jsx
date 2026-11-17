@@ -33,3 +33,19 @@ describe('Learn > Each combination', () => {
     expect(act).toHaveBeenCalledWith('/run', { days: 30, what: 'combos' });
   });
 });
+
+describe('Learn > Shares', async () => {
+  const { SharesLearn } = await import('./SharesLearn.jsx');
+  const st = (o = {}) => ({ days: 4, trades: 6, wins: 4, winRate: 67, net: 1000, avgDay: 200, goodDays: 3, badDays: 1, worstDay: -400, bestDay: 900, avgWin: 500, avgLoss: 300, payoff: 1.67, downside: 200, score: 120, ...o });
+  it('shows the change, what each setup and hour made, and applies with one tap', () => {
+    const act = vi.fn();
+    const shares = { at: '2026-11-17T12:00:00Z', verdict: 'passed', streak: 1, text: 'Passed: also better on the newest 4 days.', changes: [{ group: 'Entry hours', label: 'No new share trade from 11:00', from: '11:30', to: '11:00' }], split: { hiddenDays: 4, from: '2026-10-27', to: '2026-11-17' }, hidden: { old: st({ net: -800 }), new: st() }, all: { old: st(), new: st() }, facts: { bySetup: [{ key: 'Opening range breakout (buys)', trades: 40, wins: 30, net: 5000 }], byHour: [{ key: '09:00', trades: 20, wins: 16, net: 4000 }, { key: '11:00', trades: 8, wins: 2, net: -3000 }] } };
+    render(<SharesLearn view={{ status: { state: 'idle' }, shares }} busy={false} running={false} act={act} />);
+    expect(screen.getByText('Entry hours: 11:00')).toBeTruthy();
+    expect(screen.getByText('Opening range breakout (buys)')).toBeTruthy();
+    fireEvent.click(screen.getByText('Apply to my share settings'));
+    expect(act).toHaveBeenCalledWith('/shares/apply', { force: false }, 'Applied to your paper share settings.');
+    fireEvent.click(screen.getByText(/Learn shares/));
+    expect(act).toHaveBeenCalledWith('/run', { days: 30, what: 'shares' });
+  });
+});

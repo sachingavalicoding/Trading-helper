@@ -74,7 +74,7 @@ async function main() {
   const learner = new LearnerService({ study, market, config: env });
   if (!replay) learner.schedule(); // each trading evening, for users who switched auto on
   const lab = new LabService({ market, config: env });
-  const learn = new LearnService({ lab, market, config: env });
+  const learn = new LearnService({ lab, market, study, config: env });
   if (!replay) learn.schedule(); // Learn's evening run, for users who switched it on
   const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history, optionHistory, ticks, dayReplay, study, learner, lab, learn });
   const server = http.createServer(app);

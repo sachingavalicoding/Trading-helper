@@ -265,6 +265,32 @@ export class StudyService {
     return { nifty1, stocks5, params, prices, settings };
   }
 
+  /**
+   * The scanner replayed on the saved days as the live scanner would raise its ideas, with the user's share settings and sizing
+   * (for Learn > Shares, learner/shareTune.js). Reads only.
+   */
+  async liveShareIdeas(userId, { days = 15, onStep = () => {} } = {}) {
+    const job = { step: 'Starting' };
+    const watch = setInterval(() => onStep(job.step), 1000);
+    try {
+      const { nifty1, calendar } = await this.#nifty(job, days);
+      const history = {};
+      for (const [n, { symbol }] of NIFTY50.entries()) {
+        job.step = `Reading the 50 stocks (${n + 1}/50)`;
+        try {
+          history[symbol] = await this.#range(symbol, 1, calendar);
+        } catch {
+          /* that stock is left out */
+        }
+      }
+      const [rules, auto] = await Promise.all([loadRules(userId, 'EQ'), AutoSettings.findOne({ user: userId }).lean()]);
+      const r = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, exitMin: rules.exitMin, maxAmount: auto?.maxTradeAmount ?? 0, settings: auto ?? null, liveOnly: true }, onProgress: (step) => { job.step = step; } });
+      return { ideas: r.live, opts: r.opts, auto: auto ?? null, stocks: r.stocks };
+    } finally {
+      clearInterval(watch);
+    }
+  }
+
   async #runShares(userId, job, { days, target = 0, exitMin, pairFind = false, pairFirst = null, comboFind = false, pairDepth, pairShow, pairGoal, pairParts, learn = null }) {
     const { nifty1, calendar } = await this.#nifty(job, days);
     const history = {};

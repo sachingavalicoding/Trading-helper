@@ -7,10 +7,12 @@ import { LEARN_DAYS, loadErrorText, runningText, applyState, compareRows, diffWo
 import { Badge, Card, Fold, Segmented, Sheet, Skeleton } from '../ui.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
 import { ComboLearn } from './ComboLearn.jsx';
+import { SharesLearn } from './SharesLearn.jsx';
 
 const MODES = [
   { value: 'combos', label: 'Each combination' },
   { value: 'setup', label: 'Whole setup' },
+  { value: 'shares', label: 'Shares' },
 ];
 
 /** How the results you applied did on the days after you applied them: the honest test of the learner, filled in by each later run. */
@@ -39,7 +41,7 @@ function TrackRecord({ track }) {
 const stamp = (iso) => istStamp(Date.parse(iso) / 1000);
 const BOX = { up: 'border-up bg-up-soft', down: 'border-down bg-down-soft', warn: 'border-warn bg-warn/10', muted: 'border-line bg-surface-2' };
 const TEXT = { up: 'text-up', down: 'text-down', warn: 'text-warn', muted: 'text-fg' };
-const ACTION = { started: 'Started', learned: 'Learned', 'learned combos': 'Learned each combination', failed: 'Failed to run', applied: 'Applied', 'applied anyway': 'Applied anyway', undone: 'Undone' };
+const ACTION = { started: 'Started', learned: 'Learned', 'learned combos': 'Learned each combination', 'learned shares': 'Learned shares', failed: 'Failed to run', applied: 'Applied', 'applied anyway': 'Applied anyway', undone: 'Undone' };
 
 /** Old against new, one row per measure; the better side of a row is green, the worse red. */
 function Compare({ part, title }) {
@@ -121,12 +123,12 @@ export function LearnLab() {
     <div className="space-y-3">
       <Card className="space-y-2.5 p-3">
         <h2 className="flex items-center gap-1.5 text-sm font-semibold">
-          <Brain className="h-4 w-4 text-accent" /> Learn better settings (Nifty options)
+          <Brain className="h-4 w-4 text-accent" /> Learn better settings
         </h2>
-        <Segmented className="w-full" size="sm" value={days} onChange={setDays} options={LEARN_DAYS} />
         <Segmented className="w-full" size="sm" value={mode} onChange={setMode} options={MODES} />
+        {mode !== 'shares' && <Segmented className="w-full" size="sm" value={days} onChange={setDays} options={LEARN_DAYS} />}
         <div className="flex items-center justify-between gap-3">
-          <span className="text-[11px] leading-snug text-muted"><b className="text-fg">Learn every evening</b> (after 17:00 on trading days, 30 days, both kinds). It only suggests; nothing is applied without your tap.</span>
+          <span className="text-[11px] leading-snug text-muted"><b className="text-fg">Learn every evening</b> (after 17:00 on trading days: each combination, the whole setup and shares). It only suggests; nothing is applied without your tap.</span>
           <Switch on={Boolean(view?.evening)} label="Learn every evening" disabled={busy || !view} onClick={() => act('/evening', { on: !view?.evening }, view?.evening ? 'Evening learning off.' : 'Evening learning on.')} />
         </div>
         {running && <p className="text-[11px] leading-snug text-accent" role="status">{runningText(view.status)}</p>}
@@ -142,7 +144,9 @@ export function LearnLab() {
       )}
       {!view && !loadError && <Skeleton className="h-48 w-full" />}
       {mode === 'combos' && <ComboLearn view={view} days={days} busy={busy} running={running} act={act} />}
-      {mode === 'combos' && <TrackRecord track={view?.track} />}
+      {mode === 'combos' && <TrackRecord track={view?.track?.filter((t) => t.kind !== 'shares')} />}
+      {mode === 'shares' && <SharesLearn view={view} busy={busy} running={running} act={act} />}
+      {mode === 'shares' && <TrackRecord track={view?.track?.filter((t) => t.kind === 'shares')} />}
 
       {mode === 'setup' && (
       <>

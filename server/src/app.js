@@ -37,7 +37,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 export const DISCLAIMER = 'Paper trading for learning. Not investment advice.';
 
-export function createApp({ market, engine, config, tracker, scanner, news, autoTrader, optionTrader, review = new ReviewService({ market, config }), study = new StudyService({ market, config }), learner = new LearnerService({ study, market, config }), lab = new LabService({ market, config }), learn = new LearnService({ lab, market, config }), replay = new TradeReplayService({ market, config }), history = new HistorySync({ market }), optionHistory = null, ticks = null, dayReplay = null }) {
+export function createApp({ market, engine, config, tracker, scanner, news, autoTrader, optionTrader, review = new ReviewService({ market, config }), study = new StudyService({ market, config }), learner = new LearnerService({ study, market, config }), lab = new LabService({ market, config }), learn = new LearnService({ lab, market, study, config }), replay = new TradeReplayService({ market, config }), history = new HistorySync({ market }), optionHistory = null, ticks = null, dayReplay = null }) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
