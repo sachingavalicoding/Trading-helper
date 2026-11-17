@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyState, compareRows, diffWord, groupChanges, splitLine, verdictBox, windowTitle } from './learn.js';
+import { loadErrorText, runningText, applyState, compareRows, diffWord, groupChanges, splitLine, verdictBox, windowTitle } from './learn.js';
 
 const stat = (o = {}) => ({ days: 5, trades: 8, wins: 5, winRate: 63, net: 1000, avgDay: 200, goodDays: 3, badDays: 2, worstDay: -400, bestDay: 900, avgWin: 500, avgLoss: 300, payoff: 1.67, downside: 200, score: 120, ...o });
 
@@ -42,5 +42,13 @@ describe('Lab > Learn words', () => {
     expect(g.map((x) => x.group)).toEqual(['Combinations', 'Stop loss']);
     expect(g[1].list).toHaveLength(2);
     expect(splitLine({ split: { learnDays: 15, hiddenDays: 5, from: '2026-10-01', to: '2026-10-30', hiddenFrom: '2026-10-24' }, tried: 300, pricing: 'real' })).toMatch(/Learned on 15 days.*newest 5 days.*300 settings tried, real saved option prices/);
+  });
+
+  it('says why the card could not load, and how long a run has gone', () => {
+    expect(loadErrorText({ status: 404 })).toMatch(/old code.*start\.sh/);
+    expect(loadErrorText({ status: 0, message: 'Cannot reach the server' })).toMatch(/reach the app server/);
+    expect(loadErrorText({ status: 500, message: 'boom' })).toBe('Could not load Learn: boom');
+    expect(runningText({ step: 'Round 1: trying change 11 of 200', seconds: 75 })).toMatch(/^Round 1: trying change 11 of 200 · 1 min 15 s so far/);
+    expect(runningText({ seconds: 9 })).toMatch(/^Starting · 9 s so far/);
   });
 });

@@ -336,3 +336,35 @@ test('live, the chain is read only when a switched-on combination needs it, neve
   const sample = new LiveChain({ market: { provider: { ...provider, isSimulated: true } }, now, loadPast: async () => past });
   assert.equal(await sample.seriesFor('NIFTY', bars5, { need: true }), null);
 });
+
+test('with a deadline it stops trying changes, still judges what it found, and says so; no trades at all is explained', async () => {
+  const days = keys(20);
+  const r = await tune({ days, current: BASE, evaluate: fakeEvaluate(days, { goodOnHidden: true }), dayOf, usable: () => true, deadline: Date.now() - 1 });
+  assert.equal(r.stoppedEarly, true);
+  assert.equal(r.changes.length, 0);
+  assert.equal(r.verdict, 'same');
+  assert.ok(r.windows.length === 3 && r.hidden.old);
+  const empty = await tune({ days, current: BASE, evaluate: async () => [], dayOf, usable: () => true });
+  assert.equal(empty.verdict, 'same');
+  assert.match(empty.text, /made no trade/);
+});
+
+test('a run the server never finished shows as interrupted, and a failing run leaves its error to read', async (t) => {
+  const settings = { combos: [] };
+  const defaults = { options: {} };
+  const { state } = fakeModels(t, { settings, defaults, last: null });
+  state.log = [{ at: 'x', action: 'started', text: 'Started on 30 days.' }];
+  const learn = new LearnService({ lab: { priceBook: async () => { throw new Error('no prices table'); } }, market: { provider: {} } });
+  const v = await learn.view('u1');
+  assert.match(v.interrupted, /did not finish/);
+  const job = learn.start('u1', { days: 30 });
+  assert.equal(learn.status('u1').state, 'running');
+  await job.done;
+  assert.equal(learn.status('u1').state, 'idle');
+  assert.equal(state.last.verdict, 'error');
+  assert.match(state.last.text, /no prices table/);
+  assert.equal(state.log[0].action, 'failed');
+  const after = await learn.view('u1');
+  assert.equal(after.interrupted, null);
+  assert.equal(after.last.verdict, 'error');
+});

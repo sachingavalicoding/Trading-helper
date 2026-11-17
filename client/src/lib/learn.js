@@ -80,3 +80,17 @@ export function splitLine(last) {
   const prices = last.pricing === 'real' ? 'real saved option prices' : 'estimated option prices (too few real ones saved)';
   return `Learned on ${s.learnDays} days (${s.from} to the day before ${s.hiddenFrom}), then replayed old and new settings on the newest ${s.hiddenDays} days (${s.hiddenFrom} to ${s.to}) it never saw. ${last.tried} settings tried, ${prices}.`;
 }
+
+/** Why the Learn card could not be read, in words: a server still on the old code answers "not found". */
+export function loadErrorText(e) {
+  if (e?.status === 404) return 'The app server is still running the old code, so Learn is not there yet. Stop the server (Ctrl+C in Termux), run ./start.sh again, then reload this page.';
+  if (e?.status === 0 || /fetch|network/i.test(e?.message ?? '')) return 'Could not reach the app server. Check that ./start.sh is running in Termux, then tap Try again.';
+  return `Could not load Learn: ${e?.message || 'unknown error'}`;
+}
+
+/** The line under the button while a run is going: the step and how long it has run. */
+export function runningText(status) {
+  const secs = status?.seconds ?? 0;
+  const took = secs >= 60 ? `${Math.floor(secs / 60)} min ${secs % 60} s` : `${secs} s`;
+  return `${status?.step || 'Starting'} · ${took} so far. It takes a few minutes (it stops trying new changes after 3); you can leave this page and come back.`;
+}
