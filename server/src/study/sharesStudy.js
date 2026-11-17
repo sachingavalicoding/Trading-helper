@@ -40,6 +40,7 @@ export async function runSharesStudy({ nifty1, history, params, onProgress = () 
     ideas.push(...replayStock({ symbol, c1: history[symbol], nifty: nifty1, days: params.days, exits: 'live', money, collect: every, marketAt, live }));
     await yieldTurn();
   }
+  if (params.liveOnly) return { live, opts: { ...opts, maxAmount: params.maxAmount || 0 }, stocks: symbols.length }; // Learn > Shares needs only the live-like ideas
   const needRank = params.finderOnly ? (params.pairFind && !params.pairFirst) || params.comboFind || Boolean(params.learn) : params.rank !== false;
   const extra = await comboStudy({ nifty1, history, symbols, params: { ...params, rank: needRank }, money, opts, onProgress });
   if (params.finderOnly) return { generatedAt: new Date().toISOString(), finderOnly: true, period: { days: params.days, stocks: symbols.length }, params: { days: params.days, riskAmount: opts.riskAmount, slippagePct: opts.slippagePct, exit: target ? 'target' : 'lock', target, steps: money.steps, exitMin }, ...extra };

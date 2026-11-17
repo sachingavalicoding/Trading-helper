@@ -1,6 +1,6 @@
 // @ts-check
 import { createHash } from 'node:crypto';
-import { LearnerState, OptionSettings, TradeDefaults } from '../models/index.js';
+import { LearnerState, OptionSettings, TradeDefaults, AutoSettings } from '../models/index.js';
 import { rulesFor } from '../models/TradeDefaults.js';
 import { normalizeCombos, MAX_COMBOS } from '../combos/combos.js';
 import { CONDITION_BY_KEY } from '../combos/conditions.js';
@@ -13,6 +13,7 @@ import { badRequest, conflict } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 import { tune, steady, MIN_DAYS } from './tune.js';
 import { tuneCombo, strip } from './comboTune.js';
+import { tuneShares, shareSettingsOf, sharePatch, shareTrades } from './shareTune.js';
 import { learnContext, dayKey } from './learnRun.js';
 
 // Lab > Learn: runs the settings learner (tune.js) for a user in the background, keeps the last result, and applies it to the paper
@@ -32,7 +33,9 @@ export const MAX_TUNED = 12; // combinations tuned in one run, switched-on ones 
 export const EVENING_AFTER_MIN = 17 * 60; // 17:00 IST: after the evening save of candles and option prices (and the auto-learner at 16:30)
 const EVENING_TICK_MS = 10 * 60_000;
 const TRACK_MAX = 20;
-const WHAT = ['setup', 'combos'];
+const WHAT = ['setup', 'combos', 'shares'];
+export const SHARE_DAYS = 15; // the share candles saved are kept short (the shares study allows 15 days)
+const SHARE_SEARCH_MS = 2 * 60_000;
 
 /**
  * The settings the learner can change, read from what is saved.
@@ -109,9 +112,10 @@ function comboView(/** @type {any} */ combos, /** @type {Settings} */ settings) 
 }
 
 export class LearnService {
-  /** @param {{ lab: any, market: any, config?: any, now?: () => Date, searchMs?: number }} o */
-  constructor({ lab, market, config = {}, now = () => new Date(), searchMs = SEARCH_MS }) {
+  /** @param {{ lab: any, market: any, study?: any, config?: any, now?: () => Date, searchMs?: number }} o */
+  constructor({ lab, market, study = null, config = {}, now = () => new Date(), searchMs = SEARCH_MS }) {
     this.lab = lab;
+    this.study = study;
     this.searchMs = searchMs;
     this.market = market;
     this.config = config;
@@ -147,6 +151,7 @@ export class LearnService {
       last: last ? { ...shown, stale: last.base !== fingerprint(cur.settings) && !last.applied, canUndo: Boolean(last.applied && !last.undone) } : null,
       log: st?.log ?? [],
       combos: comboView(/** @type {any} */ (st)?.combos, cur.settings),
+      shares: await this.#sharesView(userId, /** @type {any} */ (st)?.shares),
       track: /** @type {any} */ (st)?.track ?? [],
       evening: Boolean(/** @type {any} */ (st)?.evening),
       simulated: Boolean(this.market?.provider?.isSimulated),
@@ -171,6 +176,7 @@ export class LearnService {
       if (this.status(userId).state === 'running') continue;
       await LearnerState.updateOne({ _id: st._id }, { $set: { eveningDay: dateKey } });
       for (const what of WHAT) {
+        if (what === 'shares' && !this.study) continue;
         try {
           await /** @type {any} */ (this.start(userId, { days: 30, what, by: 'evening' })).done;
         } catch (e) {
@@ -236,6 +242,82 @@ export class LearnService {
     return st.combos;
   }
 
+  async #sharesView(/** @type {string} */ userId, /** @type {any} */ shares) {
+    if (!shares) return null;
+    const { proposal, current, ...shown } = shares;
+    const auto = await AutoSettings.findOne({ user: userId }).lean();
+    const stale = Boolean(shares.base && fingerprint(/** @type {any} */ (shareSettingsOf(auto))) !== shares.base && !(shares.applied && !shares.undone));
+    return { ...shown, stale, canUndo: Boolean(shares.applied && !shares.undone) };
+  }
+
+  /** Learn > Shares: the scanner replayed as live on the saved days, then the share settings tuned on those ideas. Nothing is applied. */
+  async #runShares(/** @type {string} */ userId, /** @type {any} */ job) {
+    job.step = 'Replaying the scanner on the 50 stocks';
+    const { ideas, opts, auto, stocks } = await this.study.liveShareIdeas(userId, { days: SHARE_DAYS, onStep: (/** @type {string} */ step) => { job.step = step; } });
+    const current = shareSettingsOf(auto);
+    const st = await this.#state(userId);
+    const hints = (st.shares?.verdict === 'passed' ? st.shares.changes ?? [] : []).map((/** @type {any} */ c) => c.label);
+    job.step = 'Trying share settings';
+    const result = /** @type {any} */ (await tuneShares({ ideas, current, opts, deadline: Date.now() + SHARE_SEARCH_MS * (this.searchMs / SEARCH_MS), hints }));
+    // how the share settings you applied did on the days since
+    const track = [...(st.track ?? [])];
+    for (const it of st.applied ?? []) {
+      if (it.kind !== 'shares' || it.undone) continue;
+      const after = [...new Set(ideas.map((i) => String(i.openedAt).slice(0, 10)))].filter((d) => d > it.appliedOn).sort();
+      if (!after.length) continue;
+      const dayOf = (/** @type {any} */ t) => t.day;
+      const row = { key: it.key, kind: 'shares', name: it.name, appliedOn: it.appliedOn, forced: Boolean(it.forced), days: after.length, to: after.at(-1), old: steady(shareTrades(ideas, it.old, opts), after, dayOf), new: steady(shareTrades(ideas, it.neu, opts), after, dayOf) };
+      const at = track.findIndex((t) => t.key === it.key);
+      if (at >= 0) track[at] = row;
+      else track.unshift(row);
+    }
+    st.track = track.slice(0, TRACK_MAX);
+    st.markModified('track');
+    const notes = ['The minimum score is not tried: replayed scores run lower than live ones. The daily loss limit and stop-after-losses are kept as they are.', 'The replay has no order book and skips the scanner limit on open ideas, so live results differ a little.'];
+    if (this.market?.provider?.isSimulated) notes.push('The sample feed is on: these candles are made up, so the result means nothing for real trading.');
+    const same = st.shares?.proposal && JSON.stringify(st.shares.proposal) === JSON.stringify(result.proposal);
+    st.shares = { ...result, at: this.now().toISOString(), day: istParts(this.now()).dateKey, stocks, notes, by: job.by ?? 'you', base: fingerprint(/** @type {any} */ (current)), current, streak: result.verdict === 'passed' ? (same && st.shares?.verdict === 'passed' ? (st.shares.streak ?? 1) + 1 : 1) : 0 };
+    st.markModified('shares');
+    st.log = [{ at: st.shares.at, action: 'learned shares', seconds: Math.round((Date.now() - job.startedAt) / 1000), verdict: result.verdict, text: result.text }, ...st.log].slice(0, LOG_MAX);
+    st.markModified('log');
+    await st.save();
+    return st.shares;
+  }
+
+  /** Puts the learned share settings in place (entry hours, setups, entry rules, exit). A failed result needs `force`. */
+  async applyShares(/** @type {string} */ userId, { force = false } = {}) {
+    const st = await this.#state(userId);
+    const r = /** @type {any} */ (st.shares);
+    if (!r?.proposal || !r.changes?.length) throw badRequest('There is nothing to apply. Run Learn for shares first.');
+    if (r.applied && !r.undone) throw conflict('Already applied.');
+    if (r.verdict !== 'passed' && !force) throw conflict('This did not pass the hidden days, so Apply is blocked. Use Apply anyway if you still want it.');
+    const auto = await AutoSettings.findOne({ user: userId }).lean();
+    if (fingerprint(/** @type {any} */ (shareSettingsOf(auto))) !== r.base) throw conflict('Your share settings changed after this run. Run Learn again.');
+    await AutoSettings.updateOne({ user: userId }, { $set: sharePatch(r.proposal) }, { runValidators: true });
+    const now = this.now();
+    r.applied = { at: now.toISOString(), day: istParts(now).dateKey, forced: r.verdict !== 'passed' };
+    delete r.undone;
+    st.applied = [{ key: `shares:${r.applied.at}`, kind: 'shares', name: `Shares (${r.changes.length} change${r.changes.length === 1 ? '' : 's'})`, appliedOn: r.applied.day, forced: r.applied.forced, old: r.current, neu: r.proposal }, ...(st.applied ?? [])].slice(0, TRACK_MAX);
+    st.log = [{ at: r.applied.at, action: r.applied.forced ? 'applied anyway' : 'applied', text: `Shares: ${r.changes.map((/** @type {any} */ c) => c.label).join(', ')}.` }, ...st.log].slice(0, LOG_MAX);
+    for (const k of ['shares', 'applied', 'log']) st.markModified(k);
+    await st.save();
+    return this.view(userId);
+  }
+
+  /** Puts the share settings back as they were before the apply. */
+  async undoShares(/** @type {string} */ userId) {
+    const st = await this.#state(userId);
+    const r = /** @type {any} */ (st.shares);
+    if (!r?.applied || r.undone) throw badRequest('Nothing to undo for shares.');
+    await AutoSettings.updateOne({ user: userId }, { $set: sharePatch(r.current) }, { runValidators: true });
+    r.undone = { at: this.now().toISOString() };
+    st.applied = (st.applied ?? []).map((/** @type {any} */ it) => (it.key === `shares:${r.applied.at}` ? { ...it, undone: true } : it));
+    st.log = [{ at: r.undone.at, action: 'undone', text: 'Shares: your settings from before are back.' }, ...st.log].slice(0, LOG_MAX);
+    for (const k of ['shares', 'applied', 'log']) st.markModified(k);
+    await st.save();
+    return this.view(userId);
+  }
+
   /** Puts one combination's suggested settings (side, extra indicators, own exits) in place. A failed or thin result needs `force`. */
   async applyCombo(/** @type {string} */ userId, /** @type {string} */ id, { force = false } = {}) {
     const st = await this.#state(userId);
@@ -284,20 +366,21 @@ export class LearnService {
   /** Starts a run in the background; poll view(). */
   start(/** @type {string} */ userId, { days = 30, what = 'setup', by = 'you' } = {}) {
     if (!LEARN_DAYS.includes(days)) throw badRequest(`Pick ${LEARN_DAYS.join(', ')} days`);
-    if (!WHAT.includes(what)) throw badRequest('Pick the whole setup or each combination');
+    if (!WHAT.includes(what)) throw badRequest('Pick the whole setup, each combination or shares');
+    if (what === 'shares' && !this.study) throw badRequest('Learn for shares is not available on this server.');
     if (this.status(userId).state === 'running') throw conflict('Learn is already running');
     const job = { state: 'running', step: 'Starting', startedAt: Date.now(), what, by };
     this.jobs.set(String(userId), job);
-    const words = what === 'combos' ? 'each combination' : 'the whole setup';
+    const words = what === 'combos' ? 'each combination' : what === 'shares' ? 'shares' : 'the whole setup';
     /** @type {any} */ (job).done = this.#mark(userId, { at: this.now().toISOString(), action: 'started', text: `Started on ${days} days: ${words}${by === 'evening' ? ' (evening run)' : ''}.` })
-      .then(() => (what === 'combos' ? this.#runCombos(userId, job, days) : this.#run(userId, job, days)))
+      .then(() => (what === 'combos' ? this.#runCombos(userId, job, days) : what === 'shares' ? this.#runShares(userId, job) : this.#run(userId, job, days)))
       .catch(async (e) => {
         logger.warn(`lab learn failed: ${e.stack || e.message}`);
         const st = await this.#state(userId);
         const at = this.now().toISOString();
-        if (what === 'combos') {
-          st.combos = { ...(st.combos ?? {}), error: `Learn could not run: ${e.message}`, errorAt: at };
-          st.markModified('combos');
+        if (what === 'combos' || what === 'shares') {
+          st[what] = { ...(st[what] ?? {}), error: `Learn could not run: ${e.message}`, errorAt: at };
+          st.markModified(what);
         } else st.last = { at, verdict: 'error', text: `Learn could not run: ${e.message}` };
         st.log = [{ at, action: 'failed', text: e.message }, ...st.log].slice(0, LOG_MAX);
         st.markModified('log');

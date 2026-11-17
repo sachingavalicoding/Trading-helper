@@ -12,6 +12,7 @@ const learnerStateSchema = new mongoose.Schema(
     // 'tune' only: each combination's last result (Learn > Each combination), what was applied and how it did on the days since,
     // and the evening run (each trading evening it learns again; it never applies anything by itself)
     combos: { type: mongoose.Schema.Types.Mixed, default: undefined },
+    shares: { type: mongoose.Schema.Types.Mixed, default: undefined }, // Learn > Shares: the last result (learner/shareTune.js)
     applied: { type: [mongoose.Schema.Types.Mixed], default: undefined },
     track: { type: [mongoose.Schema.Types.Mixed], default: undefined },
     evening: { type: Boolean, default: undefined },
@@ -19,6 +20,7 @@ const learnerStateSchema = new mongoose.Schema(
     // 'tune' only: each combination's last result (Learn > Each combination), what was applied and how it did on the days since,
     // and the evening run (each trading evening it learns again; it never applies anything by itself)
     combos: { type: mongoose.Schema.Types.Mixed, default: undefined },
+    shares: { type: mongoose.Schema.Types.Mixed, default: undefined }, // Learn > Shares: the last result (learner/shareTune.js)
     applied: { type: [mongoose.Schema.Types.Mixed], default: undefined },
     track: { type: [mongoose.Schema.Types.Mixed], default: undefined },
     evening: { type: Boolean, default: undefined },

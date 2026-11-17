@@ -63,7 +63,7 @@ export function labRoutes({ lab, learn = null }) {
   // Lab > Learn: the settings learner (learner/learnService.js). Registered before '/' only for readability; the paths do not overlap.
   if (learn) {
     router.get('/learn', async (req, res) => res.json({ ...(await learn.view(req.userId)), note: LEARN_NOTE }));
-    router.post('/learn/run', validate(z.object({ days: z.coerce.number().int().default(30), what: z.enum(['setup', 'combos']).default('setup') }).default({ days: 30, what: 'setup' })), (req, res) => {
+    router.post('/learn/run', validate(z.object({ days: z.coerce.number().int().default(30), what: z.enum(['setup', 'combos', 'shares']).default('setup') }).default({ days: 30, what: 'setup' })), (req, res) => {
       const job = learn.start(req.userId, { days: req.body.days, what: req.body.what });
       res.status(202).json({ status: { state: job.state, step: job.step } });
     });
@@ -72,6 +72,9 @@ export function labRoutes({ lab, learn = null }) {
     const comboId = z.object({ id: z.string().min(1).max(60), force: z.boolean().default(false) });
     router.post('/learn/combo/apply', validate(comboId), async (req, res) => res.json({ ...(await learn.applyCombo(req.userId, req.body.id, { force: req.body.force })), note: LEARN_NOTE }));
     router.post('/learn/combo/undo', validate(comboId), async (req, res) => res.json({ ...(await learn.undoCombo(req.userId, req.body.id)), note: LEARN_NOTE }));
+    const force = z.object({ force: z.boolean().default(false) }).default({ force: false });
+    router.post('/learn/shares/apply', validate(force), async (req, res) => res.json({ ...(await learn.applyShares(req.userId, { force: req.body.force })), note: LEARN_NOTE }));
+    router.post('/learn/shares/undo', async (req, res) => res.json({ ...(await learn.undoShares(req.userId)), note: LEARN_NOTE }));
     router.post('/learn/evening', validate(z.object({ on: z.boolean() })), async (req, res) => res.json({ ...(await learn.setEvening(req.userId, req.body.on)), note: LEARN_NOTE }));
   }
 
