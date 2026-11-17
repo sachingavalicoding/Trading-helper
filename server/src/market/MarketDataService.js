@@ -125,7 +125,31 @@ export class MarketDataService extends EventEmitter {
     const o = parseOptionSymbol(symbol);
     if (o && !isIndexKey(o.index)) return; // an old Sensex contract: the feed no longer carries it
     if (contract) this.contracts.set(symbol, contract);
+    if (o) {
+      // After a restart the feed does not know the contract's instrument key until the contract list of its index is read, and
+      // without the key the subscription silently does nothing (17 Nov: an open put had no live price, so its exit kept failing).
+      const listed = await this.provider.getOptionContracts(o.expiry, o.index).catch(() => []);
+      const row = listed.find((c) => c.symbol === symbol);
+      if (row && !this.contracts.has(symbol)) this.contracts.set(symbol, row);
+    }
     await this.provider.subscribe([symbol]);
+  }
+
+  /**
+   * A price for an option contract that has no live tick: subscribe it (reading its instrument key first) and wait a few seconds for a tick,
+   * else the close of its latest 1-minute candle from the broker. Null when neither is known.
+   */
+  async quoteOption(symbol, ms = 3000) {
+    await this.watchOption(symbol).catch(() => {});
+    const ltp = await this.#priceOf(symbol, ms);
+    if (ltp) return ltp;
+    try {
+      const candles = await this.provider.getTodayOptionCandles(symbol, 1);
+      const last = candles.at(-1);
+      return last?.close > 0 ? last.close : null;
+    } catch {
+      return null;
+    }
   }
 
   /** About `days` days of daily candles, cached for hours: the last month does not change while trading. */

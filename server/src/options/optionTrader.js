@@ -88,6 +88,7 @@ export class OptionTrader {
     this.running = false;
     this.open = new Map(); // `${userId}|${symbol}` -> what the trade needs watching for
     this.exiting = new Set();
+    this.exitWarned = new Map(); // user|symbol -> when a failed exit was last logged
     this.reasons = new Map(); // `${userId}|${symbol}` -> why we exited at market (STOP, TIME)
     this.logged = new Map(); // dedupe key -> time of the last log row
     this.patternSeen = new Set(); // `${userId}|${technique}|${bar time}`: each pattern is acted on once
@@ -658,7 +659,12 @@ export class OptionTrader {
       await this.engine.exitPosition(userId, symbol);
     } catch (e) {
       this.reasons.delete(key);
-      logger.warn(`options exit of ${symbol} failed: ${e.message}`);
+      // every tick past the stop tries again; say so once a minute, not on every tick
+      const said = this.exitWarned.get(key) ?? 0;
+      if (Date.now() - said > 60_000) {
+        this.exitWarned.set(key, Date.now());
+        logger.warn(`options exit of ${symbol} failed: ${e.message} (it keeps trying on each tick)`);
+      }
     } finally {
       this.exiting.delete(key);
     }
