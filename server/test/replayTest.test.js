@@ -119,6 +119,7 @@ test('Learn suggestions become changes a test can try; the daily loss limit is n
 test('a test database is separate from the live one and from the hand replay', () => {
   assert.equal(testUriFor('mongodb://h:1/test?x=1'), 'mongodb://h:1/test_test_replay?x=1');
   assert.throws(() => testUriFor('mongodb://h:1/test_replay'), /live database/);
+  assert.equal(testUriFor('mongodb+srv://u:p@c.mongodb.net/?retryWrites=true'), 'mongodb+srv://u:p@c.mongodb.net/test_test_replay?retryWrites=true');
 });
 
 test('the step-up test keeps a change only when it beats the best so far, and never touches the live settings', async (t) => {

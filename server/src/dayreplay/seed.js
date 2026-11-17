@@ -19,21 +19,32 @@ export const TEST_SUFFIX = '_test_replay'; // test runs (dayreplay/ladder.js) ge
 export const DAY_CANDLES = 'replayday_candles'; // CandleDay documents of the replay day
 export const DAY_OPTION_CANDLES = 'replayday_option_candles'; // OptionCandleDay documents of the replay day
 
-const dbNameOf = (uri) => /\/([^/?]+)(\?|$)/.exec(uri.replace(/^mongodb(\+srv)?:\/\//, ''))?.[1] ?? '';
+export const DEFAULT_DB = 'test'; // the database MongoDB uses when the address names none (an Atlas address often ends in /?retryWrites=...)
 
-/** The replay database's address: the same server, the database name with `_replay` added. */
+/** The parts of a Mongo address: server, database name (DEFAULT_DB when none is given) and the ?options. */
+function uriParts(uri) {
+  const m = /^(mongodb(?:\+srv)?:\/\/[^/?]*)(?:\/([^?]*))?(\?.*)?$/.exec(uri);
+  if (!m) throw new Error('MONGO_URI is not a mongodb:// or mongodb+srv:// address');
+  return { server: m[1], name: m[2] || DEFAULT_DB, query: m[3] || '' };
+}
+
+const dbNameOf = (uri) => uriParts(uri).name;
+const withDb = (uri, name) => {
+  const p = uriParts(uri);
+  return `${p.server}/${name}${p.query}`;
+};
+
+/** The replay database's address: the same server, the database name with `_replay` added (`test_replay` when the address names none). */
 export function replayUriFor(uri) {
   const name = dbNameOf(uri);
-  if (!name) throw new Error('MONGO_URI must name a database to run a replay');
-  return name.endsWith(REPLAY_SUFFIX) ? uri : uri.replace(new RegExp(`/${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\?|$)`), `/${name}${REPLAY_SUFFIX}$1`);
+  return name.endsWith(REPLAY_SUFFIX) ? uri : withDb(uri, `${name}${REPLAY_SUFFIX}`);
 }
 
 /** The test runs' database: the same server, the database name with `_test_replay` added (it still ends in `_replay`). */
 export function testUriFor(uri) {
   const name = dbNameOf(uri);
-  if (!name) throw new Error('MONGO_URI must name a database to run a replay');
   if (name.endsWith(REPLAY_SUFFIX)) throw new Error('A test run must start from the live database');
-  return uri.replace(new RegExp(`/${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\?|$)`), `/${name}${TEST_SUFFIX}$1`);
+  return withDb(uri, `${name}${TEST_SUFFIX}`);
 }
 
 const COPY_ALL = [User, AutoSettings, OptionSettings, TradeDefaults];
