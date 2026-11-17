@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TickChunk } from '../models/TickChunk.js';
 import { logger } from '../utils/logger.js';
+import { testDays } from './ladder.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_ENTRY = path.resolve(here, '../index.js');
@@ -26,25 +27,37 @@ export class ReplayManager {
     return this.config.replayPort || this.config.port + 1;
   }
 
-  /** Days that have recorded seconds, newest first, with how many saved chunks each holds. */
+  /**
+   * Days that can be replayed, newest first: every day whose Nifty 1-minute candles and option prices were saved. `seconds` says the day
+   * also has the 1-second record (the newest few days), which a replay plays only when asked.
+   */
   async days() {
-    const rows = await TickChunk.aggregate([{ $group: { _id: '$day', chunks: { $sum: 1 }, seconds: { $sum: '$count' } } }, { $sort: { _id: -1 } }]);
-    return rows.map((r) => ({ day: r._id, chunks: r.chunks, rows: r.seconds }));
+    const rows = await TickChunk.aggregate([{ $group: { _id: '$day', chunks: { $sum: 1 }, seconds: { $sum: '$count' } } }]);
+    const ticks = new Map(rows.map((r) => [r._id, r]));
+    const minute = await testDays();
+    const listed = new Set(minute.map((d) => d.day));
+    const extra = [...ticks.keys()].filter((d) => !listed.has(d)).map((day) => ({ day, seconds: true, minutes: false }));
+    return [...minute.map((d) => ({ ...d, minutes: true })), ...extra]
+      .sort((a, b) => b.day.localeCompare(a.day))
+      .map((d) => ({ ...d, rows: ticks.get(d.day)?.seconds ?? 0 }));
   }
 
   status() {
     return { ...this.run, port: this.run.state === 'idle' ? null : this.port };
   }
 
-  async start({ day, speed = 1 }) {
+  async start({ day, speed = 1, seconds = false }) {
     if (!SPEEDS.includes(speed)) throw Object.assign(new Error(`Speed must be one of ${SPEEDS.join(', ')}`), { status: 400, code: 'BAD_SPEED' });
-    if (!(await this.days()).some((d) => d.day === day)) throw Object.assign(new Error(`There are no recorded seconds for ${day}`), { status: 400, code: 'NO_DAY' });
+    const known = (await this.days()).find((d) => d.day === day);
+    if (!known) throw Object.assign(new Error(`Nothing was saved for ${day}`), { status: 400, code: 'NO_DAY' });
+    if (!known.minutes && !seconds) seconds = true; // only the seconds were saved for that day
+    if (seconds && !known.seconds) throw Object.assign(new Error(`${day} has no 1-second record; replay it on 1-minute candles`), { status: 400, code: 'NO_SECONDS' });
     await this.#halt();
-    const run = { state: 'starting', day, speed, startedAt: Date.now() };
+    const run = { state: 'starting', day, speed, seconds, startedAt: Date.now() };
     this.run = run;
     const child = this.spawnFn(process.execPath, [SERVER_ENTRY], {
       cwd: path.resolve(here, '../..'),
-      env: { ...process.env, REPLAY_DAY: day, REPLAY_SPEED: String(speed), PORT: String(this.port), REPLAY_SOURCE_MONGO_URI: this.config.mongoUri, REPLAY_LIVE_PORT: String(this.config.port) },
+      env: { ...process.env, REPLAY_DAY: day, REPLAY_SPEED: String(speed), REPLAY_SECONDS: seconds ? '1' : '0', REPLAY_TEST: '0', PORT: String(this.port), REPLAY_SOURCE_MONGO_URI: this.config.mongoUri, REPLAY_LIVE_PORT: String(this.config.port) },
       stdio: 'inherit',
     });
     this.child = child;

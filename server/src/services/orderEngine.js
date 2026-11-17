@@ -18,6 +18,12 @@ const opposite = (side) => (side === 'BUY' ? 'SELL' : 'BUY');
 const sign = (side) => (side === 'BUY' ? 1 : -1);
 
 /** Should a resting order execute at this LTP? Exported for tests. */
+/** `price` made `pct` % worse for the side: a buy pays more, a sell gets less (to the 0.05 tick, never below one tick). */
+export function worsePrice(price, side, pct) {
+  if (!(pct > 0)) return price;
+  return Math.max(roundToTick(side === 'BUY' ? price * (1 + pct / 100) : price * (1 - pct / 100)), 0.05);
+}
+
 export function isTriggered(order, ltp) {
   if (order.orderType === 'LIMIT') return order.side === 'BUY' ? ltp <= order.price : ltp >= order.price;
   if (order.orderType === 'SL_M') return order.side === 'BUY' ? ltp >= order.triggerPrice : ltp <= order.triggerPrice;
@@ -587,10 +593,23 @@ export class OrderEngine extends EventEmitter {
   }
 
   /**
+   * In a replay with fill settings (config.fill): a market or stop order fills at the price `delaySec` seconds later, then `slippagePct` %
+   * worse, the way a live order lands a moment late and a tick or two away. A limit order fills at its price. A live day never changes it.
+   */
+  #realisticPrice(order, price) {
+    const fill = this.config.fill;
+    if (!fill || order.orderType === 'LIMIT' || !this.config.replay) return price;
+    let p = price;
+    if (fill.delaySec > 0) p = this.market.provider?.priceAfter?.(order.symbol, fill.delaySec) ?? p;
+    return worsePrice(p, order.side, fill.slippagePct);
+  }
+
+  /**
    * Execute `order` in full at `price`: update the position (closing first, then opening any
    * remainder), book charges and P&L to the wallet, write trade-book rows, and manage SL/target legs.
    */
   async #fill(order, price) {
+    price = this.#realisticPrice(order, price);
     const userId = order.user;
     let position = await Position.findOne({ user: userId, symbol: order.symbol, status: 'OPEN' });
 

@@ -26,7 +26,23 @@ export const env = {
   clientDist: bool(process.env.SERVE_CLIENT, true) ? clientDist : null,
 
   provider,
-  replay: replayDay ? { day: replayDay, speed: num(process.env.REPLAY_SPEED, 1), sourceMongoUri: process.env.REPLAY_SOURCE_MONGO_URI || '', livePort: num(process.env.REPLAY_LIVE_PORT, 0) } : null,
+  replay: replayDay
+    ? {
+        day: replayDay,
+        speed: num(process.env.REPLAY_SPEED, 1),
+        sourceMongoUri: process.env.REPLAY_SOURCE_MONGO_URI || '',
+        livePort: num(process.env.REPLAY_LIVE_PORT, 0),
+        seconds: bool(process.env.REPLAY_SECONDS, false), // play the recorded seconds where they exist (default: 1-minute candles for everything)
+        // A test run (dayreplay/ladder.js): own settings from REPLAY_SETTINGS_FILE, never linked to the live settings, writes its result to
+        // REPLAY_RESULT_FILE and exits when the day is over.
+        test: bool(process.env.REPLAY_TEST, false),
+        settingsFile: process.env.REPLAY_SETTINGS_FILE || '',
+        resultFile: process.env.REPLAY_RESULT_FILE || '',
+      }
+    : null,
+  // Fills made worse than the price seen, so a replay is not rosier than a live day: a market order fills `fillDelaySec` seconds later,
+  // `slippagePct` % worse (a buy higher, a sell lower). Only a replay uses them.
+  fill: replayDay ? { slippagePct: num(process.env.REPLAY_SLIPPAGE_PCT, 0), delaySec: num(process.env.REPLAY_FILL_DELAY_SEC, 0) } : { slippagePct: 0, delaySec: 0 },
   replayPort: num(process.env.REPLAY_PORT, 0), // the port a replay run listens on (default: this server's port + 1)
   // Live providers enforce NSE hours for orders by default; the mock feed lets you practise any time.
   enforceMarketHours: bool(process.env.ENFORCE_MARKET_HOURS, provider !== 'mock'),

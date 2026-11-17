@@ -53,7 +53,7 @@ export function createApp({ market, engine, config, tracker, scanner, news, auto
   app.get('/api/market/status', (_req, res) => res.json({ ...market.status(), disclaimer: DISCLAIMER }));
 
   app.use('/api/auth', authRoutes(config));
-  if (config.replay?.livePort) app.use(keepSettingsInLive({ livePort: config.replay.livePort })); // settings changed in a replay are kept in the live app too
+  if (config.replay?.livePort && !config.replay.test) app.use(keepSettingsInLive({ livePort: config.replay.livePort })); // settings changed in a replay are kept in the live app too
 
   const auth = requireAuth(config.jwtSecret);
   app.use('/api/market', auth, marketRoutes({ market }));

@@ -17,6 +17,9 @@ import { attachSocket } from './socket/index.js';
 import { prepareReplay } from './dayreplay/boot.js';
 import { mongoSettingsSync } from './dayreplay/settingsLink.js';
 import { dayReplayRoutesDeps } from './dayreplay/manager.js';
+import { finishWhenDone } from './dayreplay/result.js';
+import { ReplayLadder } from './dayreplay/ladder.js';
+import { TestRunner } from './dayreplay/testRunner.js';
 import { StudyService } from './study/service.js';
 import { LearnerService } from './learner/service.js';
 import { LearnService } from './learner/learnService.js';
@@ -28,8 +31,8 @@ async function main() {
   // A replay run uses its own database and a virtual clock; the live server never does.
   const replay = env.replay ? await prepareReplay(env) : null;
   await connectDb(replay ? replay.mongoUri : env.mongoUri);
-  // a replay follows the live settings all the time (see dayreplay/settingsLink.js)
-  const settingsSync = replay ? await mongoSettingsSync({ sourceUri: replay.sourceUri }) : null;
+  // a replay follows the live settings all the time (see dayreplay/settingsLink.js); a test run keeps its own copy and never reads them
+  const settingsSync = replay && !env.replay.test ? await mongoSettingsSync({ sourceUri: replay.sourceUri }) : null;
   if (settingsSync) {
     await settingsSync.syncNow();
     settingsSync.start();
@@ -76,6 +79,10 @@ async function main() {
   const lab = new LabService({ market, config: env });
   const learn = new LearnService({ lab, market, study, config: env });
   if (!replay) learn.schedule(); // Learn's evening run, for users who switched it on
+  if (dayReplay.manager) {
+    dayReplay.ladder = new ReplayLadder({ runner: new TestRunner({ config: env }), learn }); // replay tests of Learn's changes
+    process.on('exit', () => dayReplay.ladder.runner.child?.kill());
+  }
   const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history, optionHistory, ticks, dayReplay, study, learner, lab, learn });
   const server = http.createServer(app);
   const io = attachSocket(server, { market, engine, config: env, scanner });
@@ -88,6 +95,7 @@ async function main() {
   const shutdown = async (signal) => {
     logger.info(`${signal} received, shutting down`);
     dayReplay.manager?.stop();
+    dayReplay.ladder?.runner.stop();
     settingsSync?.stop();
     engine.stop();
     tracker.stop();
@@ -106,6 +114,7 @@ async function main() {
     await disconnectDb();
     process.exit(0);
   };
+  if (replay && env.replay.test && env.replay.resultFile) finishWhenDone({ clock: replay.clock, day: env.replay.day, file: env.replay.resultFile, stop: shutdown });
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }

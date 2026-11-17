@@ -24,7 +24,7 @@ import { learnContext, dayKey } from './learnRun.js';
 
 export const KIND = 'tune';
 export const LEARN_DAYS = [15, 20, 30];
-const INDEX = 'NIFTY';
+export const INDEX = 'NIFTY';
 const WARMUP_DAYS = 6;
 const LOG_MAX = 30;
 export const SEARCH_MS = 3 * 60_000; // the learner stops trying new changes after this long (a phone is slow) and judges what it found

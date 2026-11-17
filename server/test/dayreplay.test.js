@@ -132,15 +132,16 @@ test('every strike with saved 1-minute candles can be bought too, priced once a 
   p.on('tick', (t) => ticks.push(t));
   advance(61000); // the first minute has closed
   await p.subscribe([OPT2]);
-  assert.deepEqual(ticks.filter((t) => t.symbol === OPT2).map((t) => t.ltp), [120, 121, 121], 'open and close of the first minute, then the open of the second; never its close');
+  assert.deepEqual(ticks.filter((t) => t.symbol === OPT2).map((t) => t.ltp), [120, 119, 122, 121, 121], 'open, low, high and close of the first minute (it closed up: low first), then the open of the second; never its close');
   await p.disconnect();
 });
 
 test('the manager refuses an unknown speed', async () => {
   const m = new ReplayManager({ config: { port: 5000 }, spawnFn: () => assert.fail('no spawn') });
-  m.days = async () => [{ day: DAY }];
+  m.days = async () => [{ day: DAY, minutes: true, seconds: false }];
   await assert.rejects(() => m.start({ day: DAY, speed: 7 }), /Speed must be one of/);
-  await assert.rejects(() => m.start({ day: '2026-01-01', speed: 1 }), /no recorded seconds/);
+  await assert.rejects(() => m.start({ day: '2026-01-01', speed: 1 }), /Nothing was saved/);
+  await assert.rejects(() => m.start({ day: DAY, speed: 1, seconds: true }), /no 1-second record/);
   assert.deepEqual(SPEEDS, [1, 2, 5, 10, 25, 50]);
 });
 
@@ -213,7 +214,7 @@ test('starting a replay again waits for the old copy to exit before the new one 
     return c;
   };
   const m = new ReplayManager({ config: { port: 5000 }, spawnFn, fetchFn: async () => ({ ok: false }), readyTimeoutMs: 50 });
-  m.days = async () => [{ day: DAY }];
+  m.days = async () => [{ day: DAY, minutes: true, seconds: false }];
   await m.start({ day: DAY, speed: 1 });
   await m.start({ day: DAY, speed: 5 });
   assert.deepEqual(order, ['spawn', 'kill', 'exit', 'spawn']);

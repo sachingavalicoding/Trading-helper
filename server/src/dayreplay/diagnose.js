@@ -46,8 +46,9 @@ export function settingsItems({ optionSettings, autoSettings }) {
 /** The data check of a day from plain facts (see gatherCheckFacts). */
 export function checkItems(f) {
   const out = [];
-  if (!f.niftySeconds) out.push(item('bad', `No recorded seconds of the Nifty for ${mmm(f.day)}. The replay cannot run.`));
-  else out.push(item('ok', `Nifty: ${f.niftySeconds.toLocaleString('en-IN')} recorded seconds for ${mmm(f.day)}.`));
+  if (f.niftyMinutes) out.push(item('ok', `Nifty: ${f.niftyMinutes} saved 1-minute candles for ${mmm(f.day)}. The replay plays 1-minute candles (open, low/high, close of each minute).`));
+  if (f.niftySeconds) out.push(item('ok', `Nifty: ${f.niftySeconds.toLocaleString('en-IN')} recorded seconds for ${mmm(f.day)} too (used only when "Use 1-second data" is on).`));
+  if (!f.niftyMinutes && !f.niftySeconds) out.push(item('bad', `No saved Nifty prices for ${mmm(f.day)}. The replay cannot run.`));
 
   if (f.niftyPriorBars < MIN_NIFTY_BARS) {
     out.push(item('bad', `Nifty has only ${f.niftyPriorBars} saved 1-minute candles before ${mmm(f.day)} (the options bot needs ${MIN_NIFTY_BARS}). It cannot read the chart until about 10:15 on the replay clock. Press Download in Account > Studies > Data.`));
@@ -75,8 +76,9 @@ export function checkItems(f) {
 export async function gatherCheckFacts({ day, userId }) {
   const from = addDays(day, -PRIOR_DAYS);
   const shareSymbols = NIFTY50.map((s) => s.symbol);
-  const [nifty, tickSyms, candleDocs, prior, shareDay, optionSettings, autoSettings] = await Promise.all([
+  const [nifty, niftyDay, tickSyms, candleDocs, prior, shareDay, optionSettings, autoSettings] = await Promise.all([
     TickChunk.aggregate([{ $match: { symbol: UNDERLYING, day } }, { $group: { _id: null, n: { $sum: '$count' } } }]),
+    CandleDay.findOne({ symbol: UNDERLYING, day }, 'count').lean(),
     TickChunk.distinct('symbol', { day }),
     OptionCandleDay.find({ day }, 'symbol').lean(),
     CandleDay.aggregate([{ $match: { day: { $gte: from, $lt: day } } }, { $group: { _id: '$symbol', bars: { $sum: '$count' }, days: { $sum: 1 } } }]),
@@ -95,6 +97,7 @@ export async function gatherCheckFacts({ day, userId }) {
   return {
     day,
     niftySeconds: nifty[0]?.n ?? 0,
+    niftyMinutes: niftyDay?.count ?? 0,
     niftyPriorBars: nifty1?.bars ?? 0,
     niftyPriorDays: nifty1?.days ?? 0,
     expiries,
@@ -122,7 +125,7 @@ export function whyItems(f) {
   }
   out.push(...settingsItems(f));
 
-  if (!f.niftyTick) out.push(item('bad', 'No Nifty price yet. The recorded seconds of this day have not started or are missing.'));
+  if (!f.niftyTick) out.push(item('bad', 'No Nifty price yet. The saved prices of this day have not started or are missing.'));
   if (f.niftyBars < MIN_NIFTY_BARS) out.push(item('bad', `Nifty has ${f.niftyBars} 1-minute candles; the options bot needs ${MIN_NIFTY_BARS}. No history before this day was saved, so it waits until about 10:15 on the replay clock. Press Download in Account > Studies > Data.`));
   else out.push(item('ok', `Nifty chart: ${f.niftyBars} candles.`));
   if (f.optionRead === 'none') out.push(item('warn', 'The options bot has not read the chart yet (it reads every 15 replay seconds while the market is open).'));
