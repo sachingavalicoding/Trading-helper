@@ -75,6 +75,7 @@ export class LabService {
         trail: trailOf(settings),
         breakEven: breakEvenOf(settings),
         lossLimit: rules.stopLoss ?? 0,
+        cut: settings?.lossCut ?? 0, // the loss cut for all trades; a combination's own exits.cut replaces it (study/simulate.js)
         maxLots: settings?.maxLots ?? 2,
         sideOnly: settings?.sideOnly ?? null,
         target: 0,

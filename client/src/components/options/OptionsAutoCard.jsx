@@ -15,6 +15,7 @@ const FIELDS = [
   { key: 'maxOpen', label: 'Most trades open at once', step: 1, min: 1, max: 100 },
   { key: 'maxTrades', label: 'Most trades a day (0 = no limit)', step: 1, min: 0, max: 10000 },
   { key: 'dailyLossPct', label: 'Stop for the day after losing (%)', step: 0.5, min: 0.5, max: 100 },
+  { key: 'lossCut', label: 'Sell any trade once it is this many ₹ down (0 = off)', step: 100, min: 0, max: 50000 },
   { key: 'lossStreak', label: 'Stop for the day after this many losses in a row (0 = off)', step: 1, min: 0, max: 100 },
   { key: 'benchAfter', label: 'Switch a combination off after this many live losses in a row (0 = off)', step: 1, min: 0, max: 100 },
 ];
