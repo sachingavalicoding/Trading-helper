@@ -556,6 +556,11 @@ export class OrderEngine extends EventEmitter {
 
   async #marketExit(pos, role) {
     let ltp = this.market.getLtp(pos.symbol);
+    if (!ltp && typeof this.market.quoteOption === 'function' && parseOptionSymbol(pos.symbol) && isIndexKey(parseOptionSymbol(pos.symbol).index)) {
+      // a Nifty option with no tick yet (after a restart, or a quiet strike): subscribe it again and wait for a tick, else its latest candle close
+      ltp = await this.market.quoteOption(pos.symbol);
+      if (ltp && !this.market.getLtp(pos.symbol)) logger.warn(`${pos.symbol} had no live tick: exiting at its latest candle close ${ltp}`);
+    }
     if (!ltp) {
       // Sensex options are no longer in the feed, so a Sensex trade left open from before has no live price. Close it at the last price
       // this app saw for it (its latest fill, else the price it was bought at) rather than leaving it stuck open.
