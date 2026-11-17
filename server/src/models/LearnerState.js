@@ -8,7 +8,21 @@ const learnerStateSchema = new mongoose.Schema(
     kind: { type: String, enum: ['options', 'shares', 'tune'], required: true }, // 'tune': Lab > Learn, the settings learner (learner/learnService.js)
     auto: { type: Boolean, default: false }, // use what it finds by itself (paper only); off = it only suggests
     last: { type: mongoose.Schema.Types.Mixed, default: null }, // the last run: { at, day, verdict, text, pick, baseline, candidates, period, pricing, error }
-    log: { type: [mongoose.Schema.Types.Mixed], default: [] }, // newest first: { at, action, name, conds, side, text, test, baselineTest }
+    log: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    // 'tune' only: each combination's last result (Learn > Each combination), what was applied and how it did on the days since,
+    // and the evening run (each trading evening it learns again; it never applies anything by itself)
+    combos: { type: mongoose.Schema.Types.Mixed, default: undefined },
+    applied: { type: [mongoose.Schema.Types.Mixed], default: undefined },
+    track: { type: [mongoose.Schema.Types.Mixed], default: undefined },
+    evening: { type: Boolean, default: undefined },
+    eveningDay: { type: String, default: undefined },
+    // 'tune' only: each combination's last result (Learn > Each combination), what was applied and how it did on the days since,
+    // and the evening run (each trading evening it learns again; it never applies anything by itself)
+    combos: { type: mongoose.Schema.Types.Mixed, default: undefined },
+    applied: { type: [mongoose.Schema.Types.Mixed], default: undefined },
+    track: { type: [mongoose.Schema.Types.Mixed], default: undefined },
+    evening: { type: Boolean, default: undefined },
+    eveningDay: { type: String, default: undefined }, // newest first: { at, action, name, conds, side, text, test, baselineTest }
   },
   { timestamps: true },
 );

@@ -94,3 +94,45 @@ export function runningText(status) {
   const took = secs >= 60 ? `${Math.floor(secs / 60)} min ${secs % 60} s` : `${secs} s`;
   return `${status?.step || 'Starting'} · ${took} so far. It takes a few minutes (it stops trying new changes after 3); you can leave this page and come back.`;
 }
+
+/** The box of one combination's result: tone, title, and how Apply works ('open', 'confirm' after a question, or none). */
+export function comboBox(r) {
+  if (!r) return null;
+  switch (r.verdict) {
+    case 'passed':
+      return { tone: 'up', title: r.streak > 1 ? `Passed (${r.streak} runs in a row)` : 'Passed', apply: 'open' };
+    case 'failed':
+      return { tone: 'down', title: 'Failed on the hidden days', apply: 'confirm' };
+    case 'thin':
+      return { tone: 'warn', title: 'Too few trades to check', apply: 'confirm' };
+    case 'same':
+      return { tone: 'muted', title: 'Keep as it is', apply: 'none' };
+    case 'few':
+      return { tone: 'muted', title: 'Too few trades', apply: 'none' };
+    default:
+      return { tone: 'muted', title: 'Not tuned', apply: 'none' };
+  }
+}
+
+/** What one combination's Apply button does now, like applyState. */
+export function comboApplyState(r) {
+  const box = comboBox(r);
+  if (!box || box.apply === 'none' || !r.changes?.length) return { action: null, why: null };
+  if (r.applied && !r.undone) return { action: null, why: 'Applied. Undo puts it back as it was.' };
+  if (r.gone) return { action: null, why: 'This combination is no longer saved.' };
+  if (r.stale) return { action: null, why: 'This combination was changed after the run. Run Learn again.' };
+  return { action: box.apply === 'open' ? 'apply' : 'confirm', why: null };
+}
+
+/** Passed first (longest streak first), then thin, failed, the rest. */
+export function sortCombos(list = []) {
+  const rank = { passed: 0, thin: 1, failed: 2, same: 3, few: 4 };
+  return [...list].sort((a, b) => (rank[a.verdict] ?? 5) - (rank[b.verdict] ?? 5) || (b.streak ?? 0) - (a.streak ?? 0) || (b.all?.new?.net ?? 0) - (a.all?.new?.net ?? 0));
+}
+
+/** One line for a track record row: how an applied result did on the days after it was applied. */
+export function trackLine(t) {
+  const d = Math.round((t.new?.net ?? 0) - (t.old?.net ?? 0));
+  const how = d > 0 ? `${rupees(d)} better` : d < 0 ? `${rupees(-d)} worse` : 'the same';
+  return `${t.days} day${t.days === 1 ? '' : 's'} since ${t.appliedOn}: ${rupees(t.new?.net)} against ${rupees(t.old?.net)} before, ${how}.`;
+}

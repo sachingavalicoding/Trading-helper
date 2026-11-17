@@ -2,48 +2,12 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useApi } from '../../lib/useApi.js';
 import { api } from '../../lib/api.js';
-import { FlaskConical, ListChecks } from 'lucide-react';
+import { ListChecks } from 'lucide-react';
 import { PopupTile, Segmented, Sheet, Skeleton } from '../ui.jsx';
-import { DayReportButton } from '../DayReportButton.jsx';
-import { OptionsStudy } from '../options/OptionsStudy.jsx';
 import { OptionsEntries, Switch } from '../options/OptionsAutoCard.jsx';
-import { SharesStudy } from './SharesStudy.jsx';
-import { FinderStudy } from './FinderStudy.jsx';
-import { HistoryData } from './HistoryData.jsx';
 import { resultLine, resultTone } from '../../lib/results.js';
 import { ComboBuilder } from './ComboBuilder.jsx';
 import { ShareEntryRules } from './ShareEntryRules.jsx';
-
-const STUDIES = [
-  { value: 'report', label: 'Report' },
-  { value: 'options', label: 'Options' },
-  { value: 'shares', label: 'Shares' },
-  { value: 'finder', label: 'Finder' },
-  { value: 'data', label: 'Data' },
-];
-
-/** Account > Reports and studies: copy the day's report, or replay past candles to see what pays, for options and for shares. */
-export function ReportsAndStudies() {
-  const [tab, setTab] = useState('report');
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <PopupTile icon={FlaskConical} label="Studies" hint="Reports, what pays" onClick={() => setOpen(true)} />
-      {open && (
-        <Sheet title="Reports and studies" subtitle="Day report to paste in the chat, the options and shares studies that show which entries pay, and the saved candles they read." onClose={() => setOpen(false)}>
-          <div className="space-y-3">
-            <Segmented className="w-full" size="sm" value={tab} onChange={setTab} options={STUDIES} />
-            {tab === 'report' && <DayReportButton />}
-            {tab === 'options' && <OptionsStudy />}
-            {tab === 'shares' && <SharesStudy />}
-            {tab === 'finder' && <FinderStudy />}
-            {tab === 'data' && <HistoryData />}
-          </div>
-        </Sheet>
-      )}
-    </>
-  );
-}
 
 const TREND_SCORE = 'Trend score';
 

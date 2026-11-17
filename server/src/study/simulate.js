@@ -38,6 +38,7 @@ export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread 
  *                `breakEven` (points, 0 = off) moves the stop to the entry price once the index has gone that far your way (exit reason BREAKEVEN).
  *                `trail` ({ points, start }) adds a trailing stop: once the index has moved `start` points your way the chart stop sits `points` behind the best price and never moves back (exit reason TRAIL).
  *                `chase` ({ pct, minutes }) skips a buy whose real premium is already more than `pct` percent above its low of the last `minutes` minutes ({ skipped: 'chase' }).
+ *                `cut` (rupees, 0 = off; a combination's own exits.cut) sells the trade once it is that much down (exit reason CUT).
  *                `target` (rupees per lot, 0 = use the profit lock) and `fixedLots` (0 = size the lots to the loss limit) are for studying other exits.
  *                With a `lossLimit` (the Account stop) the lots are sized like the live trader: as many as keep the loss at the chart stop within
  *                the limit, up to `maxLots`, none when even one lot loses more. A hard stop sits at HARD_STOP_MULT times the limit. Without one, 1 lot.
@@ -46,7 +47,7 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   // a combination's own exits (ladder, trail, break-even) replace the shared ones for its trades; the no-stop test replaces them all
   const merged = signal.exits ? { ...params, ...signal.exits } : params;
   const noStop = params.noStop ?? null; // { at, keep } (at 0 = no lock): no stop loss, no trail, no break-even, only this lock and the floor
-  const { prices: given = null, mixPrices = false, trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN, chase = null } = noStop ? { ...merged, trail: null, breakEven: 0, steps: noStop.at > 0 ? [{ at: noStop.at, keep: noStop.keep }] : [], target: 0 } : merged;
+  const { prices: given = null, mixPrices = false, trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN, chase = null, cut = 0 } = noStop ? { ...merged, trail: null, breakEven: 0, cut: 0, steps: noStop.at > 0 ? [{ at: noStop.at, keep: noStop.keep }] : [], target: 0 } : merged;
   const start = byTime.get(signal.time);
   if (start == null) return null;
   const prices = given && (!mixPrices || given.hasDay(istParts(new Date(signal.time * 1000)).dateKey)) ? given : null; // mixPrices: a day with no saved premiums is estimated, not skipped
@@ -140,6 +141,16 @@ export function simulateTrade({ c1, byTime, signal, params }) {
       }
     }
     const closeProfit = profitAt(premiumAt(bar.close, bar.time, 'close'));
+    if (cut > 0) {
+      // the combination's own loss cut (exits.cut): sold once the trade is this many rupees down, wherever the chart stop is
+      const open = profitAt(premiumAt(bar.open, bar.time, 'open'));
+      const low = profitAt(premiumAt(against, bar.time, 'low'));
+      if (open <= -cut || low <= -cut) {
+        worst = Math.min(worst, open <= -cut ? open : -cut);
+        exit = { time: bar.time, spot: open <= -cut ? bar.open : against, profit: open <= -cut ? open : -cut, reason: 'CUT' };
+        break;
+      }
+    }
     if (hardLoss > -Infinity) {
       const open = profitAt(premiumAt(bar.open, bar.time, 'open'));
       const low = profitAt(premiumAt(against, bar.time, 'low'));

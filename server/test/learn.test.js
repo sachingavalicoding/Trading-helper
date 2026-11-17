@@ -10,6 +10,7 @@ import { aggregateCandles } from '../src/market/providers/BaseProvider.js';
 import { splitDays, steady, tune, judge, movesFor, marginOf, MIN_DAYS, MAX_CHANGES } from '../src/learner/tune.js';
 import { learnContext, dayKey, paramsFor } from '../src/learner/learnRun.js';
 import { settingsOf, savePatch, fingerprint, LearnService } from '../src/learner/learnService.js';
+import { tuneCombo } from '../src/learner/comboTune.js';
 import { LiveChain, combosNeedChain } from '../src/options/liveChain.js';
 import { LearnerState, OptionSettings, TradeDefaults } from '../src/models/index.js';
 
@@ -227,6 +228,23 @@ test('the replay runs the whole setup on real saved premiums, and options checks
   const p = paramsFor(PARAMS, { ...settings, dailyLossPct: 5 }, 60000);
   assert.equal(p.dailyLoss, 3000);
   assert.equal(p.live, true);
+});
+
+test('one combination is tuned on its own on the real replay: its own exits reach the trades, and every result has a verdict', async () => {
+  const nifty1 = minutes(16);
+  const days = [...new Set(nifty1.map((b) => dayKey(b.time)))].slice(-12);
+  const book = bookFor(nifty1, { days });
+  const ctx = learnContext({ nifty1, book, params: { ...PARAMS, prices: book }, days, budget: 60000 });
+  const [combo] = normalizeCombos([{ name: 'Trend', conds: ['emaFastOverSlow', 'rsiAbove50'] }]);
+  const settings = { ...BASE, combos: [combo] };
+  const plain = await ctx.evaluate(settings);
+  const cut = await ctx.evaluate({ ...settings, combos: [{ ...combo, exits: { cut: 300 } }] });
+  assert.ok(plain.length > 0);
+  assert.ok(cut.some((t) => t.reason === 'CUT'), 'the own loss cut is used by the replay');
+  assert.ok(Math.min(...cut.map((t) => t.gross)) >= -500, 'sold at the cut, or at the next minute open when it jumped past it');
+  const r = await tuneCombo({ combo, base: settings, days, evaluate: ctx.evaluate, dayOf: (t) => dayKey(t.entryTime), usable: ctx.usable, deadline: Date.now() + 20000 });
+  assert.ok(['passed', 'failed', 'same', 'thin', 'few'].includes(r.verdict), r.verdict);
+  assert.ok(r.text.length > 0);
 });
 
 test('settings are read from what is saved and written back to the same fields', () => {

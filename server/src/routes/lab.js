@@ -35,7 +35,7 @@ const editSchema = z.object({
   stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(),
   stopAtr: z.coerce.number().min(0.8).max(2.5).optional(),
   stopPoints: z.coerce.number().min(10).max(150).optional(),
-  exits: z.object({ steps: steps.optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional() }).nullish(),
+  exits: z.object({ steps: steps.optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional(), cut: z.coerce.number().min(0).max(50_000).nullish() }).nullish(),
   // shares
   order: z.object({ risk: z.coerce.number().min(0).max(1_000_000).optional(), maxAmount: z.coerce.number().min(0).max(100_000_000).optional(), stopPct: z.coerce.number().min(0).max(10).optional(), target: z.coerce.number().min(0).max(10_000_000).optional(), exitMin: z.coerce.number().min(0).max(24 * 60).optional() }).nullish(),
   steps: steps.nullish(),
@@ -63,12 +63,16 @@ export function labRoutes({ lab, learn = null }) {
   // Lab > Learn: the settings learner (learner/learnService.js). Registered before '/' only for readability; the paths do not overlap.
   if (learn) {
     router.get('/learn', async (req, res) => res.json({ ...(await learn.view(req.userId)), note: LEARN_NOTE }));
-    router.post('/learn/run', validate(z.object({ days: z.coerce.number().int().default(30) }).default({ days: 30 })), (req, res) => {
-      const job = learn.start(req.userId, { days: req.body.days });
+    router.post('/learn/run', validate(z.object({ days: z.coerce.number().int().default(30), what: z.enum(['setup', 'combos']).default('setup') }).default({ days: 30, what: 'setup' })), (req, res) => {
+      const job = learn.start(req.userId, { days: req.body.days, what: req.body.what });
       res.status(202).json({ status: { state: job.state, step: job.step } });
     });
     router.post('/learn/apply', validate(z.object({ force: z.boolean().default(false) }).default({ force: false })), async (req, res) => res.json({ ...(await learn.apply(req.userId, { force: req.body.force })), note: LEARN_NOTE }));
     router.post('/learn/undo', async (req, res) => res.json({ ...(await learn.undo(req.userId)), note: LEARN_NOTE }));
+    const comboId = z.object({ id: z.string().min(1).max(60), force: z.boolean().default(false) });
+    router.post('/learn/combo/apply', validate(comboId), async (req, res) => res.json({ ...(await learn.applyCombo(req.userId, req.body.id, { force: req.body.force })), note: LEARN_NOTE }));
+    router.post('/learn/combo/undo', validate(comboId), async (req, res) => res.json({ ...(await learn.undoCombo(req.userId, req.body.id)), note: LEARN_NOTE }));
+    router.post('/learn/evening', validate(z.object({ on: z.boolean() })), async (req, res) => res.json({ ...(await learn.setEvening(req.userId, req.body.on)), note: LEARN_NOTE }));
   }
 
   router.get('/', validate(query, 'query'), async (req, res) => {

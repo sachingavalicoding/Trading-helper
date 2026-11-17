@@ -4,7 +4,7 @@ import { istParts } from '../market/marketHours.js';
 import { prepare, findSignals, turnoverSeries } from '../study/patterns.js';
 import { breadthSeries, tradesFor } from '../study/optionsStudy.js';
 import { buildChart, usable, CONDITION_BY_KEY } from '../combos/conditions.js';
-import { comboSignals } from '../combos/combos.js';
+import { comboSignals, comboExits } from '../combos/combos.js';
 import { optionSeries } from '../combos/optionData.js';
 import { entryTest } from '../options/signal.js';
 
@@ -63,13 +63,16 @@ export function learnContext({ nifty1, stocks5 = null, book = null, params, days
   /** @type {Map<string, any[]>} */
   const cache = new Map();
   const windowOf = (/** @type {Settings} */ s) => entryTest({ from: s.entryFrom, to: s.entryTo });
-  const comboKey = (/** @type {any} */ c, /** @type {Settings} */ s) => JSON.stringify([c.id, c.conds, c.also ?? [], c.need, c.window, c.side ?? null, c.stopMode ?? null, c.stopAtr ?? null, c.stopPoints ?? null, c.exits ?? null, s.entryFrom, s.entryTo]);
+  const comboKey = (/** @type {any} */ c, /** @type {Settings} */ s) => JSON.stringify([c.id, c.conds, c.also ?? [], c.need, c.window, c.side ?? null, c.stopMode ?? null, c.stopAtr ?? null, c.stopPoints ?? null, s.entryFrom, s.entryTo]);
   const signalsOf = (/** @type {Settings} */ s) => {
     const out = [];
     for (const c of s.combos.filter((x) => x.on !== false)) {
       const key = comboKey(c, s);
-      if (!cache.has(key)) cache.set(key, comboSignals(chart, c, /** @type {any} */ ({ when: windowOf(s), label: `combo:${c.id}` })).filter(inDays));
-      out.push(.../** @type {any[]} */ (cache.get(key)));
+      // the signals do not depend on the exits, so they are found once and a combination's own exits are put on them each time
+      if (!cache.has(key)) cache.set(key, comboSignals(chart, { ...c, exits: undefined }, /** @type {any} */ ({ when: windowOf(s), label: `combo:${c.id}` })).filter(inDays));
+      const found = /** @type {any[]} */ (cache.get(key));
+      const exits = comboExits(c);
+      out.push(...(exits ? found.map((x) => ({ ...x, exits })) : found));
     }
     if (s.patternEntries && s.patterns.length) {
       const key = JSON.stringify(['patterns', [...s.patterns].sort(), s.entryFrom, s.entryTo]);
