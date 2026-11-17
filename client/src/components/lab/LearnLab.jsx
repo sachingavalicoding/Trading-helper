@@ -3,13 +3,13 @@ import { Brain, Check, Play, Undo2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { istStamp } from '../../lib/study.js';
-import { LEARN_DAYS, applyState, compareRows, diffWord, groupChanges, splitLine, verdictBox, windowTitle } from '../../lib/learn.js';
+import { LEARN_DAYS, loadErrorText, runningText, applyState, compareRows, diffWord, groupChanges, splitLine, verdictBox, windowTitle } from '../../lib/learn.js';
 import { Badge, Card, Fold, Segmented, Sheet, Skeleton } from '../ui.jsx';
 
 const stamp = (iso) => istStamp(Date.parse(iso) / 1000);
 const BOX = { up: 'border-up bg-up-soft', down: 'border-down bg-down-soft', warn: 'border-warn bg-warn/10', muted: 'border-line bg-surface-2' };
 const TEXT = { up: 'text-up', down: 'text-down', warn: 'text-warn', muted: 'text-fg' };
-const ACTION = { learned: 'Learned', applied: 'Applied', 'applied anyway': 'Applied anyway', undone: 'Undone' };
+const ACTION = { started: 'Started', learned: 'Learned', failed: 'Failed to run', applied: 'Applied', 'applied anyway': 'Applied anyway', undone: 'Undone' };
 
 /** Old against new, one row per measure; the better side of a row is green, the worse red. */
 function Compare({ part, title }) {
@@ -42,13 +42,15 @@ export function LearnLab() {
   const [days, setDays] = useState('30');
   const [busy, setBusy] = useState(false);
   const [asking, setAsking] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const timer = useRef(null);
 
   const load = useCallback(async () => {
     try {
       setView(await api('/lab/learn'));
+      setLoadError(null);
     } catch (e) {
-      toast.error(e.message || 'Could not load Learn');
+      setLoadError(loadErrorText(e));
     }
   }, []);
 
@@ -94,13 +96,21 @@ export function LearnLab() {
           It tries changes to your whole setup on the saved days: which combinations are on and on which side, an extra indicator on a combination (RSI, MACD, EMA, VWAP, Bollinger, ATR, Supertrend, ADX, or PCR, IV percentile, OI change, max pain, delta and theta), trades a day and loss limits, the stop, the profit ladder and the entry hours. It keeps the <b className="text-fg">newest days (about 1 in 4) hidden</b> while it learns, then replays your old and the new settings on them. It judges on <b className="text-fg">steady profit</b>: fewer and smaller losing days and a better win/loss ratio, not only the total.
         </p>
         <Segmented className="w-full" size="sm" value={days} onChange={setDays} options={LEARN_DAYS} />
-        <button type="button" className="btn btn-secondary w-full" disabled={running || busy} onClick={() => act('/run', { days: Number(days) })}>
-          <Play className="h-4 w-4" /> {running ? view.status.step || 'Learning…' : 'Learn now (about a minute)'}
+        <button type="button" className="btn btn-secondary w-full" disabled={running || busy || !view} onClick={() => act('/run', { days: Number(days) })}>
+          <Play className="h-4 w-4" /> {running ? 'Learning…' : 'Learn now (a few minutes)'}
         </button>
+        {running && <p className="text-[11px] leading-snug text-accent" role="status">{runningText(view.status)}</p>}
+        {view?.interrupted && !running && <p className="text-[11px] leading-snug text-warn">{view.interrupted}</p>}
         {view?.simulated && <p className="text-[11px] text-warn">The app is on the practice feed: its candles are made up, so a result here means nothing for real trading.</p>}
       </Card>
 
-      {!view && <Skeleton className="h-48 w-full" />}
+      {loadError && (
+        <Card className="space-y-2 border-down p-3">
+          <p className="text-xs text-down">{loadError}</p>
+          <button type="button" className="btn btn-secondary btn-sm w-full" onClick={load}>Try again</button>
+        </Card>
+      )}
+      {!view && !loadError && <Skeleton className="h-48 w-full" />}
       {view && !last && !running && <p className="px-1 text-xs text-muted">Not run yet. Pick how many saved days to use and tap Learn now.</p>}
 
       {last && box && (

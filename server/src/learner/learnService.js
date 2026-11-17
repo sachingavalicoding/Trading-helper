@@ -25,6 +25,7 @@ export const LEARN_DAYS = [15, 20, 30];
 const INDEX = 'NIFTY';
 const WARMUP_DAYS = 6;
 const LOG_MAX = 30;
+export const SEARCH_MS = 3 * 60_000; // the learner stops trying new changes after this long (a phone is slow) and judges what it found
 
 /**
  * The settings the learner can change, read from what is saved.
@@ -84,9 +85,10 @@ export function savePatch(s, otherCombos = []) {
 }
 
 export class LearnService {
-  /** @param {{ lab: any, market: any, config?: any, now?: () => Date }} o */
-  constructor({ lab, market, config = {}, now = () => new Date() }) {
+  /** @param {{ lab: any, market: any, config?: any, now?: () => Date, searchMs?: number }} o */
+  constructor({ lab, market, config = {}, now = () => new Date(), searchMs = SEARCH_MS }) {
     this.lab = lab;
+    this.searchMs = searchMs;
     this.market = market;
     this.config = config;
     this.now = now;
@@ -112,8 +114,12 @@ export class LearnService {
     const [st, cur] = await Promise.all([LearnerState.findOne({ user: userId, kind: KIND }).lean(), this.#current(userId)]);
     const last = /** @type {any} */ (st?.last) ?? null;
     const { proposal, current, ...shown } = last ?? {};
+    const status = this.status(userId);
+    // a run that started but never finished: the server restarted (or crashed) while it ran
+    const interrupted = status.state !== 'running' && st?.log?.[0]?.action === 'started';
     return {
-      status: this.status(userId),
+      status: status.state === 'running' ? { ...status, seconds: Math.round((Date.now() - /** @type {any} */ (status).startedAt) / 1000) } : status,
+      interrupted: interrupted ? 'The last run did not finish: the server stopped while it was learning (an update or a restart does that). Tap Learn now again and keep the app server running until it is done.' : null,
       last: last ? { ...shown, stale: last.base !== fingerprint(cur.settings) && !last.applied, canUndo: Boolean(last.applied && !last.undone) } : null,
       log: st?.log ?? [],
       simulated: Boolean(this.market?.provider?.isSimulated),
@@ -127,15 +133,27 @@ export class LearnService {
     if (this.status(userId).state === 'running') throw conflict('Learn is already running');
     const job = { state: 'running', step: 'Starting', startedAt: Date.now() };
     this.jobs.set(String(userId), job);
-    /** @type {any} */ (job).done = this.#run(userId, job, days)
+    /** @type {any} */ (job).done = this.#mark(userId, { at: this.now().toISOString(), action: 'started', text: `Started on ${days} days.` })
+      .then(() => this.#run(userId, job, days))
       .catch(async (e) => {
-        logger.warn(`lab learn failed: ${e.message}`);
+        logger.warn(`lab learn failed: ${e.stack || e.message}`);
         const st = await this.#state(userId);
-        st.last = { at: this.now().toISOString(), verdict: 'error', text: `Learn could not run: ${e.message}` };
+        const at = this.now().toISOString();
+        st.last = { at, verdict: 'error', text: `Learn could not run: ${e.message}` };
+        st.log = [{ at, action: 'failed', text: e.message }, ...st.log].slice(0, LOG_MAX);
+        st.markModified('log');
         await st.save();
       })
+      .catch((e) => logger.warn(`lab learn could not save its error: ${e.message}`))
       .finally(() => this.jobs.delete(String(userId)));
     return job;
+  }
+
+  async #mark(/** @type {string} */ userId, /** @type {any} */ entry) {
+    const st = await this.#state(userId);
+    st.log = [entry, ...st.log].slice(0, LOG_MAX);
+    st.markModified('log');
+    await st.save();
   }
 
   async #run(/** @type {string} */ userId, /** @type {any} */ job, /** @type {number} */ days) {
@@ -171,8 +189,11 @@ export class LearnService {
       onProgress: (step) => {
         job.step = step;
       },
+      deadline: Date.now() + this.searchMs,
     });
+    logger.info(`lab learn: ${result.verdict} on ${useDays.length} days, ${result.tried} tried, ${Math.round((Date.now() - job.startedAt) / 1000)} s`);
     const notes = [];
+    if (/** @type {any} */ (result).stoppedEarly) notes.push(`It stopped trying new changes after ${Math.round(this.searchMs / 60000)} minutes to stay quick, and judged what it had found by then.`);
     if (!real) notes.push(book.days.length ? `Only ${book.days.length} days of real option prices are saved, so the other days use the model's estimated premiums.` : 'No real option prices are saved yet, so every premium is the model\'s estimate and the options checks (PCR, IV, OI, max pain, delta, theta) cannot be tried.');
     if (cur.raw?.scoreEntries) notes.push('Your indicator-score entries are not replayed here; only combinations and patterns are.');
     if ((cur.raw?.comboMinScore ?? 0) > 0 || (cur.raw?.patternMinScore ?? 0) > 0) notes.push('The minimum chart score on entries is not replayed here.');
@@ -190,7 +211,7 @@ export class LearnService {
       current: cur.settings,
       proposal: /** @type {any} */ (result).proposal ?? null,
     };
-    st.log = [{ at: st.last.at, action: 'learned', verdict: result.verdict, text: result.text, changes: result.changes?.length ?? 0 }, ...st.log].slice(0, LOG_MAX);
+    st.log = [{ at: st.last.at, action: 'learned', seconds: Math.round((Date.now() - job.startedAt) / 1000), verdict: result.verdict, text: result.text, changes: result.changes?.length ?? 0 }, ...st.log].slice(0, LOG_MAX);
     st.markModified('log');
     await st.save();
     return st.last;

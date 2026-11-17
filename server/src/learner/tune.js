@@ -221,10 +221,11 @@ export function movesFor(s, { labelOf, usable, patterns = [], maxCombos = 30 }) 
  * @param {{
  *   days: string[], current: Settings, evaluate: (s: Settings) => Promise<Trade[]>, dayOf: (t: Trade) => string,
  *   labelOf?: (k: string) => string, usable?: (k: string) => boolean, patterns?: { key: string, label: string }[], maxCombos?: number,
- *   onProgress?: (text: string) => void
+ *   onProgress?: (text: string) => void, deadline?: number
  * }} o
+ *   deadline: a time (ms) after which no more changes are tried; what was found so far is still judged on the hidden days
  */
-export async function tune({ days, current, evaluate, dayOf, labelOf = (k) => k, usable = () => true, patterns = [], maxCombos = 30, onProgress = () => {} }) {
+export async function tune({ days, current, evaluate, dayOf, labelOf = (k) => k, usable = () => true, patterns = [], maxCombos = 30, onProgress = () => {}, deadline = Infinity }) {
   const split = splitDays(days);
   const all = [...days].sort();
   if (!split) return { verdict: 'short', text: `Not enough saved days to learn from: it needs at least ${MIN_DAYS} and found ${all.length}. Nothing was changed.`, days: all.length, changes: [], tried: 0 };
@@ -247,11 +248,17 @@ export async function tune({ days, current, evaluate, dayOf, labelOf = (k) => k,
   const start = bestStat;
   /** @type {{ key: string, group: string, label: string, from: string, to: string, gain: number }[]} */
   const changes = [];
+  let stoppedEarly = false;
+  const late = () => {
+    if (Date.now() > deadline) stoppedEarly = true;
+    return stoppedEarly;
+  };
   for (let round = 1; round <= ROUNDS && changes.length < MAX_CHANGES; round++) {
     const moves = movesFor(best, { labelOf, usable, patterns, maxCombos });
     /** @type {{ move: Move, stat: Steady }[]} */
     const rated = [];
     for (const [n, move] of moves.entries()) {
+      if (late()) break;
       if (n % 10 === 0) onProgress(`Round ${round}: trying change ${n + 1} of ${moves.length}`);
       const stat = await onLearn(move.apply(best));
       if (stat.trades >= MIN_LEARN_TRADES && stat.score >= bestStat.score + marginOf(bestStat.score)) rated.push({ move, stat });
@@ -260,7 +267,7 @@ export async function tune({ days, current, evaluate, dayOf, labelOf = (k) => k,
     const touched = new Set();
     let took = 0;
     for (const { move } of rated) {
-      if (changes.length >= MAX_CHANGES) break;
+      if (changes.length >= MAX_CHANGES || late()) break;
       if (touched.has(move.key)) continue; // one change per setting a round: two stops or two ladders do not stack
       const next = move.apply(best);
       const stat = await onLearn(next);
@@ -271,7 +278,7 @@ export async function tune({ days, current, evaluate, dayOf, labelOf = (k) => k,
       bestStat = stat;
       took += 1;
     }
-    if (!took) break;
+    if (!took || stoppedEarly) break;
   }
 
   onProgress('Replaying old and new settings on the hidden days');
@@ -284,9 +291,10 @@ export async function tune({ days, current, evaluate, dayOf, labelOf = (k) => k,
     const span = all.slice(-w);
     return { days: span.length, from: span[0], to: span.at(-1), hidden: span.filter((d) => hiddenSet.has(d)).length, old: steady(oldTrades, span, dayOf), new: steady(newTrades, span, dayOf) };
   });
-  const base = { split: { learnDays: learn.length, hiddenDays: hidden.length, from: all[0], to: all.at(-1), hiddenFrom: hidden[0] }, learn: { old: start, new: bestStat }, hidden: { old: hiddenOld, new: hiddenNew }, windows, changes, tried, proposal: best };
+  const base = { split: { learnDays: learn.length, hiddenDays: hidden.length, from: all[0], to: all.at(-1), hiddenFrom: hidden[0] }, learn: { old: start, new: bestStat }, hidden: { old: hiddenOld, new: hiddenNew }, windows, changes, tried, stoppedEarly, proposal: best };
   if (!changes.length) {
-    return { ...base, verdict: 'same', checks: [], text: `No change helped on the ${learn.length} learning days by enough to trust it, so your settings stay as they are. ${tried} settings were tried.` };
+    const none = start.trades === 0 ? ` Your current settings made no trade on the ${learn.length} learning days, so check that some combinations or patterns are switched on in Account > Entries.` : '';
+    return { ...base, verdict: 'same', checks: [], text: `No change helped on the ${learn.length} learning days by enough to trust it, so your settings stay as they are. ${tried} settings were tried.${none}` };
   }
   const checks = judge(hiddenOld, hiddenNew);
   const passed = checks.every((c) => c.ok);
