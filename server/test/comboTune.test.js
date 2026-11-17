@@ -108,3 +108,16 @@ test('applying puts in the side, extra indicators and exits, and empty parts are
   assert.deepEqual(withParts(c, { side: 'CE', also: [], exits: { steps: [{ at: 750, keep: 700 }] } }), { ...COMBO, side: 'CE', exits: { steps: [{ at: 750, keep: 700 }] } });
   assert.deepEqual(withParts(c, { side: null, also: [], exits: null }), COMBO);
 });
+
+test('a loss cut for all trades sells any trade at that loss, and a combination\'s own cut wins over it', () => {
+  const start = Date.UTC(2026, 9, 5, 3, 45) / 1000;
+  const c1 = Array.from({ length: 120 }, (_, i) => ({ time: start + i * 60, open: 24000 + i * 2, high: 24001 + i * 2, low: 23999 + i * 2, close: 24000 + i * 2 + 2, volume: 0 }));
+  const byTime = new Map(c1.map((b, i) => [b.time, i]));
+  const signal = { side: 'PE', time: c1[1].time, stop: 24300 };
+  const params = { lotSize: 65, holidays: [], expiryWeekday: 2, strikeStep: 50, steps: [], lossLimit: 0, cut: 500 };
+  const all = simulateTrade({ c1, byTime, signal, params });
+  assert.equal(all.reason, 'CUT');
+  assert.ok(all.gross >= -560 && all.gross <= -500, `sold near the cut for all: ${all.gross}`);
+  const own = simulateTrade({ c1, byTime, signal: { ...signal, exits: { cut: 800 } }, params });
+  assert.ok(own.gross < all.gross && own.gross >= -900, `own cut wins: ${own.gross}`);
+});
