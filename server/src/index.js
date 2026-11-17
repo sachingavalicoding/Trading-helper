@@ -19,6 +19,8 @@ import { mongoSettingsSync } from './dayreplay/settingsLink.js';
 import { dayReplayRoutesDeps } from './dayreplay/manager.js';
 import { StudyService } from './study/service.js';
 import { LearnerService } from './learner/service.js';
+import { LearnService } from './learner/learnService.js';
+import { LabService } from './lab/service.js';
 import { logger } from './utils/logger.js';
 
 async function main() {
@@ -71,7 +73,10 @@ async function main() {
   const study = new StudyService({ market, config: env });
   const learner = new LearnerService({ study, market, config: env });
   if (!replay) learner.schedule(); // each trading evening, for users who switched auto on
-  const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history, optionHistory, ticks, dayReplay, study, learner });
+  const lab = new LabService({ market, config: env });
+  const learn = new LearnService({ lab, market, config: env });
+  if (!replay) learn.schedule(); // Learn's evening run, for users who switched it on
+  const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history, optionHistory, ticks, dayReplay, study, learner, lab, learn });
   const server = http.createServer(app);
   const io = attachSocket(server, { market, engine, config: env, scanner });
 
@@ -91,6 +96,7 @@ async function main() {
     history.stop();
     optionHistory.stop();
     learner.stop();
+    learn.stop();
     await ticks.stop();
     scanner.stop();
     news.stop();

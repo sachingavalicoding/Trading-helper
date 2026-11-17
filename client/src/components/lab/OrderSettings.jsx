@@ -5,7 +5,7 @@ import { STOP_MODES, fromSaved, roomSteps, toPayload } from '../../lib/combos.js
 import { Card, Segmented } from '../ui.jsx';
 
 // Order settings of one combination: what it trades with after it fires. Shares: buy or short, risk a trade, the most money in a trade,
-// the stop, the profit lock or a target, and the time its trades close. Options: calls or puts, the stop, the profit ladder, trail and break-even.
+// the stop, the profit lock or a target, and the time its trades close. Options: calls or puts, the stop, the profit ladder, trail, break-even and its own loss cut.
 // Empty means "the Account one". The Combination Lab tries them before saving; Account > Entries edits the same fields.
 
 const MODES3 = [
@@ -66,6 +66,13 @@ export function ExitsBlock({ exits, onChange }) {
             <input className="field num !w-20 !px-2 !py-1.5 text-right !text-sm" inputMode="numeric" value={e.breakEven} onChange={(ev) => put({ breakEven: num(ev.target.value) })} aria-label="Break-even points" />
           </label>
         )}
+      </div>
+      <div className="space-y-1">
+        <div className="text-xs font-semibold">Own loss cut</div>
+        <label className="flex items-center justify-between gap-3 text-xs text-muted">
+          <span>Sell once the trade is this many ₹ down, even before the chart stop (empty = none)</span>
+          <input className="field num !w-20 !px-2 !py-1.5 text-right !text-sm" inputMode="numeric" value={e.cut || ''} placeholder="none" onChange={(ev) => put({ cut: num(ev.target.value) || undefined })} aria-label="Own loss cut in rupees" />
+        </label>
       </div>
     </div>
   );

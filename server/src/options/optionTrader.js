@@ -602,6 +602,15 @@ export class OptionTrader {
         logger.warn(`Own profit ladder not applied to ${plan.symbol}: ${e.message}`);
       }
     }
+    // a combination's own loss cut (exits.cut, rupees): the premium stop moves up to where the trade is that much down, when that is closer than the chart stop
+    const cutAt = own?.cut > 0 && order.qty > 0 ? roundToTick(Math.max(fill - own.cut / order.qty, 0.05)) : null;
+    if (cutAt != null && cutAt > (plan.stopLoss ?? 0)) {
+      try {
+        await this.engine.setExits(userId, plan.symbol, { stopLoss: cutAt });
+      } catch (e) {
+        logger.warn(`Own loss cut not applied to ${plan.symbol}: ${e.message}`);
+      }
+    }
     this.#watch(userId, plan.symbol, { type: plan.type, index, stopSpot: plan.stopSpot, entry: fill, risk: Math.max(fill - (plan.stopLoss ?? 0), 0.05), openedAt: this.now(), manual, entrySpot: read.spot ?? null, trail: exitTrail, breakEven: exitBreakEven, stopWhy: 'STOP', bestSpot: read.spot ?? null, bestR: 0, worstR: 0 });
     await this.#record(settings, {
       symbol: plan.symbol,

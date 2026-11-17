@@ -54,6 +54,7 @@ export function exitsText(c) {
   if ('steps' in e) out.push(e.steps?.length ? `profit ladder from ${e.steps[0].at} (${e.steps.length} steps)` : 'no profit ladder');
   if ('trail' in e) out.push(e.trail ? `trail ${e.trail.points} points` : 'no trail');
   if ('breakEven' in e) out.push(e.breakEven ? `break-even at ${e.breakEven} points` : 'no break-even');
+  if (e.cut) out.push(`loss cut at -₹${Math.round(e.cut).toLocaleString('en-IN')}`);
   return out.length ? out.join(', ') : null;
 }
 

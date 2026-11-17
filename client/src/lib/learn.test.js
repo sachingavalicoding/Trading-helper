@@ -52,3 +52,16 @@ describe('Lab > Learn words', () => {
     expect(runningText({ seconds: 9 })).toMatch(/^Starting · 9 s so far/);
   });
 });
+
+test('a combination result: passed opens Apply, failed and thin ask first, changed or applied says why', async () => {
+  const { comboBox, comboApplyState, sortCombos, trackLine } = await import('./learn.js');
+  const r = { verdict: 'passed', streak: 3, changes: [{ label: 'x' }] };
+  expect(comboBox(r).title).toBe('Passed (3 runs in a row)');
+  expect(comboApplyState(r).action).toBe('apply');
+  expect(comboApplyState({ ...r, verdict: 'thin' }).action).toBe('confirm');
+  expect(comboApplyState({ ...r, stale: true }).why).toMatch(/changed/);
+  expect(comboApplyState({ ...r, applied: { at: 'x' } }).why).toMatch(/Undo/);
+  expect(comboApplyState({ verdict: 'same', changes: [] }).action).toBe(null);
+  expect(sortCombos([{ verdict: 'failed' }, { verdict: 'passed', streak: 1 }, { verdict: 'passed', streak: 2 }]).map((x) => x.streak ?? 0)).toEqual([2, 1, 0]);
+  expect(trackLine({ days: 2, appliedOn: '2026-11-17', new: { net: 1500 }, old: { net: 500 } })).toBe('2 days since 2026-11-17: ₹1,500 against ₹500 before, ₹1,000 better.');
+});

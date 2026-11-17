@@ -93,13 +93,38 @@ export function steady(trades, days, dayOf) {
   };
 }
 
+export const CHUNKS = 3;
+
+/**
+ * Whether a change helped through the learning days and not only on a few of them: the learning days cut in CHUNKS parts by date, and the
+ * new trades must score at least as well as the old ones in most parts. A change that wins by one lucky day fails this.
+ * @param {Trade[]} neu @param {Trade[]} old @param {string[]} learn @param {(t: Trade) => string} dayOf
+ */
+export function consistent(neu, old, learn, dayOf) {
+  if (learn.length < CHUNKS * 2) return true;
+  const size = Math.ceil(learn.length / CHUNKS);
+  let wins = 0;
+  let parts = 0;
+  for (let i = 0; i < learn.length; i += size) {
+    const part = learn.slice(i, i + size);
+    parts += 1;
+    if (steady(neu, part, dayOf).score >= steady(old, part, dayOf).score) wins += 1;
+  }
+  return wins * 2 > parts;
+}
+
 /** The smallest gain in score (rupees a day) a change must bring on the learning days to be kept: small gains are mostly noise. */
 export const marginOf = (/** @type {number} */ score) => Math.max(25, 0.05 * Math.abs(score));
 
 // ---------- what can be changed ----------
 
+/** A ladder that starts at `start` and keeps `gap` under the gain, rising every ₹500 (the same rows Account > Entries makes from "first lock" and "room"). */
+export const roomLadder = (/** @type {number} */ start, /** @type {number} */ gap) => Array.from({ length: 8 }, (_, i) => ({ at: start + i * 500, keep: Math.max(1, start + i * 500 - gap) }));
+
 export const LADDERS = [
   { key: 'none', label: 'no profit lock', steps: [] },
+  { key: 'r750', label: 'small target: at +₹750 keep ₹700, then every ₹500', steps: roomLadder(750, 50) },
+  { key: 'r1000', label: 'at +₹1,000 keep ₹900, then every ₹500', steps: roomLadder(1000, 100) },
   { key: 'l600', label: 'at +₹600 keep ₹300', steps: [{ at: 600, keep: 300 }] },
   { key: 'l1000', label: 'at +₹1,000 keep ₹750', steps: [{ at: 1000, keep: 750 }] },
   { key: 'l800_1500', label: 'at +₹800 keep ₹500, at +₹1,500 keep ₹1,200', steps: [{ at: 800, keep: 500 }, { at: 1500, keep: 1200 }] },
@@ -126,6 +151,8 @@ export const FILTERS = [
   'rsiAbove50', 'rsiAbove60', 'rsiNotStretched', 'macdAbove', 'macdBothUp', 'emaFastOverSlow', 'ema5Over13', 'aboveEma50', 'aboveVwap', 'vwapNear',
   'bbAboveMid', 'bbPctB', 'atrExpand', 'atrCalm', 'atrAwake', 'supertrendUp', 'supertrendSlowUp', 'adxUp', 'adx30Up', 'adxRising',
   'pcrAbove1', 'pcrAbove12', 'pcrRising', 'oiBacks', 'oiFresh', 'belowMaxPain', 'aboveMaxPain', 'ivLow', 'ivNotHigh', 'ivRising', 'deltaNearMoney', 'deltaStrong', 'thetaLow', 'thetaVeryLow',
+  // yesterday's levels (a put reads each one turned round: below yesterday's close, low, pivot...)
+  'aboveYClose', 'aboveYHigh', 'abovePivot', 'aboveCpr', 'aboveYValue', 'abovePoc', 'cprHigher',
 ];
 export const NEW_BASES = ['p_breakout', 'p_engulfing', 'p_momentumBar']; // the patterns that paid in the earlier studies, tried as a new combination
 export const NEW_PREFIX = 'learn-';
@@ -221,11 +248,12 @@ export function movesFor(s, { labelOf, usable, patterns = [], maxCombos = 30 }) 
  * @param {{
  *   days: string[], current: Settings, evaluate: (s: Settings) => Promise<Trade[]>, dayOf: (t: Trade) => string,
  *   labelOf?: (k: string) => string, usable?: (k: string) => boolean, patterns?: { key: string, label: string }[], maxCombos?: number,
- *   onProgress?: (text: string) => void, deadline?: number
+ *   onProgress?: (text: string) => void, deadline?: number, hints?: string[]
  * }} o
  *   deadline: a time (ms) after which no more changes are tried; what was found so far is still judged on the hidden days
+ *   hints: labels of changes that passed in earlier runs; they are tried first, so a run builds on the last ones even when time runs short
  */
-export async function tune({ days, current, evaluate, dayOf, labelOf = (k) => k, usable = () => true, patterns = [], maxCombos = 30, onProgress = () => {}, deadline = Infinity }) {
+export async function tune({ days, current, evaluate, dayOf, labelOf = (k) => k, usable = () => true, patterns = [], maxCombos = 30, onProgress = () => {}, deadline = Infinity, hints = [] }) {
   const split = splitDays(days);
   const all = [...days].sort();
   if (!split) return { verdict: 'short', text: `Not enough saved days to learn from: it needs at least ${MIN_DAYS} and found ${all.length}. Nothing was changed.`, days: all.length, changes: [], tried: 0 };
@@ -246,15 +274,17 @@ export async function tune({ days, current, evaluate, dayOf, labelOf = (k) => k,
   let best = current;
   let bestStat = await onLearn(current);
   const start = bestStat;
-  /** @type {{ key: string, group: string, label: string, from: string, to: string, gain: number }[]} */
+  /** @type {{ key: string, group: string, label: string, from: string, to: string, gain: number, hinted?: boolean }[]} */
   const changes = [];
   let stoppedEarly = false;
+  let uneven = 0;
   const late = () => {
     if (Date.now() > deadline) stoppedEarly = true;
     return stoppedEarly;
   };
   for (let round = 1; round <= ROUNDS && changes.length < MAX_CHANGES; round++) {
-    const moves = movesFor(best, { labelOf, usable, patterns, maxCombos });
+    const hinted = new Set(hints);
+    const moves = movesFor(best, { labelOf, usable, patterns, maxCombos }).sort((a, b) => Number(hinted.has(b.label)) - Number(hinted.has(a.label)));
     /** @type {{ move: Move, stat: Steady }[]} */
     const rated = [];
     for (const [n, move] of moves.entries()) {
@@ -272,7 +302,11 @@ export async function tune({ days, current, evaluate, dayOf, labelOf = (k) => k,
       const next = move.apply(best);
       const stat = await onLearn(next);
       if (stat.trades < MIN_LEARN_TRADES || stat.score < bestStat.score + marginOf(bestStat.score)) continue;
-      changes.push({ key: move.key, group: move.group, label: move.label, from: move.from, to: move.to, gain: r2(stat.score - bestStat.score) });
+      if (!consistent(await run(next), await run(best), learn, dayOf)) {
+        uneven += 1; // better in total but only thanks to part of the learning days: likely luck
+        continue;
+      }
+      changes.push({ key: move.key, group: move.group, label: move.label, from: move.from, to: move.to, gain: r2(stat.score - bestStat.score), hinted: hinted.has(move.label) });
       touched.add(move.key);
       best = next;
       bestStat = stat;
@@ -291,7 +325,7 @@ export async function tune({ days, current, evaluate, dayOf, labelOf = (k) => k,
     const span = all.slice(-w);
     return { days: span.length, from: span[0], to: span.at(-1), hidden: span.filter((d) => hiddenSet.has(d)).length, old: steady(oldTrades, span, dayOf), new: steady(newTrades, span, dayOf) };
   });
-  const base = { split: { learnDays: learn.length, hiddenDays: hidden.length, from: all[0], to: all.at(-1), hiddenFrom: hidden[0] }, learn: { old: start, new: bestStat }, hidden: { old: hiddenOld, new: hiddenNew }, windows, changes, tried, stoppedEarly, proposal: best };
+  const base = { split: { learnDays: learn.length, hiddenDays: hidden.length, from: all[0], to: all.at(-1), hiddenFrom: hidden[0] }, learn: { old: start, new: bestStat }, hidden: { old: hiddenOld, new: hiddenNew }, windows, changes, tried, uneven, stoppedEarly, proposal: best };
   if (!changes.length) {
     const none = start.trades === 0 ? ` Your current settings made no trade on the ${learn.length} learning days, so check that some combinations or patterns are switched on in Account > Entries.` : '';
     return { ...base, verdict: 'same', checks: [], text: `No change helped on the ${learn.length} learning days by enough to trust it, so your settings stay as they are. ${tried} settings were tried.${none}` };

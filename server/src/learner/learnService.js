@@ -8,10 +8,11 @@ import { stopRuleOf } from '../study/patterns.js';
 import { trailOf, breakEvenOf } from '../study/simulate.js';
 import { entryWindowOf } from '../options/signal.js';
 import { LIVE_PATTERNS, DEFAULT_PATTERNS } from '../options/optionTrader.js';
-import { istParts } from '../market/marketHours.js';
+import { istParts, isTradingDay } from '../market/marketHours.js';
 import { badRequest, conflict } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
-import { tune, MIN_DAYS } from './tune.js';
+import { tune, steady, MIN_DAYS } from './tune.js';
+import { tuneCombo, strip } from './comboTune.js';
 import { learnContext, dayKey } from './learnRun.js';
 
 // Lab > Learn: runs the settings learner (tune.js) for a user in the background, keeps the last result, and applies it to the paper
@@ -26,6 +27,12 @@ const INDEX = 'NIFTY';
 const WARMUP_DAYS = 6;
 const LOG_MAX = 30;
 export const SEARCH_MS = 3 * 60_000; // the learner stops trying new changes after this long (a phone is slow) and judges what it found
+export const COMBO_SEARCH_MS = 5 * 60_000; // all combinations together, shared out between them
+export const MAX_TUNED = 12; // combinations tuned in one run, switched-on ones first
+export const EVENING_AFTER_MIN = 17 * 60; // 17:00 IST: after the evening save of candles and option prices (and the auto-learner at 16:30)
+const EVENING_TICK_MS = 10 * 60_000;
+const TRACK_MAX = 20;
+const WHAT = ['setup', 'combos'];
 
 /**
  * The settings the learner can change, read from what is saved.
@@ -84,6 +91,23 @@ export function savePatch(s, otherCombos = []) {
   };
 }
 
+/** A combination with the learner's parts (side, extra indicators, own exits) put in; null or empty parts are taken away. */
+export function withParts(/** @type {any} */ c, /** @type {any} */ p) {
+  const { side: _s, also: _a, exits: _e, ...rest } = c;
+  return { ...rest, ...(p.side ? { side: p.side } : {}), ...(p.also?.length ? { also: p.also } : {}), ...(p.exits && Object.keys(p.exits).length ? { exits: p.exits } : {}) };
+}
+
+/** Each combination's last result for the screen, with whether it still matches the saved combination. */
+function comboView(/** @type {any} */ combos, /** @type {Settings} */ settings) {
+  if (!combos) return null;
+  const list = (combos.list ?? []).map((/** @type {any} */ r) => {
+    const now = settings.combos.find((c) => c.id === r.id);
+    const stale = !now || (r.base && fingerprint(/** @type {any} */ (strip(now))) !== r.base && !(r.applied && !r.undone));
+    return { ...r, stale: Boolean(stale), gone: !now, canUndo: Boolean(r.applied && !r.undone) };
+  });
+  return { ...combos, list };
+}
+
 export class LearnService {
   /** @param {{ lab: any, market: any, config?: any, now?: () => Date, searchMs?: number }} o */
   constructor({ lab, market, config = {}, now = () => new Date(), searchMs = SEARCH_MS }) {
@@ -122,24 +146,159 @@ export class LearnService {
       interrupted: interrupted ? 'The last run did not finish: the server stopped while it was learning (an update or a restart does that). Tap Learn now again and keep the app server running until it is done.' : null,
       last: last ? { ...shown, stale: last.base !== fingerprint(cur.settings) && !last.applied, canUndo: Boolean(last.applied && !last.undone) } : null,
       log: st?.log ?? [],
+      combos: comboView(/** @type {any} */ (st)?.combos, cur.settings),
+      track: /** @type {any} */ (st)?.track ?? [],
+      evening: Boolean(/** @type {any} */ (st)?.evening),
       simulated: Boolean(this.market?.provider?.isSimulated),
       days: LEARN_DAYS,
     };
   }
 
+  /** Switches the evening run on or off: each trading evening it learns the whole setup and each combination. It never applies anything. */
+  async setEvening(/** @type {string} */ userId, /** @type {boolean} */ on) {
+    await LearnerState.updateOne({ user: userId, kind: KIND }, { $set: { evening: Boolean(on) }, $setOnInsert: { user: userId, kind: KIND } }, { upsert: true });
+    return this.view(userId);
+  }
+
+  /** One check of the evening schedule: on a trading day after EVENING_AFTER_MIN, each user with the evening run on, once a day. */
+  async tick() {
+    if (this.market?.provider?.isSimulated) return; // made-up candles: nothing to learn
+    const now = this.now();
+    const { minutes, dateKey } = istParts(now);
+    if (!isTradingDay(now, this.config.nseHolidays ?? []) || minutes < EVENING_AFTER_MIN) return;
+    for (const st of await LearnerState.find({ kind: KIND, evening: true, eveningDay: { $ne: dateKey } }, 'user').lean()) {
+      const userId = String(st.user);
+      if (this.status(userId).state === 'running') continue;
+      await LearnerState.updateOne({ _id: st._id }, { $set: { eveningDay: dateKey } });
+      for (const what of WHAT) {
+        try {
+          await /** @type {any} */ (this.start(userId, { days: 30, what, by: 'evening' })).done;
+        } catch (e) {
+          logger.warn(`evening learn (${what}) failed: ${/** @type {any} */ (e).message}`);
+        }
+      }
+    }
+  }
+
+  schedule() {
+    const run = () => this.tick().catch((e) => logger.warn(`learn schedule failed: ${e.message}`));
+    this.timer = setInterval(run, EVENING_TICK_MS);
+    this.timer.unref?.();
+  }
+
+  stop() {
+    clearInterval(this.timer);
+  }
+
+  /** Learn > Each combination: every Nifty combination (switched-on ones first) tuned on its own. Nothing is applied. */
+  async #runCombos(/** @type {string} */ userId, /** @type {any} */ job, /** @type {number} */ days) {
+    const cur = await this.#current(userId);
+    const { ctx, useDays, real, notes } = await this.#prepare(userId, job, days, cur);
+    const st = await this.#state(userId);
+    const before = /** @type {any[]} */ (st.combos?.list ?? []);
+    const list = [...cur.settings.combos].sort((a, b) => Number(b.on !== false) - Number(a.on !== false)).slice(0, MAX_TUNED);
+    const started = Date.now();
+    const results = [];
+    for (const [n, combo] of list.entries()) {
+      job.step = `Combination ${n + 1} of ${list.length}: ${combo.name}`;
+      const share = (COMBO_SEARCH_MS * this.searchMs) / SEARCH_MS / list.length; // tests shorten searchMs, and this with it
+      const old = before.find((r) => r.id === combo.id);
+      const previous = old?.proposal && ['passed', 'thin'].includes(old.verdict) ? { ...combo, ...old.proposal, also: old.proposal.also?.length ? old.proposal.also : undefined, side: old.proposal.side ?? undefined, exits: old.proposal.exits ?? undefined } : null;
+      const r = /** @type {any} */ (await tuneCombo({
+        combo,
+        base: cur.settings,
+        days: useDays,
+        evaluate: ctx.evaluate,
+        dayOf: (t) => dayKey(t.entryTime),
+        labelOf: (k) => CONDITION_BY_KEY.get(k)?.label ?? k,
+        usable: ctx.usable,
+        deadline: Math.min(started + COMBO_SEARCH_MS * (this.searchMs / SEARCH_MS), Date.now() + share),
+        previous,
+      }));
+      // how many runs in a row it suggested the same thing and passed: a pick that keeps passing on new days is worth more than one lucky run
+      const same = old && JSON.stringify(old.proposal) === JSON.stringify(r.proposal);
+      r.streak = r.verdict === 'passed' ? (same && old.verdict === 'passed' ? (old.streak ?? 1) + 1 : 1) : 0;
+      r.base = fingerprint(/** @type {any} */ (strip(combo)));
+      if (old?.applied && !old.undone && same) r.applied = old.applied;
+      results.push(r);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    job.step = 'Checking earlier applied results on the days since';
+    await this.#trackRecord(st, ctx, useDays, cur);
+    st.combos = { at: this.now().toISOString(), day: istParts(this.now()).dateKey, daysAsked: days, pricing: real ? 'real' : 'estimated', notes, by: job.by ?? 'you', list: results };
+    st.markModified('combos');
+    const passed = results.filter((r) => r.verdict === 'passed');
+    const text = passed.length ? `${passed.length} of ${results.length} combinations have better settings that passed the hidden days: ${passed.map((r) => r.name).join(', ')}.` : `No combination got settings that passed the hidden days (${results.length} tried).`;
+    st.log = [{ at: st.combos.at, action: 'learned combos', seconds: Math.round((Date.now() - job.startedAt) / 1000), verdict: passed.length ? 'passed' : 'same', text }, ...st.log].slice(0, LOG_MAX);
+    st.markModified('log');
+    await st.save();
+    logger.info(`lab learn combos: ${passed.length}/${results.length} passed, ${Math.round((Date.now() - job.startedAt) / 1000)} s`);
+    return st.combos;
+  }
+
+  /** Puts one combination's suggested settings (side, extra indicators, own exits) in place. A failed or thin result needs `force`. */
+  async applyCombo(/** @type {string} */ userId, /** @type {string} */ id, { force = false } = {}) {
+    const st = await this.#state(userId);
+    const r = /** @type {any} */ (st.combos?.list ?? []).find((/** @type {any} */ x) => x.id === id);
+    if (!r?.proposal || !r.changes?.length) throw badRequest('There is nothing to apply for this combination. Run Learn first.');
+    if (r.applied && !r.undone) throw conflict('Already applied.');
+    if (r.verdict !== 'passed' && !force) throw conflict('This did not pass the hidden days, so Apply is blocked. Use Apply anyway if you still want it.');
+    const raw = await OptionSettings.findOne({ user: userId });
+    const list = normalizeCombos(raw?.combos ?? []);
+    const at = list.findIndex((c) => c.id === id);
+    if (at < 0) throw badRequest('That combination is no longer saved.');
+    if (fingerprint(/** @type {any} */ (strip(list[at]))) !== r.base) throw conflict('This combination was changed after the run. Run Learn again.');
+    const prev = strip(list[at]);
+    list[at] = withParts(list[at], r.proposal);
+    await OptionSettings.updateOne({ user: userId }, { $set: { combos: normalizeCombos(list) } }, { runValidators: true });
+    const now = this.now();
+    r.applied = { at: now.toISOString(), day: istParts(now).dateKey, forced: r.verdict !== 'passed', prev };
+    delete r.undone;
+    st.applied = [{ key: `combo:${id}:${r.applied.at}`, kind: 'combo', id, name: r.name, appliedOn: r.applied.day, forced: r.applied.forced, old: prev, neu: r.proposal }, ...(st.applied ?? [])].slice(0, TRACK_MAX);
+    st.log = [{ at: r.applied.at, action: r.applied.forced ? 'applied anyway' : 'applied', text: `${r.name}: ${r.changes.map((/** @type {any} */ c) => c.label).join(', ')}.` }, ...st.log].slice(0, LOG_MAX);
+    for (const k of ['combos', 'applied', 'log']) st.markModified(k);
+    await st.save();
+    return this.view(userId);
+  }
+
+  /** Puts one combination back as it was before its apply. */
+  async undoCombo(/** @type {string} */ userId, /** @type {string} */ id) {
+    const st = await this.#state(userId);
+    const r = /** @type {any} */ (st.combos?.list ?? []).find((/** @type {any} */ x) => x.id === id);
+    if (!r?.applied || r.undone) throw badRequest('Nothing to undo for this combination.');
+    const raw = await OptionSettings.findOne({ user: userId });
+    const list = normalizeCombos(raw?.combos ?? []);
+    const at = list.findIndex((c) => c.id === id);
+    if (at >= 0) {
+      list[at] = withParts(list[at], r.applied.prev);
+      await OptionSettings.updateOne({ user: userId }, { $set: { combos: normalizeCombos(list) } }, { runValidators: true });
+    }
+    r.undone = { at: this.now().toISOString() };
+    st.applied = (st.applied ?? []).map((/** @type {any} */ it) => (it.key === `combo:${id}:${r.applied.at}` ? { ...it, undone: true } : it));
+    st.log = [{ at: r.undone.at, action: 'undone', text: `${r.name}: put back as it was.` }, ...st.log].slice(0, LOG_MAX);
+    for (const k of ['combos', 'applied', 'log']) st.markModified(k);
+    await st.save();
+    return this.view(userId);
+  }
+
   /** Starts a run in the background; poll view(). */
-  start(/** @type {string} */ userId, { days = 30 } = {}) {
+  start(/** @type {string} */ userId, { days = 30, what = 'setup', by = 'you' } = {}) {
     if (!LEARN_DAYS.includes(days)) throw badRequest(`Pick ${LEARN_DAYS.join(', ')} days`);
+    if (!WHAT.includes(what)) throw badRequest('Pick the whole setup or each combination');
     if (this.status(userId).state === 'running') throw conflict('Learn is already running');
-    const job = { state: 'running', step: 'Starting', startedAt: Date.now() };
+    const job = { state: 'running', step: 'Starting', startedAt: Date.now(), what, by };
     this.jobs.set(String(userId), job);
-    /** @type {any} */ (job).done = this.#mark(userId, { at: this.now().toISOString(), action: 'started', text: `Started on ${days} days.` })
-      .then(() => this.#run(userId, job, days))
+    const words = what === 'combos' ? 'each combination' : 'the whole setup';
+    /** @type {any} */ (job).done = this.#mark(userId, { at: this.now().toISOString(), action: 'started', text: `Started on ${days} days: ${words}${by === 'evening' ? ' (evening run)' : ''}.` })
+      .then(() => (what === 'combos' ? this.#runCombos(userId, job, days) : this.#run(userId, job, days)))
       .catch(async (e) => {
         logger.warn(`lab learn failed: ${e.stack || e.message}`);
         const st = await this.#state(userId);
         const at = this.now().toISOString();
-        st.last = { at, verdict: 'error', text: `Learn could not run: ${e.message}` };
+        if (what === 'combos') {
+          st.combos = { ...(st.combos ?? {}), error: `Learn could not run: ${e.message}`, errorAt: at };
+          st.markModified('combos');
+        } else st.last = { at, verdict: 'error', text: `Learn could not run: ${e.message}` };
         st.log = [{ at, action: 'failed', text: e.message }, ...st.log].slice(0, LOG_MAX);
         st.markModified('log');
         await st.save();
@@ -156,13 +315,14 @@ export class LearnService {
     await st.save();
   }
 
-  async #run(/** @type {string} */ userId, /** @type {any} */ job, /** @type {number} */ days) {
-    const cur = await this.#current(userId);
+  /** The saved days and the replay for a run: real premiums when enough are saved, otherwise the model's. */
+  async #prepare(/** @type {string} */ userId, /** @type {any} */ job, /** @type {number} */ days, /** @type {any} */ cur) {
     job.step = 'Reading the saved option prices';
     const book = await this.lab.priceBook(INDEX);
+    const now = this.now();
     const real = book.days.length >= MIN_DAYS;
     const firstUsed = real ? book.days.slice(-days)[0] : null;
-    const calendar = (firstUsed ? Math.ceil((this.now().getTime() - Date.parse(`${firstUsed}T00:00:00Z`)) / 86400000) + 1 : Math.ceil((days * 7) / 5)) + WARMUP_DAYS;
+    const calendar = (firstUsed ? Math.ceil((now.getTime() - Date.parse(`${firstUsed}T00:00:00Z`)) / 86400000) + 1 : Math.ceil((days * 7) / 5)) + WARMUP_DAYS;
     job.step = 'Reading the saved candles';
     const { nifty1, stocks5 } = await this.lab.optionsData(INDEX, calendar);
     const params = await this.lab.optionParams(userId, INDEX);
@@ -176,6 +336,51 @@ export class LearnService {
     }
     job.step = 'Building the chart';
     const ctx = learnContext({ nifty1, stocks5, book: book.days.length ? book : null, params, days: useDays, budget: cur.budget });
+    const notes = [];
+    if (!real) notes.push(book.days.length ? `Only ${book.days.length} days of real option prices are saved, so the other days use the model's estimated premiums.` : 'No real option prices are saved yet, so every premium is the model\'s estimate and the options checks (PCR, IV, OI, max pain, delta, theta) cannot be tried.');
+    if (cur.raw?.scoreEntries) notes.push('Your indicator-score entries are not replayed here; only combinations and patterns are.');
+    if ((cur.raw?.comboMinScore ?? 0) > 0 || (cur.raw?.patternMinScore ?? 0) > 0) notes.push('The minimum chart score on entries is not replayed here.');
+    if (this.market?.provider?.isSimulated) notes.push('The sample feed is on: these candles are made up, so the result means nothing for real trading.');
+    return { ctx, useDays, real, notes };
+  }
+
+  /**
+   * How the applied results (st.applied) did on the days after they were applied: the settings from before against the applied ones, replayed on
+   * those later days only (never seen when the result was learned). This is the test that says whether the learner's picks hold up.
+   */
+  async #trackRecord(/** @type {any} */ st, /** @type {any} */ ctx, /** @type {string[]} */ useDays, /** @type {any} */ cur) {
+    const dayOf = (/** @type {any} */ t) => dayKey(t.entryTime);
+    const items = [];
+    for (const it of st.applied ?? []) {
+      if (it.undone) continue;
+      if (it.kind === 'setup') items.push({ ...it, oldS: it.old, newS: it.neu });
+      else {
+        const now = cur.settings.combos.find((/** @type {any} */ x) => x.id === it.id);
+        if (!now) continue;
+        const alone = (/** @type {any} */ parts) => ({ ...cur.settings, patternEntries: false, combos: [{ ...now, ...parts, on: true }] });
+        items.push({ ...it, oldS: alone(it.old), newS: alone(it.neu) });
+      }
+    }
+    const track = [...(st.track ?? [])];
+    for (const it of items) {
+      const after = useDays.filter((d) => d > it.appliedOn);
+      if (!after.length) continue;
+      const [oldT, newT] = [await ctx.evaluate(it.oldS), await ctx.evaluate(it.newS)];
+      const row = { key: it.key, kind: it.kind, name: it.name, appliedOn: it.appliedOn, forced: Boolean(it.forced), days: after.length, to: after.at(-1), old: steady(oldT, after, dayOf), new: steady(newT, after, dayOf) };
+      const at = track.findIndex((t) => t.key === it.key);
+      if (at >= 0) track[at] = row;
+      else track.unshift(row);
+    }
+    st.track = track.slice(0, TRACK_MAX);
+    st.markModified('track');
+  }
+
+  async #run(/** @type {string} */ userId, /** @type {any} */ job, /** @type {number} */ days) {
+    const cur = await this.#current(userId);
+    const { ctx, useDays, real, notes } = await this.#prepare(userId, job, days, cur);
+    const before = await this.#state(userId);
+    // the changes that passed in earlier runs are tried first, so each run starts from what already worked
+    const hints = [...new Set((before.log ?? []).filter((/** @type {any} */ e) => e.action === 'learned' && e.verdict === 'passed').flatMap((/** @type {any} */ e) => e.labels ?? []))];
     const otherCombos = normalizeCombos(cur.raw?.combos ?? []).filter((c) => c.index && c.index !== INDEX);
     const result = await tune({
       days: useDays,
@@ -190,15 +395,14 @@ export class LearnService {
         job.step = step;
       },
       deadline: Date.now() + this.searchMs,
+      hints,
     });
     logger.info(`lab learn: ${result.verdict} on ${useDays.length} days, ${result.tried} tried, ${Math.round((Date.now() - job.startedAt) / 1000)} s`);
-    const notes = [];
-    if (/** @type {any} */ (result).stoppedEarly) notes.push(`It stopped trying new changes after ${Math.round(this.searchMs / 60000)} minutes to stay quick, and judged what it had found by then.`);
-    if (!real) notes.push(book.days.length ? `Only ${book.days.length} days of real option prices are saved, so the other days use the model's estimated premiums.` : 'No real option prices are saved yet, so every premium is the model\'s estimate and the options checks (PCR, IV, OI, max pain, delta, theta) cannot be tried.');
-    if (cur.raw?.scoreEntries) notes.push('Your indicator-score entries are not replayed here; only combinations and patterns are.');
-    if ((cur.raw?.comboMinScore ?? 0) > 0 || (cur.raw?.patternMinScore ?? 0) > 0) notes.push('The minimum chart score on entries is not replayed here.');
-    if (this.market?.provider?.isSimulated) notes.push('The sample feed is on: these candles are made up, so the result means nothing for real trading.');
+    if (/** @type {any} */ (result).stoppedEarly) notes.unshift(`It stopped trying new changes after ${Math.round(this.searchMs / 60000)} minutes to stay quick, and judged what it had found by then.`);
+    if (/** @type {any} */ (result).uneven) notes.push(`${/** @type {any} */ (result).uneven} change${/** @type {any} */ (result).uneven === 1 ? ' was' : 's were'} left out because they only helped on some of the learning days (likely luck).`);
     const st = await this.#state(userId);
+    job.step = 'Checking earlier applied results on the days since';
+    await this.#trackRecord(st, ctx, useDays, cur);
     st.last = {
       ...result,
       at: this.now().toISOString(),
@@ -207,11 +411,12 @@ export class LearnService {
       pricing: real ? 'real' : 'estimated',
       optionDays: ctx.optionDays,
       notes,
+      by: job.by ?? 'you',
       base: fingerprint(cur.settings),
       current: cur.settings,
       proposal: /** @type {any} */ (result).proposal ?? null,
     };
-    st.log = [{ at: st.last.at, action: 'learned', seconds: Math.round((Date.now() - job.startedAt) / 1000), verdict: result.verdict, text: result.text, changes: result.changes?.length ?? 0 }, ...st.log].slice(0, LOG_MAX);
+    st.log = [{ at: st.last.at, action: 'learned', seconds: Math.round((Date.now() - job.startedAt) / 1000), verdict: result.verdict, text: result.text, changes: result.changes?.length ?? 0, labels: (result.changes ?? []).map((c) => c.label) }, ...st.log].slice(0, LOG_MAX);
     st.markModified('log');
     await st.save();
     return st.last;
@@ -227,7 +432,9 @@ export class LearnService {
     const cur = await this.#current(userId);
     if (fingerprint(cur.settings) !== last.base) throw conflict('Your settings changed after this run. Run Learn again so it learns from what you have now.');
     await this.#save(userId, last.proposal, cur.raw);
-    last.applied = { at: this.now().toISOString(), forced: last.verdict === 'failed' };
+    last.applied = { at: this.now().toISOString(), day: istParts(this.now()).dateKey, forced: last.verdict === 'failed' };
+    st.applied = [{ key: `setup:${last.applied.at}`, kind: 'setup', name: `Whole setup (${last.changes.length} change${last.changes.length === 1 ? '' : 's'})`, appliedOn: last.applied.day, forced: last.applied.forced, old: last.current, neu: last.proposal }, ...(st.applied ?? [])].slice(0, TRACK_MAX);
+    st.markModified('applied');
     st.last = { ...last };
     st.log = [{ at: last.applied.at, action: last.applied.forced ? 'applied anyway' : 'applied', verdict: last.verdict, text: `${last.changes.length} change${last.changes.length === 1 ? '' : 's'} applied${last.applied.forced ? ' although it failed on the hidden days' : ''}.` }, ...st.log].slice(0, LOG_MAX);
     st.markModified('last');
@@ -244,6 +451,8 @@ export class LearnService {
     const cur = await this.#current(userId);
     await this.#save(userId, last.current, cur.raw);
     last.undone = { at: this.now().toISOString() };
+    st.applied = (st.applied ?? []).map((/** @type {any} */ it) => (it.key === `setup:${last.applied.at}` ? { ...it, undone: true } : it));
+    st.markModified('applied');
     st.last = { ...last };
     st.log = [{ at: last.undone.at, action: 'undone', text: 'Your settings from before the apply are back.' }, ...st.log].slice(0, LOG_MAX);
     st.markModified('last');

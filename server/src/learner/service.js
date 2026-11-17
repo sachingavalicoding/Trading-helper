@@ -222,7 +222,7 @@ export class LearnerService {
     const { minutes, dateKey } = istParts(now);
     for (const st of await LearnerState.find({ kind: 'shares', auto: true }, 'user').lean()) await this.benchShares(st.user).catch((e) => logger.warn(`learner bench failed: ${e.message}`));
     if (!isTradingDay(now, this.config.nseHolidays ?? []) || minutes < RUN_AFTER_MIN) return;
-    const due = await LearnerState.find({ auto: true, 'last.day': { $ne: dateKey } }, 'user kind').lean();
+    const due = await LearnerState.find({ kind: { $in: KINDS }, auto: true, 'last.day': { $ne: dateKey } }, 'user kind').lean();
     due.sort((a, b) => KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind));
     for (const st of due) {
       if (this.status(String(st.user), st.kind).state === 'running') continue;

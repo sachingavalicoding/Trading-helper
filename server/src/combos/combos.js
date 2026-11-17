@@ -17,7 +17,7 @@ const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 
 /** What the settings routes accept; `normalizeCombos` then drops unknown conditions. */
 export const comboInput = z
-  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), also: z.array(z.string().max(40)).max(6).nullish(), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional(), benchedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(), side: z.enum(['CE', 'PE']).nullish(), stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(), stopAtr: z.coerce.number().min(0.8).max(2.5).optional(), stopPoints: z.coerce.number().min(10).max(150).optional(), exits: z.object({ steps: z.array(z.object({ at: z.coerce.number(), keep: z.coerce.number() })).max(12).optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional() }).nullish(), order: z.object({ risk: z.coerce.number().min(0).max(1_000_000).optional(), maxAmount: z.coerce.number().min(0).max(100_000_000).optional(), stopPct: z.coerce.number().min(0).max(10).optional(), target: z.coerce.number().min(0).max(10_000_000).optional(), exitMin: z.coerce.number().min(0).max(24 * 60).optional() }).nullish() }))
+  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), also: z.array(z.string().max(40)).max(6).nullish(), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional(), benchedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(), side: z.enum(['CE', 'PE']).nullish(), stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(), stopAtr: z.coerce.number().min(0.8).max(2.5).optional(), stopPoints: z.coerce.number().min(10).max(150).optional(), exits: z.object({ steps: z.array(z.object({ at: z.coerce.number(), keep: z.coerce.number() })).max(12).optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional(), cut: z.coerce.number().min(0).max(50_000).nullish() }).nullish(), order: z.object({ risk: z.coerce.number().min(0).max(1_000_000).optional(), maxAmount: z.coerce.number().min(0).max(100_000_000).optional(), stopPct: z.coerce.number().min(0).max(10).optional(), target: z.coerce.number().min(0).max(10_000_000).optional(), exitMin: z.coerce.number().min(0).max(24 * 60).optional() }).nullish() }))
   .max(MAX_COMBOS);
 
 /** Clean a combination from user input: known conditions only, no repeats, at most MAX_CONDITIONS, `need` between 1 and the count. */
@@ -68,9 +68,11 @@ export function normalizeOrder(raw) {
   return Object.keys(out).length ? out : undefined;
 }
 
+export const CUT_LIMITS = [200, 50_000];
+
 /**
  * A combination's own exits, each optional: `steps` (the profit ladder, [] for none), `trail` ({ points, start } or null for none) and
- * `breakEven` (points, 0 for none). A part that is left out uses the shared setting of Account > Limits and Entries. Returns undefined when nothing is set.
+ * `breakEven` (points, 0 for none) and `cut` (rupees: sell once the trade is this much down; none when missing). A part that is left out uses the shared setting of Account > Limits and Entries. Returns undefined when nothing is set.
  */
 export function normalizeExits(raw) {
   if (!raw || typeof raw !== 'object') return undefined;
@@ -89,6 +91,10 @@ export function normalizeExits(raw) {
     const be = Math.round(Number(raw.breakEven));
     if (be === 0 || (be >= 5 && be <= 150)) out.breakEven = be;
   }
+  // its own loss cut in rupees: the trade is sold once it is this much down (before charges), even when the chart stop is further away.
+  // There is no shared one, so 0 or missing means none.
+  const cut = Math.round(Number(raw.cut));
+  if (cut >= CUT_LIMITS[0]) out.cut = Math.min(CUT_LIMITS[1], cut);
   return Object.keys(out).length ? out : undefined;
 }
 

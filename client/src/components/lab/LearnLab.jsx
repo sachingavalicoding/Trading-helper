@@ -3,13 +3,43 @@ import { Brain, Check, Play, Undo2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { istStamp } from '../../lib/study.js';
-import { LEARN_DAYS, loadErrorText, runningText, applyState, compareRows, diffWord, groupChanges, splitLine, verdictBox, windowTitle } from '../../lib/learn.js';
+import { LEARN_DAYS, loadErrorText, runningText, applyState, compareRows, diffWord, groupChanges, splitLine, verdictBox, windowTitle, trackLine } from '../../lib/learn.js';
 import { Badge, Card, Fold, Segmented, Sheet, Skeleton } from '../ui.jsx';
+import { Switch } from '../options/OptionsAutoCard.jsx';
+import { ComboLearn } from './ComboLearn.jsx';
+
+const MODES = [
+  { value: 'combos', label: 'Each combination' },
+  { value: 'setup', label: 'Whole setup' },
+];
+
+/** How the results you applied did on the days after you applied them: the honest test of the learner, filled in by each later run. */
+function TrackRecord({ track }) {
+  if (!track?.length) return null;
+  return (
+    <Card className="space-y-2 p-3">
+      <h3 className="text-sm font-semibold">Since you applied it</h3>
+      <p className="text-[11px] text-muted">Each run replays what you applied against what you had before, on the days after you applied it. Those days were never learned on.</p>
+      {track.map((t) => {
+        const d = (t.new?.net ?? 0) - (t.old?.net ?? 0);
+        return (
+          <div key={t.key} className="border-t border-line pt-1.5 text-[11px] first:border-0 first:pt-0">
+            <div className="flex justify-between gap-2">
+              <span className="truncate font-semibold">{t.name}{t.forced ? ' (applied anyway)' : ''}</span>
+              <Badge tone={d > 0 ? 'up' : d < 0 ? 'down' : 'muted'}>{diffWord(t.new?.net, t.old?.net)}</Badge>
+            </div>
+            <p className="text-muted">{trackLine(t)}</p>
+          </div>
+        );
+      })}
+    </Card>
+  );
+}
 
 const stamp = (iso) => istStamp(Date.parse(iso) / 1000);
 const BOX = { up: 'border-up bg-up-soft', down: 'border-down bg-down-soft', warn: 'border-warn bg-warn/10', muted: 'border-line bg-surface-2' };
 const TEXT = { up: 'text-up', down: 'text-down', warn: 'text-warn', muted: 'text-fg' };
-const ACTION = { started: 'Started', learned: 'Learned', failed: 'Failed to run', applied: 'Applied', 'applied anyway': 'Applied anyway', undone: 'Undone' };
+const ACTION = { started: 'Started', learned: 'Learned', 'learned combos': 'Learned each combination', failed: 'Failed to run', applied: 'Applied', 'applied anyway': 'Applied anyway', undone: 'Undone' };
 
 /** Old against new, one row per measure; the better side of a row is green, the worse red. */
 function Compare({ part, title }) {
@@ -40,6 +70,7 @@ function Compare({ part, title }) {
 export function LearnLab() {
   const [view, setView] = useState(null);
   const [days, setDays] = useState('30');
+  const [mode, setMode] = useState('combos');
   const [busy, setBusy] = useState(false);
   const [asking, setAsking] = useState(false);
   const [loadError, setLoadError] = useState(null);
@@ -92,13 +123,12 @@ export function LearnLab() {
         <h2 className="flex items-center gap-1.5 text-sm font-semibold">
           <Brain className="h-4 w-4 text-accent" /> Learn better settings (Nifty options)
         </h2>
-        <p className="text-[11px] leading-snug text-muted">
-          It tries changes to your whole setup on the saved days: which combinations are on and on which side, an extra indicator on a combination (RSI, MACD, EMA, VWAP, Bollinger, ATR, Supertrend, ADX, or PCR, IV percentile, OI change, max pain, delta and theta), trades a day and loss limits, the stop, the profit ladder and the entry hours. It keeps the <b className="text-fg">newest days (about 1 in 4) hidden</b> while it learns, then replays your old and the new settings on them. It judges on <b className="text-fg">steady profit</b>: fewer and smaller losing days and a better win/loss ratio, not only the total.
-        </p>
         <Segmented className="w-full" size="sm" value={days} onChange={setDays} options={LEARN_DAYS} />
-        <button type="button" className="btn btn-secondary w-full" disabled={running || busy || !view} onClick={() => act('/run', { days: Number(days) })}>
-          <Play className="h-4 w-4" /> {running ? 'Learning…' : 'Learn now (a few minutes)'}
-        </button>
+        <Segmented className="w-full" size="sm" value={mode} onChange={setMode} options={MODES} />
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[11px] leading-snug text-muted"><b className="text-fg">Learn every evening</b> (after 17:00 on trading days, 30 days, both kinds). It only suggests; nothing is applied without your tap.</span>
+          <Switch on={Boolean(view?.evening)} label="Learn every evening" disabled={busy || !view} onClick={() => act('/evening', { on: !view?.evening }, view?.evening ? 'Evening learning off.' : 'Evening learning on.')} />
+        </div>
         {running && <p className="text-[11px] leading-snug text-accent" role="status">{runningText(view.status)}</p>}
         {view?.interrupted && !running && <p className="text-[11px] leading-snug text-warn">{view.interrupted}</p>}
         {view?.simulated && <p className="text-[11px] text-warn">The app is on the practice feed: its candles are made up, so a result here means nothing for real trading.</p>}
@@ -111,6 +141,20 @@ export function LearnLab() {
         </Card>
       )}
       {!view && !loadError && <Skeleton className="h-48 w-full" />}
+      {mode === 'combos' && <ComboLearn view={view} days={days} busy={busy} running={running} act={act} />}
+      {mode === 'combos' && <TrackRecord track={view?.track} />}
+
+      {mode === 'setup' && (
+      <>
+      <Card className="space-y-2.5 p-3">
+        <p className="text-[11px] leading-snug text-muted">
+          It tries changes to your whole setup on the saved days (changes that passed before are tried first, and a change must help through most of the learning days, not one lucky day): which combinations are on and on which side, an extra indicator on a combination (RSI, MACD, EMA, VWAP, Bollinger, ATR, Supertrend, ADX, or PCR, IV percentile, OI change, max pain, delta and theta), trades a day and loss limits, the stop, the profit ladder and the entry hours. It keeps the <b className="text-fg">newest days (about 1 in 4) hidden</b> while it learns, then replays your old and the new settings on them. It judges on <b className="text-fg">steady profit</b>: fewer and smaller losing days and a better win/loss ratio, not only the total.
+        </p>
+        <button type="button" className="btn btn-secondary w-full" disabled={running || busy || !view} onClick={() => act('/run', { days: Number(days), what: 'setup' })}>
+          <Play className="h-4 w-4" /> {running ? 'Learning…' : 'Learn now (a few minutes)'}
+        </button>
+      </Card>
+
       {view && !last && !running && <p className="px-1 text-xs text-muted">Not run yet. Pick how many saved days to use and tap Learn now.</p>}
 
       {last && box && (
@@ -205,6 +249,10 @@ export function LearnLab() {
           </Fold>
           <p className="px-1 text-[11px] leading-snug text-muted">{splitLine(last)}</p>
         </>
+      )}
+
+      <TrackRecord track={view?.track} />
+      </>
       )}
 
       {view?.log?.length > 0 && (
