@@ -15,7 +15,7 @@ import { roundToTick } from '../utils/money.js';
 import { planTrade } from './plan.js';
 import { chaseOf, chaseRise, chaseSkip } from './chase.js';
 import { movedOf, movedMeasures, movedSkip } from './moved.js';
-import { dayBiasOf, dayStand, dayBiasSkip, streakSkip } from './dayBias.js';
+import { dayBiasOf, dayStand, dayBiasSkip, streakSkip, prevBiasOf, prevCloseOf, prevBiasSkip } from './dayBias.js';
 import { formingBar, followsSlot, Holds } from './second.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { istParts } from '../market/marketHours.js';
@@ -546,6 +546,12 @@ export class OptionTrader {
     if (bias && read.c1) {
       const now = Math.floor(this.now().getTime() / 1000);
       const why = dayBiasSkip(dayStand(read.c1, { now: now - (now % 60), price: read.spot }), bias, { side: side.type, index: INDEXES[index].short });
+      if (why) return stop(why);
+    }
+    const prevBias = manual ? null : prevBiasOf(settings);
+    if (prevBias && read.c1) {
+      const now = Math.floor(this.now().getTime() / 1000);
+      const why = prevBiasSkip(prevCloseOf(read.c1, now), prevBias, { side: side.type, price: read.spot, index: INDEXES[index].short });
       if (why) return stop(why);
     }
     let probationLots = null;

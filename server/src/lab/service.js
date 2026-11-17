@@ -10,7 +10,7 @@ import { breakEvenOf, trailOf } from '../study/simulate.js';
 import { PriceBook } from '../study/priceBook.js';
 import { chaseOf } from '../options/chase.js';
 import { movedOf } from '../options/moved.js';
-import { dayBiasOf } from '../options/dayBias.js';
+import { dayBiasOf, prevBiasOf } from '../options/dayBias.js';
 import { badRequest } from '../utils/errors.js';
 import { analyzeLab, lines, presentLab } from './lab.js';
 import { analyzeSharesLab, presentSharesLab, shareLines, sharesDayBars } from './sharesLab.js';
@@ -88,6 +88,7 @@ export class LabService {
         chase: chaseOf(settings),
         moved: movedOf(settings),
         withDay: dayBiasOf(settings),
+        withPrev: prevBiasOf(settings),
         comboStreak: settings?.comboStreak ?? 0,
         entryFrom: entryWindowOf(settings).from,
         entryTo: entryWindowOf(settings).to,

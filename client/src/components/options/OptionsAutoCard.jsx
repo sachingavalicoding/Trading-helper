@@ -298,6 +298,12 @@ export function OptionsAutoCard({ data, reload }) {
         </div>
         <div className="flex items-center justify-between gap-3">
           <p className="text-[11px] leading-snug text-muted">
+            <b className="text-fg">With yesterday's close.</b> Calls only while the index is above yesterday's close, puts only below it. From 28 Oct to 17 Nov the trades against it lost ₹24,471; the ones with it made ₹3,780.
+          </p>
+          <Switch on={s.withPrev !== false} disabled={busy} label="With yesterday's close" onClick={() => save({ withPrev: s.withPrev === false })} />
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] leading-snug text-muted">
             <b className="text-fg">New combinations start at 1 lot.</b> A combination is bought with 1 lot until it has 10 closed live trades. A study of 10 days is a handful of trades; live is the real test.
           </p>
           <Switch on={s.probation !== false} disabled={busy} label="New combinations start at 1 lot" onClick={() => save({ probation: s.probation === false })} />
