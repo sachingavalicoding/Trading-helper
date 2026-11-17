@@ -5,13 +5,14 @@ import { SPEEDS } from '../dayreplay/manager.js';
 import { validate } from '../middleware/validate.js';
 import { checkItems, gatherCheckFacts, gatherWhyFacts, whyItems } from '../dayreplay/diagnose.js';
 import { istParts } from '../market/marketHours.js';
-import { DAY_CHOICES, DELAY_CHOICES, SLIPPAGE_CHOICES } from '../dayreplay/ladder.js';
+import { DAY_CHOICES, DELAY_CHOICES, PARALLEL_CHOICES, SLIPPAGE_CHOICES } from '../dayreplay/ladder.js';
 
 const startBody = z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), speed: z.number().int().refine((s) => SPEEDS.includes(s)).default(1), seconds: z.boolean().default(false) });
 const testBody = z.object({
   days: z.number().int().refine((d) => DAY_CHOICES.includes(d)),
   slippagePct: z.number().refine((x) => SLIPPAGE_CHOICES.includes(x)).default(0.5),
   fillDelaySec: z.number().int().refine((x) => DELAY_CHOICES.includes(x)).default(2),
+  parallel: z.number().int().refine((x) => PARALLEL_CHOICES.includes(x)).default(2),
 });
 const controlBody = z.object({ speed: z.number().refine((s) => SPEEDS.includes(s)).optional(), paused: z.boolean().optional() });
 

@@ -40,11 +40,14 @@ export function replayUriFor(uri) {
   return name.endsWith(REPLAY_SUFFIX) ? uri : withDb(uri, `${name}${REPLAY_SUFFIX}`);
 }
 
-/** The test runs' database: the same server, the database name with `_test_replay` added (it still ends in `_replay`). */
-export function testUriFor(uri) {
+/**
+ * The test runs' database: the same server, the database name with `_test_replay` added (it still ends in `_replay`). Days that run side
+ * by side each get their own: slot 1 is `_test1_replay`, slot 2 `_test2_replay`, and so on.
+ */
+export function testUriFor(uri, slot = 0) {
   const name = dbNameOf(uri);
   if (name.endsWith(REPLAY_SUFFIX)) throw new Error('A test run must start from the live database');
-  return withDb(uri, `${name}${TEST_SUFFIX}`);
+  return withDb(uri, `${name}${slot ? `_test${slot}${REPLAY_SUFFIX}` : TEST_SUFFIX}`);
 }
 
 const COPY_ALL = [User, AutoSettings, OptionSettings, TradeDefaults];

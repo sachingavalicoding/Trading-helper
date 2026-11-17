@@ -61,8 +61,8 @@ test('a day result counts closed round trips after charges, options and shares a
   assert.equal(r.trades, 3);
   assert.equal(r.wins, 1);
   assert.equal(r.net, 355);
-  assert.deepEqual(r.options, { trades: 2, wins: 1, net: 385 });
-  assert.deepEqual(r.shares, { trades: 1, wins: 0, net: -30 });
+  assert.deepEqual(r.options, { trades: 2, wins: 1, net: 385, charges: 115 });
+  assert.deepEqual(r.shares, { trades: 1, wins: 0, net: -30, charges: 80 });
 });
 
 test('summary and the rule a change must pass: more over all the days AND on the newest days', () => {
@@ -145,23 +145,32 @@ test('the step-up test keeps a change only when it beats the best so far, and ne
   });
   t.mock.method(ReplayTest, 'findOne', () => ({ lean: async () => saved.doc }));
   const runs = [];
-  // the setup change earns more on every day; the combination earns more overall but less on the newest day; shares earn more on all
-  const earn = { now: [100, 100, 100], setup: [200, 200, 200], combo: [900, 900, 150], shares: [250, 250, 250] };
-  const runner = {
+  let inFlight = 0;
+  let most = 0;
+  // options earn by the options settings (now 100, the setup change 200, the combination much more but less on the newest day);
+  // shares earn 50 a day only with the shares change. A bot switched off earns nothing.
+  const optEarn = { now: [100, 100, 100], setup: [200, 200, 200], combo: [900, 900, 150] };
+  const makeRunner = () => ({
     stop() {},
     async runDay({ day, settings, slippagePct, fillDelaySec }) {
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
       const s = mongoose.mongo.BSON.EJSON.parse(settings);
       const o = s[OptionSettings.collection.name][0];
       const a = s[AutoSettings.collection.name][0];
-      runs.push({ day, slippagePct, fillDelaySec });
       const i = ['2026-11-04', '2026-11-05', '2026-11-06'].indexOf(day);
-      const kind = a.entryTo === 690 ? 'shares' : o.combos?.[0]?.side === 'CE' ? 'combo' : o.maxTrades === 2 ? 'setup' : 'now';
+      const kind = o.combos?.[0]?.side === 'CE' ? 'combo' : o.maxTrades === 2 ? 'setup' : 'now';
+      runs.push({ day, slippagePct, fillDelaySec, options: o.enabled !== false, shares: a.enabled !== false });
       assert.equal(o.dailyLossPct, 10, 'every run keeps your daily loss limit');
-      return { day, net: earn[kind][i], trades: 1, wins: 1, options: { net: earn[kind][i] }, shares: { net: 0 } };
+      const options = o.enabled === false ? 0 : optEarn[kind][i];
+      const shares = a.enabled === false || a.entryTo !== 690 ? 0 : 50;
+      return { day, net: options + shares, trades: 2, wins: 2, options: { trades: 1, wins: 1, net: options, charges: 0 }, shares: { trades: 1, wins: 1, net: shares, charges: 0 } };
     },
-  };
-  const ladder = new ReplayLadder({ runner });
-  await ladder.start(userId, { days: 3, slippagePct: 0.5, fillDelaySec: 2 });
+  });
+  const ladder = new ReplayLadder({ runners: [makeRunner(), makeRunner()] });
+  await ladder.start(userId, { days: 3, slippagePct: 0.5, fillDelaySec: 2, parallel: 2 });
   while (ladder.job) await new Promise((r) => setTimeout(r, 5));
   const d = saved.doc;
   assert.equal(d.state, 'done');
@@ -171,5 +180,9 @@ test('the step-up test keeps a change only when it beats the best so far, and ne
   assert.equal(d.steps[3].summary.net, 750);
   assert.equal(runs.length, 9, 'three runs of three days');
   assert.ok(runs.every((r) => r.slippagePct === 0.5 && r.fillDelaySec === 2));
+  assert.equal(most, 2, 'two days play side by side');
+  assert.deepEqual(runs.filter((r) => !r.shares).length, 3, 'the options change replays only the options bot');
+  assert.deepEqual(runs.filter((r) => !r.options).length, 3, 'the shares change replays only the shares bot');
+  assert.deepEqual(d.steps[3].results.map((r) => r.options.net), [200, 200, 200], 'its options days come from the best run so far');
   assert.equal(JSON.stringify(live), liveBefore, 'the live settings are untouched');
 });

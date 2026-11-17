@@ -15,14 +15,15 @@ const DAY_TIMEOUT_MS = 40 * 60_000;
  * given (never the live ones, never linked to them), at test speed, on 1-minute candles. Resolves with the day's result (dayreplay/result.js).
  */
 export class TestRunner {
-  constructor({ config, spawnFn = spawn }) {
+  constructor({ config, spawnFn = spawn, slot = 0 }) {
     this.config = config;
+    this.slot = slot; // several runners play days side by side, each on its own port and database
     this.spawnFn = spawnFn;
     this.child = null;
   }
 
   get port() {
-    return (this.config.replayPort || this.config.port + 1) + 1; // the hand replay has port + 1
+    return (this.config.replayPort || this.config.port + 1) + 1 + this.slot; // the hand replay has port + 1
   }
 
   get busy() {
@@ -44,6 +45,7 @@ export class TestRunner {
           REPLAY_DAY: day,
           REPLAY_SPEED: String(speed),
           REPLAY_TEST: '1',
+          REPLAY_TEST_SLOT: String(this.slot),
           REPLAY_SECONDS: '0',
           REPLAY_SETTINGS_FILE: settingsFile,
           REPLAY_RESULT_FILE: resultFile,

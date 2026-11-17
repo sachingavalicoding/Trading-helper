@@ -20,6 +20,9 @@ import { TEST_SPEED } from './testRunner.js';
 export const DAY_CHOICES = [3, 5, 10, 15];
 export const SLIPPAGE_CHOICES = [0, 0.25, 0.5, 1]; // % worse than the price seen
 export const DELAY_CHOICES = [0, 2, 5, 10]; // seconds before a market order fills
+export const PARALLEL_CHOICES = [1, 2, 3, 4]; // days played side by side (each a copy of the server: more needs a stronger computer)
+/** Which bot a change touches: an options change only needs the options bot replayed, a shares change only the shares bot. */
+const SIDE = { setup: 'options', combo: 'options', shares: 'shares' };
 const NAMES = { optionsettings: OptionSettings.collection.name, autosettings: AutoSettings.collection.name, tradedefaults: TradeDefaults.collection.name };
 const EJSON = mongoose.mongo.BSON.EJSON;
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -45,6 +48,36 @@ export function summarize(results, hidden = []) {
     options: r2(results.reduce((s, r) => s + (r.options?.net ?? 0), 0)),
     shares: r2(results.reduce((s, r) => s + (r.shares?.net ?? 0), 0)),
   };
+}
+
+const none = { trades: 0, wins: 0, net: 0, charges: 0 };
+
+/**
+ * One day of a change that touched only one bot: that bot's part from the new run, the other bot's part from the best run so far (the
+ * other bot's settings are the same, so it would trade the same). The two bots only meet through the paper money they share.
+ */
+export function mergeSide(best, run, side) {
+  const options = (side === 'options' ? run.options : best.options) ?? none;
+  const shares = (side === 'shares' ? run.shares : best.shares) ?? none;
+  return {
+    day: best.day,
+    trades: options.trades + shares.trades,
+    wins: options.wins + shares.wins,
+    net: r2(options.net + shares.net),
+    charges: r2((options.charges ?? 0) + (shares.charges ?? 0)),
+    options,
+    shares,
+    stillOpen: run.stillOpen ?? 0,
+    reused: side === 'options' ? 'shares' : 'options',
+  };
+}
+
+/** A copy of the settings with the other bot switched off, so a run plays only the bot the change touches. */
+export function onlySide(docs, side) {
+  const out = clone(docs);
+  if (side === 'options' && out.autosettings) out.autosettings.enabled = false;
+  if (side === 'shares' && out.optionsettings) out.optionsettings.enabled = false;
+  return out;
 }
 
 /** Does `cand` beat `best`? It must earn more over all the days AND more on the hidden (newest) days. */
@@ -157,8 +190,8 @@ export async function testDays(now = new Date()) {
 
 /** Runs the step-up tests, one at a time, through a TestRunner, and keeps the state in ReplayTest. */
 export class ReplayLadder {
-  constructor({ runner, learn = null }) {
-    this.runner = runner;
+  constructor({ runner = null, runners = null, learn = null }) {
+    this.runners = runners ?? [runner];
     this.learn = learn;
     this.job = null; // { userId, stop }
   }
@@ -175,10 +208,11 @@ export class ReplayLadder {
     const candidates = ladderCandidates(st).map(({ key, kind, name, changes, verdict }) => ({ key, kind, name, changes, verdict }));
     let stale = false;
     if (test?.state === 'done' && test.base) stale = fingerprintDocs(await this.#liveDocs(userId)) !== test.base;
-    return { test: test ?? null, running: this.job?.userId === String(userId), candidates, days, stale, choices: { days: DAY_CHOICES, slippage: SLIPPAGE_CHOICES, delay: DELAY_CHOICES }, speed: TEST_SPEED };
+    return { test: test ?? null, running: this.job?.userId === String(userId), candidates, days, stale, choices: { days: DAY_CHOICES, slippage: SLIPPAGE_CHOICES, delay: DELAY_CHOICES, parallel: PARALLEL_CHOICES.filter((n) => n <= this.runners.length) }, speed: TEST_SPEED };
   }
 
-  async start(userId, { days: count, slippagePct = 0.5, fillDelaySec = 2 }) {
+  async start(userId, { days: count, slippagePct = 0.5, fillDelaySec = 2, parallel = 2 }) {
+    const side = Math.max(1, Math.min(parallel, this.runners.length));
     if (this.job) throw conflict('A replay test is already running. Stop it first.');
     if (!DAY_CHOICES.includes(count)) throw badRequest(`Pick ${DAY_CHOICES.join(', ')} days`);
     const st = await LearnerState.findOne({ user: userId, kind: KIND }).lean();
@@ -192,12 +226,12 @@ export class ReplayLadder {
     const steps = [{ key: 'now', kind: 'now', name: 'Your settings now', changes: [], verdict: 'waiting', results: [] }, ...cands.map(({ key, kind, id, name, changes }) => ({ key, kind, id, name, changes, verdict: 'waiting', results: [] }))];
     const test = await ReplayTest.findOneAndUpdate(
       { user: userId },
-      { $set: { state: 'running', days, hidden, fill: { slippagePct, fillDelaySec }, steps, at: null, base: fingerprintDocs(live), error: '', startedAt: new Date(), finishedAt: null, applied: null } },
+      { $set: { state: 'running', days, hidden, fill: { slippagePct, fillDelaySec, parallel: side }, steps, at: null, base: fingerprintDocs(live), error: '', startedAt: new Date(), finishedAt: null, applied: null } },
       { upsert: true, new: true },
     );
     const job = { userId: String(userId), stopped: false };
     this.job = job;
-    this.#run(job, test._id, live, cands, { days, hidden, slippagePct, fillDelaySec }).finally(() => {
+    this.#run(job, test._id, live, cands, { days, hidden, slippagePct, fillDelaySec, parallel: side }).finally(() => {
       if (this.job === job) this.job = null;
     });
     return this.view(userId);
@@ -207,26 +241,42 @@ export class ReplayLadder {
     await ReplayTest.updateOne({ _id: id }, { $set: set });
   }
 
-  /** Plays every day with one set of settings; saves each day's result as it comes. */
-  async #playAll(job, id, stepIndex, docs, o) {
-    const settings = settingsFileOf(docs);
-    const results = [];
-    for (const day of o.days) {
-      if (job.stopped) return null;
-      await this.#save(id, { at: { step: stepIndex, day }, [`steps.${stepIndex}.verdict`]: 'running' });
-      const r = await this.runner.runDay({ day, settings, slippagePct: o.slippagePct, fillDelaySec: o.fillDelaySec });
-      results.push(r);
-      await this.#save(id, { [`steps.${stepIndex}.results`]: results });
-    }
-    return results;
+  /**
+   * Plays every day with one set of settings, `o.parallel` days at a time (each runner its own copy of the server and database; the days
+   * do not depend on each other, so the result is the same as one by one). Saves the days as they finish. With `side`, only that bot plays
+   * and the other bot's part of each day comes from `bestResults`.
+   */
+  async #playAll(job, id, stepIndex, docs, o, side = null, bestResults = null) {
+    const settings = settingsFileOf(side ? onlySide(docs, side) : docs);
+    const results = new Array(o.days.length).fill(null);
+    let next = 0;
+    let failed = null;
+    await this.#save(id, { at: { step: stepIndex, day: o.days[0] }, [`steps.${stepIndex}.verdict`]: 'running' });
+    const worker = async (runner) => {
+      while (!job.stopped && !failed && next < o.days.length) {
+        const i = next++;
+        const day = o.days[i];
+        try {
+          const r = await runner.runDay({ day, settings, slippagePct: o.slippagePct, fillDelaySec: o.fillDelaySec });
+          results[i] = side ? mergeSide(bestResults[i], r, side) : r;
+          await this.#save(id, { at: { step: stepIndex, day: o.days[Math.min(next, o.days.length - 1)] }, [`steps.${stepIndex}.results`]: results.filter(Boolean) });
+        } catch (err) {
+          failed ??= err;
+          for (const other of this.runners) other.stop();
+        }
+      }
+    };
+    await Promise.all(this.runners.slice(0, o.parallel ?? 1).map(worker));
+    if (failed && !job.stopped) throw failed;
+    return job.stopped ? null : results;
   }
 
   async #run(job, id, live, cands, o) {
     try {
       let best = clone(live);
-      const baseResults = await this.#playAll(job, id, 0, best, o);
-      if (!baseResults) return;
-      let bestSum = summarize(baseResults, o.hidden);
+      let bestResults = await this.#playAll(job, id, 0, best, o);
+      if (!bestResults) return;
+      let bestSum = summarize(bestResults, o.hidden);
       await this.#save(id, { 'steps.0.verdict': 'base', 'steps.0.summary': bestSum, 'steps.0.why': 'What your settings earn now. Each change below must beat the best so far.' });
       let setupKept = false;
       for (let i = 0; i < cands.length; i += 1) {
@@ -241,7 +291,8 @@ export class ReplayLadder {
           await this.#save(id, { [`steps.${at}.verdict`]: 'skipped', [`steps.${at}.why`]: 'Skipped: that combination is no longer saved.' });
           continue;
         }
-        const results = await this.#playAll(job, id, at, docs, o);
+        // a change to one bot replays only that bot; the other bot's days are the best run's
+        const results = await this.#playAll(job, id, at, docs, o, SIDE[c.kind] ?? null, bestResults);
         if (!results) return;
         const sum = summarize(results, o.hidden);
         const b = beats(sum, bestSum);
@@ -249,6 +300,7 @@ export class ReplayLadder {
         if (b.ok) {
           best = docs;
           bestSum = sum;
+          bestResults = results;
           if (c.kind === 'setup') setupKept = true;
         }
       }
@@ -265,7 +317,7 @@ export class ReplayLadder {
   async stop(userId) {
     if (this.job?.userId === String(userId)) {
       this.job.stopped = true;
-      this.runner.stop();
+      for (const r of this.runners) r.stop();
     }
     return this.view(userId);
   }

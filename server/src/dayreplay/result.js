@@ -12,7 +12,7 @@ export function dayResult(day, positions) {
   const closed = trades.filter((t) => !t.open);
   const part = (seg) => {
     const list = closed.filter((t) => t.segment === seg);
-    return { trades: list.length, wins: list.filter((t) => t.net > 0).length, net: r2(list.reduce((s, t) => s + t.net, 0)) };
+    return { trades: list.length, wins: list.filter((t) => t.net > 0).length, net: r2(list.reduce((s, t) => s + t.net, 0)), charges: r2(list.reduce((s, t) => s + t.charges, 0)) };
   };
   return {
     day,
