@@ -1,4 +1,4 @@
-import { dayBiasOf } from '../options/dayBias.js';
+import { dayBiasOf, prevBiasOf } from '../options/dayBias.js';
 import { StudyRun, OptionSettings, AutoSettings } from '../models/index.js';
 import { normalizeCombos } from '../combos/combos.js';
 import { stopRuleOf } from './patterns.js';
@@ -146,6 +146,7 @@ export class StudyService {
       breakEven: breakEvenOf(settings),
       chase: chaseOf(settings),
       withDay: dayBiasOf(settings),
+      withPrev: prevBiasOf(settings),
       comboStreak: settings?.comboStreak ?? 0,
       moved: movedOf(settings),
       autoFind,
@@ -251,6 +252,7 @@ export class StudyService {
       breakEven: breakEvenOf(settings),
       chase: chaseOf(settings),
       withDay: dayBiasOf(settings),
+      withPrev: prevBiasOf(settings),
       comboStreak: settings?.comboStreak ?? 0,
       moved: movedOf(settings),
       lossLimit: rules.stopLoss ?? 0,

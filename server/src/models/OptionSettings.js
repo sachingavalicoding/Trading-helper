@@ -31,6 +31,7 @@ const optionSettingsSchema = new mongoose.Schema(
     movedCheck: { type: String, enum: ['off', ...MOVED_KEYS], default: 'off' }, // the "already moved" check on the index (options/moved.js): which measure...
     movedLimit: { type: Number, default: 0, min: 0, max: 100 }, // ...and the most it may show in the trade's direction (0 = off)
     withDay: { type: Boolean, default: false }, // the "with the day" check (options/dayBias.js): calls only above today's open and average, puts only below both
+    withPrev: { type: Boolean, default: true }, // the "with yesterday's close" check (options/dayBias.js): calls only above yesterday's close, puts only below it
     comboStreak: { type: Number, default: 0, min: 0, max: 100 }, // 0 = off; otherwise an entry (pattern or combination) that lost this many times in a row today rests until tomorrow
     probation: { type: Boolean, default: true }, // a combination with fewer than PROBATION_TRADES closed live trades is bought with 1 lot only
     pausedOn: { type: String, default: null }, // 'YYYY-MM-DD' (IST): no new automatic buy on that day; open trades are still managed

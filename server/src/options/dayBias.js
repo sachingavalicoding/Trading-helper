@@ -37,6 +37,33 @@ export function dayBiasSkip(stand, bias, { side, index = 'Nifty' } = {}) {
   return null;
 }
 
+// The "with yesterday's close" check: buy a call only while the index is above yesterday's close, a put only while it is below.
+// From 28 Oct to 17 Nov 2026 the live option trades (91, two accounts) that agreed with it made +Rs 3,780 and the ones against it lost
+// Rs 24,471; it held in both accounts and in both halves of the period. It has nothing to tune, so it is on unless switched off.
+
+/** The check's settings ({ on: true }) unless the user switched it off. */
+export const prevBiasOf = (settings) => (settings?.withPrev === false ? null : { on: true });
+
+/** Yesterday's close: the last 1-minute close of the latest day before `now`'s day in `c1` (oldest first). Null when c1 has no earlier day. */
+export function prevCloseOf(c1, now) {
+  if (!Array.isArray(c1)) return null;
+  const day = Math.floor((now + 19800) / 86400);
+  for (let i = c1.length - 1; i >= 0; i--) {
+    const b = c1[i];
+    if (b && Math.floor((b.time + 19800) / 86400) < day) return b.close;
+  }
+  return null;
+}
+
+/** Why the check says no to a `side` buy at `price`, or null when it lets it through (or it is off, or yesterday is unknown). */
+export function prevBiasSkip(prevClose, bias, { side, price, index = 'Nifty' } = {}) {
+  if (!bias || !(prevClose > 0) || !(price > 0)) return null;
+  const r = (x) => Math.round(x * 100) / 100;
+  if (side === 'CE' && !(price > prevClose)) return `with yesterday's close: ${index} ${r(price)} is not above yesterday's close ${r(prevClose)}, so no call`;
+  if (side === 'PE' && !(price < prevClose)) return `with yesterday's close: ${index} ${r(price)} is not below yesterday's close ${r(prevClose)}, so no put`;
+  return null;
+}
+
 /**
  * The losing-streak pause: `trades` are one entry's (pattern or combination) closed trades of today, oldest first, each with `net`.
  * With `limit` losses in a row at the end, that entry stops for the rest of the day. 0 = off.

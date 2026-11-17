@@ -14,7 +14,7 @@ import { findPairs, findCombos, findWinners, pairStart } from './pairFinder.js';
 import { runLadderTest, MIN_SPLIT_DAYS } from './ladderTest.js';
 import { runMovedTest } from './movedTest.js';
 import { movedMeasures, movedSkip, istMinutes } from '../options/moved.js';
-import { dayStand, dayBiasSkip, streakSkip } from '../options/dayBias.js';
+import { dayStand, dayBiasSkip, streakSkip, prevCloseOf, prevBiasSkip } from '../options/dayBias.js';
 
 // The options study: what each way of reading the Nifty chart would have earned on the last few weeks, as paper trades of one lot.
 // It reads history and changes nothing: the live trading rules are not touched by it.
@@ -329,6 +329,14 @@ export function tradesFor(signals, { c1, byTime, params }) {
       const i = byTime.get(at) ?? c1.length;
       if (dayBiasSkip(dayStand(c1.slice(Math.max(0, i - 400), i), { now: at, price: entry }), params.withDay, { side: s.side })) {
         skips.withDay = (skips.withDay || 0) + 1;
+        continue;
+      }
+    }
+    if (params.withPrev) {
+      // the "with yesterday's close" check, as live: calls only above yesterday's close, puts only below it
+      const i = byTime.get(at) ?? c1.length;
+      if (prevBiasSkip(prevCloseOf(c1.slice(Math.max(0, i - 400), i), at), params.withPrev, { side: s.side, price: entry })) {
+        skips.withPrev = (skips.withPrev || 0) + 1;
         continue;
       }
     }
