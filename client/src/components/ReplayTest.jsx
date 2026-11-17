@@ -70,6 +70,7 @@ function StepRow({ s, i, hidden, base, total }) {
         </div>
       )}
       {s.why && <p className="mt-1.5 text-xs leading-snug">{s.why}</p>}
+      {s.results?.[0]?.reused && <p className="mt-1 text-[11px] text-muted">Only the {s.results[0].reused === 'shares' ? 'options' : 'shares'} bot was replayed for this change; the {s.results[0].reused} days are the best run's (they would trade the same).</p>}
       {s.verdict === 'running' && <p className="mt-1.5 text-xs text-muted">{s.results?.length ?? 0} of {total} days done</p>}
       {s.results?.length > 0 && (
         <button type="button" className="mt-1.5 text-xs text-accent" onClick={() => setOpen(!open)}>{open ? 'Hide days' : 'Each day'}</button>
@@ -97,6 +98,7 @@ export function ReplayTestCard() {
   const [days, setDays] = useState(5);
   const [slip, setSlip] = useState(0.5);
   const [delay, setDelay] = useState(2);
+  const [parallel, setParallel] = useState(2);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -135,6 +137,8 @@ export function ReplayTestCard() {
   const kept = t?.steps?.filter((s) => s.verdict === 'kept') ?? [];
   const best = [...(t?.steps ?? [])].reverse().find((s) => s.verdict === 'kept' || s.verdict === 'base')?.summary;
   const runs = (d.candidates.length + 1) * days;
+  const together = Math.min(parallel, d.choices?.parallel?.at(-1) ?? 1);
+  const minutes = Math.max(5, Math.round((Math.ceil(runs / together) * 2.5) / 5) * 5);
   const canApply = t?.state === 'done' && kept.length > 0 && !t.applied && !d.stale;
 
   async function apply() {
@@ -161,10 +165,11 @@ export function ReplayTestCard() {
               <Choice label="Days (newest saved days)" options={d.choices.days} value={days} onChange={setDays} fmt={(x) => `${x} days`} />
               <Choice label="Slippage (fill worse than the price seen)" options={d.choices.slippage} value={slip} onChange={setSlip} fmt={(x) => `${x}%`} />
               <Choice label="Fill delay (market orders)" options={d.choices.delay} value={delay} onChange={setDelay} fmt={(x) => `${x}s`} />
+              <Choice label="Days at once (same result, faster; 3-4 needs a strong computer, use 1 on a phone)" options={d.choices.parallel} value={together} onChange={setParallel} fmt={(x) => `${x}`} />
               <p className="text-[11px] leading-snug text-muted">
-                {runs} day runs in a row (about {Math.round((runs * 2.5) / 5) * 5 || 5} minutes on a fast computer, longer on a phone). The app stays usable. All days play on 1-minute candles, the same way for every day. The newest {Math.max(1, Math.round(days / 3))} day(s) are the check a change must pass.
+                {runs} day runs, {together} at a time (about {minutes} minutes on a laptop, often less: a change to one bot replays only that bot). The app stays usable. All days play on 1-minute candles, the same way for every day. The newest {Math.max(1, Math.round(days / 3))} day(s) are the check a change must pass.
               </p>
-              <button type="button" className="btn btn-primary w-full" disabled={busy || d.days.length < days} onClick={() => act('start', { days, slippagePct: slip, fillDelaySec: delay })}>
+              <button type="button" className="btn btn-primary w-full" disabled={busy || d.days.length < days} onClick={() => act('start', { days, slippagePct: slip, fillDelaySec: delay, parallel: together })}>
                 {d.days.length < days ? `Only ${d.days.length} days saved` : 'Start replay test'}
               </button>
             </>
@@ -176,7 +181,7 @@ export function ReplayTestCard() {
         <div className="mt-4 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
             <span className="text-muted">
-              {t.days?.length} days, {dayText(t.days[0])} to {dayText(t.days.at(-1))} · slippage {t.fill?.slippagePct}% · delay {t.fill?.fillDelaySec}s
+              {t.days?.length} days, {dayText(t.days[0])} to {dayText(t.days.at(-1))} · slippage {t.fill?.slippagePct}% · delay {t.fill?.fillDelaySec}s{t.fill?.parallel ? ` · ${t.fill.parallel} at once` : ''}
             </span>
             {d.running && <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => act('stop')}>Stop</button>}
           </div>

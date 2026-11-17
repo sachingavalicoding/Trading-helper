@@ -38,6 +38,7 @@ export const env = {
         test: bool(process.env.REPLAY_TEST, false),
         settingsFile: process.env.REPLAY_SETTINGS_FILE || '',
         resultFile: process.env.REPLAY_RESULT_FILE || '',
+        slot: num(process.env.REPLAY_TEST_SLOT, 0), // which of the side-by-side test copies this is (its own database)
       }
     : null,
   // Fills made worse than the price seen, so a replay is not rosier than a live day: a market order fills `fillDelaySec` seconds later,

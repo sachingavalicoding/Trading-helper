@@ -18,7 +18,7 @@ const atMinute = (day, minute) => Date.parse(`${day}T00:00:00Z`) - IST_MS + minu
 export async function prepareReplay(env) {
   const { day, speed, sourceMongoUri, seconds, test, settingsFile } = env.replay;
   const sourceUri = sourceMongoUri || env.mongoUri;
-  const targetUri = test ? testUriFor(sourceUri) : replayUriFor(sourceUri);
+  const targetUri = test ? testUriFor(sourceUri, env.replay.slot) : replayUriFor(sourceUri);
   logger.info(`Replay of ${day}: copying the saved data into the test database`);
   // a test run trades with its own copy of the settings, written by the live server (EJSON keeps the ids as ids)
   const settings = test && settingsFile ? mongoose.mongo.BSON.EJSON.parse(readFileSync(settingsFile, 'utf8')) : null;

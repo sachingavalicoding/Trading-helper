@@ -80,8 +80,9 @@ async function main() {
   const learn = new LearnService({ lab, market, study, config: env });
   if (!replay) learn.schedule(); // Learn's evening run, for users who switched it on
   if (dayReplay.manager) {
-    dayReplay.ladder = new ReplayLadder({ runner: new TestRunner({ config: env }), learn }); // replay tests of Learn's changes
-    process.on('exit', () => dayReplay.ladder.runner.child?.kill());
+    // replay tests of Learn's changes; up to 4 days play side by side, each copy on its own port and database
+    dayReplay.ladder = new ReplayLadder({ runners: [0, 1, 2, 3].map((slot) => new TestRunner({ config: env, slot })), learn });
+    process.on('exit', () => dayReplay.ladder.runners.forEach((r) => r.child?.kill()));
   }
   const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history, optionHistory, ticks, dayReplay, study, learner, lab, learn });
   const server = http.createServer(app);
@@ -95,7 +96,7 @@ async function main() {
   const shutdown = async (signal) => {
     logger.info(`${signal} received, shutting down`);
     dayReplay.manager?.stop();
-    dayReplay.ladder?.runner.stop();
+    dayReplay.ladder?.runners.forEach((r) => r.stop());
     settingsSync?.stop();
     engine.stop();
     tracker.stop();
