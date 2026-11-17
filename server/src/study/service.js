@@ -68,6 +68,24 @@ export class StudyService {
     }
   }
 
+  /**
+   * The research script (scripts/research.js): runs a study and resolves with its result without saving it, so the user's own last
+   * study stays as it was. kind is 'options', 'shares', 'ladder' or 'moved'; opts as in start().
+   */
+  async quietRun(userId, kind, opts = {}, onStep = () => {}) {
+    const job = { state: 'running', step: 'Starting', startedAt: Date.now(), quiet: true };
+    const watch = setInterval(() => onStep(job.step), 2000);
+    try {
+      const { index = DEFAULT_INDEX, days } = opts;
+      if (kind === 'ladder') return await this.#runLadder(userId, job, { index, days: days ?? 30 });
+      if (kind === 'moved') return await this.#runMoved(userId, job, { index, days: days ?? 30 });
+      if (kind === 'shares') return await this.#runShares(userId, job, { days: days ?? 15, ...opts });
+      return await this.#runOptions(userId, job, { realPrices: true, live: true, iv: 0.14, days: days ?? 30, ...opts });
+    } finally {
+      clearInterval(watch);
+    }
+  }
+
   async #save(userId, kind, result) {
     const simulated = Boolean(this.market.provider.isSimulated);
     await StudyRun.findOneAndUpdate({ user: userId, kind }, { result, simulated }, { upsert: true, new: true });
@@ -176,7 +194,7 @@ export class StudyService {
     };
     const result = await runOptionsStudy({ nifty1, stocks5, params, onProgress: (step) => { job.step = step; } });
     result.pricing = prices ? prices.describe() : { mode: 'estimated', iv, ...(noPrices ? { note: 'No real option prices are saved for this index yet (one day is saved each evening after 15:40), so the premiums are estimated.' } : {}) };
-    if (learn) return result; // the learner keeps its own result (learner/service.js), not the user's last study
+    if (learn || job.quiet) return result; // the learner keeps its own result (learner/service.js), not the user's last study
     await this.#save(userId, 'options', result);
   }
 
@@ -187,6 +205,7 @@ export class StudyService {
     result.pricing = prices.describe();
     result.applyKey = 'options'; // where "Use this ladder" saves it
     result.lockOn = params.lockOn;
+    if (job.quiet) return result;
     await this.#save(userId, 'ladder', result);
   }
 
@@ -197,6 +216,7 @@ export class StudyService {
     const result = await runMovedStudy({ nifty1, stocks5, params, onProgress: (step) => { job.step = step; } });
     result.pricing = prices.describe();
     result.now = { moved: movedOf(settings), chase: chaseOf(settings), entryTo: params.entryTo };
+    if (job.quiet) return result;
     await this.#save(userId, 'moved', result);
   }
 
@@ -308,7 +328,7 @@ export class StudyService {
     }
     const [rules, auto] = await Promise.all([loadRules(userId, 'EQ'), AutoSettings.findOne({ user: userId }).lean()]);
     const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, target, exitMin: exitMin ?? rules.exitMin, maxAmount: auto?.maxTradeAmount ?? 0, settings: auto ?? null, combos: normalizeCombos(auto?.combos), pairFind, pairFirst, comboFind, pairDepth, pairShow, pairGoal, pairParts, learn, finderOnly: pairFind || comboFind || Boolean(learn) }, onProgress: (step) => { job.step = step; } });
-    if (learn) return result;
+    if (learn || job.quiet) return result;
     await this.#save(userId, 'shares', result);
   }
 }
