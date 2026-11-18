@@ -94,7 +94,7 @@ export function PairFinder({ pf, endpoint = '/options', callWord = 'Calls', putW
     try {
       await api(endpoint, { method: 'PUT', body: { combos: withFound(saved, f, stop, exits) } });
       own.reload?.();
-      toast.success('Added, switched off. Turn it on under Account > Entries.');
+      toast.success('Added, switched off. Turn it on under Combos.');
     } catch (e) {
       toast.error(e.message || 'Could not add');
     } finally {

@@ -103,7 +103,7 @@ export function ComboResearch({ r, own = false, onApplied }) {
             )}
           </div>
         )}
-        <p className="text-[11px] leading-snug text-muted">The stop is the one most worth getting right, but about 40 settings were tried on one stretch of days: trust a row that earns on both the older and the newer days. Profit settings (ladder, trail, break-even) can be set for one combination, or shared by every entry from Account &gt; Limits and Entries; a combination with its own uses those.</p>
+        <p className="text-[11px] leading-snug text-muted">The stop is the one most worth getting right, but about 40 settings were tried on one stretch of days: trust a row that earns on both the older and the newer days. Profit settings (ladder, trail, break-even) can be set for one combination, or shared by every entry from Settings; a combination with its own uses those.</p>
       </div>
     </details>
   );

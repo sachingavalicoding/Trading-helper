@@ -16,7 +16,7 @@ const SIDE = {
   PE: { title: 'Put (PE)', hint: 'pays if it falls', icon: TrendingDown, tone: 'down' },
 };
 
-/** The plan the trader would place if you bought now: size, the chart stop, the loss and the profit lock from the Account tab. */
+/** The plan the trader would place if you bought now: size, the chart stop, the loss and the profit lock from Settings. */
 function PlanPreview({ preview, type, name }) {
   if (!preview) return null;
   if (preview.skipped) return <p className="rounded-lg bg-surface-2 p-2 text-xs text-muted">Would not buy now: {preview.skipped}.</p>;
@@ -51,7 +51,7 @@ function ScoreBlock({ side, mode, best }) {
   const score = Math.round(side.score);
   const min = mode?.minScore ?? 70;
   let status;
-  if (!mode?.on) status = 'The Indicator score entry is off (Account > Entries), so this score only filters patterns and combinations that have a minimum score.';
+  if (!mode?.on) status = 'The Indicator score entry is off (Combos), so this score only filters patterns and combinations that have a minimum score.';
   else if (best === side.type) status = score >= min ? `At or above your ${min}, the stronger side and nothing blocks it: the bot buys this side if your limits allow.` : `The stronger side, but under your ${min}: no buy yet.`;
   else if (side.blocked?.length) status = `Not bought: ${side.blocked[0]}.`;
   else if (score >= min) status = 'High enough, but the other side scores within 10 points, so the bot waits.';
@@ -139,7 +139,7 @@ export function OptionsSignal({ index = 'NIFTY', onBought }) {
   async function buy(type, contract, preview) {
     const lots = preview?.plan?.lots ?? 1;
     const cost = formatINR(contract.lotCost * lots);
-    if (!window.confirm(`Buy ${lots} lot${lots > 1 ? 's' : ''} of ${contract.label} for about ${cost} (paper money)? It sells if the ${idx.short} chart level breaks; the loss limit and profit lock come from your Account tab.`)) return;
+    if (!window.confirm(`Buy ${lots} lot${lots > 1 ? 's' : ''} of ${contract.label} for about ${cost} (paper money)? It sells if the ${idx.short} chart level breaks; the loss limit and profit lock come from your Settings.`)) return;
     setBusy(true);
     try {
       const { plan } = await api('/options/buy', { method: 'POST', body: { type, lots, index } });

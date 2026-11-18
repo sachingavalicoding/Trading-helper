@@ -3,7 +3,7 @@ import { useApi } from '../../lib/useApi.js';
 import { DEFAULT_EXIT_MIN, minOfTime, timeText } from '../../lib/ladder.js';
 
 /**
- * The time a study closes every trade. It starts at the exit time saved in Account Limits for `segment` ('shares' or 'options'),
+ * The time a study closes every trade. It starts at the exit time saved in Settings for `segment` ('shares' or 'options'),
  * and typing another one tries it for this run only. `exitMin` is null while the box holds something that is not a time from 09:15 to 15:15.
  */
 export function useExitTime(segment) {

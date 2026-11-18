@@ -10,7 +10,6 @@ import { indexOf, loadIndex, saveIndex } from '../lib/indexes.js';
 import { stopRuleText, whatIfText } from '../lib/stops.js';
 import { ReviewChart } from '../components/ReviewChart.jsx';
 import { PatternChart } from '../components/PatternChart.jsx';
-import { ImproveCombo } from '../components/ImproveCombo.jsx';
 import { InfoButton } from '../components/CheckInfo.jsx';
 import { ReviewStockSheet } from '../components/ReviewStockSheet.jsx';
 import { Badge, Card, EmptyState, Fold, Segmented, Skeleton } from '../components/ui.jsx';
@@ -314,14 +313,11 @@ function PatternsTab({ day }) {
   const idx = indexOf(index);
   const [watch, setWatch] = useState(loadWatch);
   const checks = checksOf(watch).join(',');
-  const [trial, setTrial] = useState({ id: '', add: [] }); // the combination being improved and the indicators tried on it
   const [model, setModel] = useState(false); // true: the model's estimated premiums even when real ones are saved for the day
-  const trialQ = trial.id ? `&trial=${encodeURIComponent(trial.id)}${trial.add.length ? `:${trial.add.join(',')}` : ''}` : '';
-  const { data, loading, error } = useApi(`/review/patterns?day=${day}&index=${index}${checks ? `&checks=${encodeURIComponent(checks)}` : ''}${trialQ}${model ? '&real=0' : ''}`, []);
+  const { data, loading, error } = useApi(`/review/patterns?day=${day}&index=${index}${checks ? `&checks=${encodeURIComponent(checks)}` : ''}${model ? '&real=0' : ''}`, []);
   const [showChecks, setShowChecks] = useState(false);
   const [selected, setSelected] = useState(null);
   useEffect(() => setSelected(null), [day]);
-  useEffect(() => setTrial((t) => (t.add.length ? { ...t, add: [] } : t)), [day]);
   useEffect(() => {
     const offer = data && offerCombos(watch, loadSeen(), data.patterns);
     if (!offer) return;
@@ -329,8 +325,7 @@ function PatternsTab({ day }) {
     saveWatch(offer.watch);
     saveSeen(offer.seen);
   }, [data, watch]);
-  const watchAll = useMemo(() => (trial.id && trial.add.length ? [...watch, `combo:${trial.id}`, `trial:${trial.id}`] : watch), [watch, trial]);
-  const chosen = useMemo(() => watched(data?.signals ?? [], watchAll), [data, watchAll]);
+  const chosen = useMemo(() => watched(data?.signals ?? [], watch), [data, watch]);
   const totals = useMemo(() => dayTotals(chosen), [chosen]);
   const indexPicker = null;
   if ((loading && !data) || (data && data.index && data.index !== index)) return <div className="space-y-3">{indexPicker}<Skeleton className="h-72 w-full" /></div>;
@@ -358,7 +353,7 @@ function PatternsTab({ day }) {
   const overlays = [
     ...data.patterns
       .filter((p) => p.key !== 'doubleBottomMid' && !p.check && !p.trial)
-      .map((p) => ({ id: p.key, label: `${shortLabel(p.label)}${p.off ? ' (off)' : ''}`, group: p.combo ? 'My combinations' : 'Patterns', count: count(p.key), on: watchAll.includes(p.key) })),
+      .map((p) => ({ id: p.key, label: `${shortLabel(p.label)}${p.off ? ' (off)' : ''}`, group: p.combo ? 'My combinations' : 'Patterns', count: count(p.key), on: watch.includes(p.key) })),
     ...(data.checks || []).map((c) => ({ id: `check:${c.key}`, label: c.label, group: `Indicator: ${c.group}`, count: statOf.get(c.key)?.signals ?? 0, on: watch.includes(`check:${c.key}`) })),
   ];
   const stats = data.checkStats || [];
@@ -373,7 +368,7 @@ function PatternsTab({ day }) {
           {data.patterns
             .filter((p) => p.key !== 'doubleBottomMid' && !p.trial)
             .map((p) => (
-              <Chip key={p.key} on={watchAll.includes(p.key)} onClick={() => toggle(p.key)}>
+              <Chip key={p.key} on={watch.includes(p.key)} onClick={() => toggle(p.key)}>
                 {shortLabel(p.label)}{p.off ? ' (off)' : ''} <span className="num opacity-70">{count(p.key)}</span>
               </Chip>
             ))}
@@ -384,7 +379,7 @@ function PatternsTab({ day }) {
             {c.name} is not drawn: {c.reason}.
           </p>
         ))}
-        <p className="text-[11px] text-muted">Stops on this screen follow your setting: {stopRuleText(data.stopRule)}. Your combinations (Account &gt; Entries) are the "Mine" chips.</p>
+        <p className="text-[11px] text-muted">Stops on this screen follow your setting: {stopRuleText(data.stopRule)}. Your combinations (Combos) are the "Mine" chips.</p>
         {data.pricing && (
           <p className="text-[11px] text-muted">
             Option prices: {data.pricing.mode === 'real' ? <b className="text-fg">real, from the premiums saved that evening</b> : 'estimated by the model (no real prices saved for this day)'}.{' '}
@@ -400,14 +395,19 @@ function PatternsTab({ day }) {
         <p className="text-[11px] text-muted">The number is how many times it formed on this day. Arrows on the chart: up for a call, down for a put, grey when the bot would skip it.</p>
       </Card>
 
-      <ImproveCombo
-        combos={data.patterns.filter((p) => p.combo).map((p) => ({ id: p.key.slice(6), name: p.label.replace(/^Mine: /, ''), off: p.off }))}
-        trial={trial}
-        setTrial={(t) => { setTrial(t); setSelected(null); }}
-        improve={data.improve && data.improve.id === trial.id ? data.improve : null}
-        newEntries={trial.add.length ? data.signals.filter((s) => s.technique === `trial:${trial.id}`) : null}
-        loading={loading}
-      />
+      {data.patterns.some((p) => p.combo) && (
+        <Card className="space-y-2 p-3">
+          <div className="text-xs font-semibold">Improve one of your combinations</div>
+          <p className="text-[11px] leading-snug text-muted">One day is too few trades to change a combination on. Open it in Combos to see every entry over 15 days or more, add an indicator, and test its stop and profit ladder before you save.</p>
+          <div className="flex flex-wrap gap-1.5">
+            {data.patterns.filter((p) => p.combo).map((p) => (
+              <Link key={p.key} to={`/combos?seg=options&id=${encodeURIComponent(p.key.slice(6))}`} className="btn btn-secondary btn-sm">
+                {p.label.replace(/^Mine: /, '')}
+              </Link>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {stats.length > 0 && (
         <Card className="space-y-2 p-3">
@@ -711,9 +711,6 @@ export default function Review({ embedded = false }) {
       {!embedded && (
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Link to="/account" aria-label="Back to Account" className="btn btn-secondary !p-2">
-              <ChevronLeft className="h-4 w-4" />
-            </Link>
             <h1 className="text-lg font-bold">
               Day review <span className="text-accent2">calls vs results</span>
             </h1>

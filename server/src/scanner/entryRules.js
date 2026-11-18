@@ -7,6 +7,7 @@ export const DEFAULT_SHARE_RULES = Object.freeze({
   marketAgree: false, // buy only when Nifty 50 trends up (VWAP and EMA 9/21 on 5-minute bars), sell only when it trends down; a flat Nifty = no trade
   minVsNifty: 0, // the share must be at least this % stronger than Nifty 50 today for a buy (weaker for a sell)
   minRelVol: 0, // volume of the last 15 minutes must be at least this many times normal for that time of day
+  minuteSecond: false, // buy only on the CLOSE of a 1-minute candle (sized at that price), and sell a trade the second its loss reaches your per-trade loss limit
   confirmBar: false, // do not buy on the breaking bar: wait for a 5-minute bar to close past the entry (up to 2 bars), then buy
   noChaseR: 0.5, // skip when the price has already run this many risks past the entry (the old fixed 0.5R)
   minStopPct: 0.5, // skip an idea whose stop is closer than this % of the entry
@@ -19,6 +20,7 @@ export const RULE_LABELS = {
   marketAgree: 'Nifty must agree',
   minVsNifty: 'Stronger than Nifty',
   minRelVol: 'Volume above normal',
+  minuteSecond: 'Buy on the minute, sell on the second',
   confirmBar: 'Wait for a 5-minute close',
   noChaseR: 'Do not chase',
   minStopPct: 'Smallest stop',
@@ -45,6 +47,23 @@ export function ruleBlock(rules, facts, side) {
   if (rules.minVsNifty > 0 && f.relStrength != null && d * f.relStrength < rules.minVsNifty) return `the share is only ${(d * f.relStrength).toFixed(2)}% ${d > 0 ? 'stronger' : 'weaker'} than Nifty 50, under the ${rules.minVsNifty}% you asked for`;
   if (rules.minRelVol > 0 && f.relVol != null && f.relVol < rules.minRelVol) return `volume is ${f.relVol.toFixed(1)}x normal for this time, under the ${rules.minRelVol}x you asked for`;
   return null;
+}
+
+/**
+ * "Buy on the minute" for shares: the idea was raised during 1-minute bar `from`. Buy at that bar's CLOSE, once it has closed (the
+ * next bar exists), if the stop was not touched and the close is still on the right side of the entry and not more than `noChaseR`
+ * risks past it. Returns { index, price, time } or { dropped: reason } or { waiting: true }.
+ */
+export function confirmMinute(c1, from, idea, { noChaseR = 0.5 } = {}) {
+  const d = idea.side === 'BUY' ? 1 : -1;
+  const b = c1[from];
+  if (!b || from + 1 >= c1.length) return { waiting: true };
+  if (d * ((d > 0 ? b.low : b.high) - idea.stopLoss) <= 0) return { dropped: 'the stop was touched before the 1-minute candle closed' };
+  const risk = Math.abs(idea.entry - idea.stopLoss);
+  const away = d * (b.close - idea.entry);
+  if (away < 0) return { dropped: `the 1-minute candle closed back ${d > 0 ? 'under' : 'over'} the entry (${b.close})` };
+  if (risk && away / risk > noChaseR) return { dropped: `the 1-minute close was already ${(away / risk).toFixed(2)}R past the entry` };
+  return { index: from, price: b.close, time: b.time };
 }
 
 export const CONFIRM_BARS = 2; // how many 5-minute closes the confirmation waits for before giving up

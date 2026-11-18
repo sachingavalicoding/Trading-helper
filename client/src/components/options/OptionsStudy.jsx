@@ -221,7 +221,7 @@ export function OptionsStudy() {
   const [research, setResearch] = useState(false);
   const [realPrices, setRealPrices] = useState(true);
   const [live, setLive] = useState(true);
-  const [maxTrades, setMaxTrades] = useState(0); // 0 = the Account setting
+  const [maxTrades, setMaxTrades] = useState(0); // 0 = the Settings value
   const { state, error, running, run } = useStudy('options');
   const time = useExitTime('options');
   const targetValue = Number(target);
@@ -245,7 +245,7 @@ export function OptionsStudy() {
             <p className="text-[11px] leading-snug text-muted">Replays past {indexOf(index).short} candles. Each technique buys a call or put when its pattern shows, with the chart stop, closed at the time you choose below. Choose how a winning trade is sold below. This does not change the live trading.</p>
           </div>
         </div>
-        <Segmented className="w-full" size="sm" value={exit} onChange={setExit} options={[{ value: 'lock', label: 'Profit lock (your Account rule)' }, { value: 'target', label: 'Fixed target' }]} />
+        <Segmented className="w-full" size="sm" value={exit} onChange={setExit} options={[{ value: 'lock', label: 'Profit lock (your Settings rule)' }, { value: 'target', label: 'Fixed target' }]} />
         {exit === 'target' && (
           <label className="flex items-center justify-between gap-3 text-xs text-muted">
             <span>Sell when the profit on one lot reaches (₹). No profit lock.</span>

@@ -23,6 +23,7 @@ const autoSettingsSchema = new mongoose.Schema(
       marketAgree: { type: Boolean, default: false },
       minVsNifty: { type: Number, default: 0, min: 0, max: 5 },
       minRelVol: { type: Number, default: 0, min: 0, max: 10 },
+      minuteSecond: { type: Boolean, default: false },
       confirmBar: { type: Boolean, default: false },
       noChaseR: { type: Number, default: 0.5, min: 0.1, max: 2 },
       minStopPct: { type: Number, default: 0.5, min: 0, max: 2 },

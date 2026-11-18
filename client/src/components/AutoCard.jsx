@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Bot } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../lib/api.js';
@@ -58,13 +59,17 @@ export function AutoCard() {
           <span className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white transition-transform ${s.enabled ? 'translate-x-5' : ''}`} />
         </button>
       </div>
+      <div className="flex gap-2">
+        <Link to="/combos?seg=shares" className="btn btn-secondary btn-sm flex-1">What it buys</Link>
+        <Link to="/settings?seg=shares" className="btn btn-secondary btn-sm flex-1">Settings</Link>
+      </div>
       <AutoLog />
       <p className="text-[11px] leading-snug text-muted">{data.disclaimer}</p>
     </Card>
   );
 }
 
-/** The limits of the share auto-trader. They live in the Account tab, next to the stop and profit lock. */
+/** Settings > Shares > Money and trade limits of the share auto-trader. */
 export function AutoLimits() {
   const { data, reload } = useApi('/auto', []);
   const [busy, setBusy] = useState(false);
@@ -116,7 +121,7 @@ export function AutoLimits() {
   );
 }
 
-const EXIT_LABEL = { STOP: 'Stopped', LOCK: 'Locked profit', TARGET: 'Target', MANUAL: 'Manual exit', SQUARE_OFF: 'Square-off', TIME: 'Time exit', TRAIL: 'Trailing stop', BREAKEVEN: 'Break-even stop' };
+const EXIT_LABEL = { STOP: 'Stopped', LOCK: 'Locked profit', TARGET: 'Target', MANUAL: 'Manual exit', SQUARE_OFF: 'Square-off', CUT: 'Loss cut', TIME: 'Time exit', TRAIL: 'Trailing stop', BREAKEVEN: 'Break-even stop' };
 
 /** Every decision the auto-trader made today with its reason and result, to review in the evening. */
 function AutoLog() {

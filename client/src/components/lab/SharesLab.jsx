@@ -169,8 +169,9 @@ function usedLine(u) {
 }
 
 /** Combination Lab for shares: one share combination (or check) over the Nifty 50 stocks, every entry, the order settings, and which extra check would have skipped each loser. */
-export function SharesLab() {
-  const [base, setBase] = useState(() => { try { return localStorage.getItem(STORE) || ''; } catch { return ''; } });
+export function SharesLab({ fixedBase = null, onSaved = null, checksOnly = false }) {
+  const [kept, setBase] = useState(() => { try { return localStorage.getItem(STORE) || ''; } catch { return ''; } });
+  const base = fixedBase ?? (checksOnly && kept.startsWith('combo:') ? '' : kept);
   const [add, setAdd] = useState([]);
   const [days, setDays] = useState('15');
   const [edit, setEdit] = useState(null);
@@ -199,7 +200,7 @@ export function SharesLab() {
   };
   const chosen = r?.entries.find((e) => e.id === selected) ?? null;
   const pickedLabels = r ? r.addons.filter((a) => add.includes(a.key)).map((a) => a.label) : [];
-  const afterSave = () => { auto.reload?.(); run.reload?.(); setEdit(null); setAdd([]); setSelected(null); };
+  const afterSave = () => { auto.reload?.(); run.reload?.(); setEdit(null); setAdd([]); setSelected(null); onSaved?.(); };
   const groups = useMemo(() => {
     const g = new Map();
     for (const c of list?.checks ?? []) g.set(c.group, [...(g.get(c.group) || []), c]);
@@ -209,16 +210,16 @@ export function SharesLab() {
   return (
     <div className="space-y-3">
       <Card className="space-y-2 p-3">
-        <label className="flex items-center justify-between gap-3 text-xs text-muted">
+        {!fixedBase && <label className="flex items-center justify-between gap-3 text-xs text-muted">
           <span>Start from</span>
           <select className="field !w-auto max-w-[70%] !px-2 !py-1.5 !text-xs" value={base} onChange={(e) => pick(e.target.value)} aria-label="Share combination or check">
             <option value="">Choose…</option>
-            {list?.combos.length > 0 && <optgroup label="My share combinations">{list.combos.map((c) => <option key={c.key} value={c.key}>{c.label}{c.off ? ' (off)' : ''}</option>)}</optgroup>}
+            {!checksOnly && list?.combos.length > 0 && <optgroup label="My share combinations">{list.combos.map((c) => <option key={c.key} value={c.key}>{c.label}{c.off ? ' (off)' : ''}</option>)}</optgroup>}
             {groups.map(([g, cs]) => <optgroup key={g} label={`One check: ${g}`}>{cs.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>)}
           </select>
-        </label>
+        </label>}
         <Segmented className="w-full" size="sm" value={days} onChange={(v) => { setDays(v); setSelected(null); }} options={LAB_DAYS} />
-        {list && !list.combos.length && <p className="text-[11px] text-muted">You have no share combination yet. Build one in Research &gt; Reports &gt; My combinations (Shares), or start from one check.</p>}
+        {!fixedBase && !checksOnly && list && !list.combos.length && <p className="text-[11px] text-muted">You have no share combination yet. Build one in Combos &gt; Shares, or start from one check.</p>}
       </Card>
 
       {!base && <EmptyState icon={FlaskConical} title="Pick a share combination">Choose one of yours (or a single check) to see how it would have traded the Nifty 50 stocks.</EmptyState>}
@@ -229,6 +230,8 @@ export function SharesLab() {
         </div>
       )}
       {run.error && <p className="text-xs text-down">{run.error.message || 'Could not run the lab'}</p>}
+      {/* no result yet (no saved days, or an error): the order settings can still be changed */}
+      {combo && !r && !run.loading && <LabOrders segment="shares" combo={combo} saved={saved} account={account} testing={Boolean(edit)} onTest={(d) => { setEdit(d); setSelected(null); }} onSaved={afterSave} />}
       {r && (
         <>
           <Card className="space-y-3 p-3">
@@ -236,7 +239,7 @@ export function SharesLab() {
               <p className="min-w-0 flex-1 text-[11px] leading-snug text-muted"><b className="text-fg">{r.base.name}</b>: {r.base.text} {r.period.from} to {r.period.to} ({r.period.days} trading days, {r.period.stocks} stocks).{combo?.side ? ` ${shareSideWord(combo)}.` : ''}</p>
               <InfoButton keys={r.base.conds} title={r.base.name} rule={comboBase ? r.base.text : null} />
             </div>
-            {r.orders.edited && <p className="rounded-lg border border-accent/50 bg-surface-2 p-2 text-[11px] font-semibold text-accent">Test settings, not saved: {orderText({ order: r.orders.order, exits: r.orders.steps ? { steps: r.orders.steps } : undefined }) || 'Account settings'}{r.orders.side ? `, ${shareSideWord(r.orders)}` : ''}.</p>}
+            {r.orders.edited && <p className="rounded-lg border border-accent/50 bg-surface-2 p-2 text-[11px] font-semibold text-accent">Test settings, not saved: {orderText({ order: r.orders.order, exits: r.orders.steps ? { steps: r.orders.steps } : undefined }) || 'Settings'}{r.orders.side ? `, ${shareSideWord(r.orders)}` : ''}.</p>}
             <Summary s={r.stats} title={r.withAdd ? 'Now' : 'Result'} />
             {r.withAdd && <Summary s={r.withAdd} title={`With ${r.withAdd.labels.join(' + ')}`} tone="text-accent" />}
             <Equity base={r.stats} withAdd={r.withAdd} />

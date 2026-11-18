@@ -24,7 +24,7 @@ export const REPLAY_NOTE = 'Rebuilt from 1-minute candles. The live engine check
 
 const BEFORE_MIN = 30; // minutes of chart shown before the entry
 const AFTER_MIN = 20; // and after the exit
-const EXIT_TEXT = { STOP: 'Stopped out', LOCK: 'Locked profit', TARGET: 'Target hit', MANUAL: 'Exited by hand', SQUARE_OFF: '15:15 square-off', TIME: 'Time exit', TRAIL: 'Trailing stop', BREAKEVEN: 'Break-even stop' };
+const EXIT_TEXT = { STOP: 'Stopped out', LOCK: 'Locked profit', TARGET: 'Target hit', MANUAL: 'Exited by hand', CUT: 'Sold by the loss cut', SQUARE_OFF: '15:15 square-off', TIME: 'Time exit', TRAIL: 'Trailing stop', BREAKEVEN: 'Break-even stop' };
 const ROLE_TEXT = { STOPLOSS: 'Stop hit', TARGET: 'Target hit', SQUAREOFF: 'Square-off / exit all', EXIT: 'Exited', ENTRY: 'Closed by an opposite order' };
 
 const sec = (d) => Math.floor(new Date(d).getTime() / 1000);

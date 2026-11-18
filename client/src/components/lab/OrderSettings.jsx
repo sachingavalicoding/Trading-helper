@@ -6,15 +6,15 @@ import { Card, Segmented } from '../ui.jsx';
 
 // Order settings of one combination: what it trades with after it fires. Shares: buy or short, risk a trade, the most money in a trade,
 // the stop, the profit lock or a target, and the time its trades close. Options: calls or puts, the stop, the profit ladder, trail, break-even and its own loss cut.
-// Empty means "the Account one". The Combination Lab tries them before saving; Account > Entries edits the same fields.
+// Empty means "the Account one". The Combination Lab tries them before saving; Combos edits the same fields.
 
 const MODES3 = [
-  { value: 'account', label: 'Account' },
+  { value: 'account', label: 'Default' },
   { value: 'off', label: 'Off' },
   { value: 'own', label: 'Own' },
 ];
 
-/** Profit ladder, trail and break-even for one combination. A missing key means the Account > Limits and Entries one. */
+/** Profit ladder, trail and break-even for one combination. A missing key means the Settings one. */
 export function ExitsBlock({ exits, onChange }) {
   const e = exits || {};
   const put = (patch) => {
@@ -30,7 +30,7 @@ export function ExitsBlock({ exits, onChange }) {
   const num = (v) => Number(String(v).replace(/[^\d.]/g, '')) || 0;
   return (
     <div className="space-y-2">
-      <div className="text-[11px] text-muted">Exits for this combination. Account keeps the ones from Account &gt; Limits and Entries.</div>
+      <div className="text-[11px] text-muted">Exits for this combination. Default keeps the ones from Settings.</div>
       <div className="space-y-1">
         <div className="text-xs font-semibold">Profit ladder</div>
         <Segmented className="w-full" size="sm" value={ladderMode} onChange={(v) => put({ steps: v === 'account' ? undefined : v === 'off' ? [] : roomSteps(start, gap) })} options={MODES3} />
@@ -126,8 +126,8 @@ export function SharesOrderFields({ value, onChange, account = {} }) {
         <div className="text-xs font-semibold">Trades</div>
         <Segmented className="w-full" size="sm" value={value.side || ''} onChange={(v) => put({ side: v || null })} options={[{ value: '', label: 'Buy and short' }, { value: 'CE', label: 'Buy only' }, { value: 'PE', label: 'Short only' }]} />
       </div>
-      <Money label="Risk a trade, ₹ lost at the stop" value={o.risk} placeholder={`Account ${rs(account.risk)}`} onChange={(v) => setO('risk', v)} />
-      <Money label="Most money in one trade, ₹" value={o.maxAmount} placeholder={`Account ${rs(account.maxAmount)}`} onChange={(v) => setO('maxAmount', v)} />
+      <Money label="Risk a trade, ₹ lost at the stop" value={o.risk} placeholder={`Default ${rs(account.risk)}`} onChange={(v) => setO('risk', v)} />
+      <Money label="Most money in one trade, ₹" value={o.maxAmount} placeholder={`Default ${rs(account.maxAmount)}`} onChange={(v) => setO('maxAmount', v)} />
       <div className="space-y-1">
         <div className="text-xs font-semibold">Stop loss</div>
         <Segmented className="w-full" size="sm" value={o.stopPct > 0 ? 'pct' : 'chart'} onChange={(v) => setO('stopPct', v === 'pct' ? o.stopPct || 1 : 0)} options={[{ value: 'chart', label: 'Chart stop' }, { value: 'pct', label: '% from entry' }]} />
@@ -141,7 +141,7 @@ export function SharesOrderFields({ value, onChange, account = {} }) {
       </div>
       <div className="space-y-1">
         <div className="text-xs font-semibold">Take profit</div>
-        <Segmented className="w-full" size="sm" cols={2} value={exitMode} onChange={setExit} options={[{ value: 'account', label: `Account lock (${accountLock})` }, { value: 'own', label: 'Own lock' }, { value: 'target', label: 'Fixed target' }, { value: 'off', label: 'No lock' }]} />
+        <Segmented className="w-full" size="sm" cols={2} value={exitMode} onChange={setExit} options={[{ value: 'account', label: `Default lock (${accountLock})` }, { value: 'own', label: 'Own lock' }, { value: 'target', label: 'Fixed target' }, { value: 'off', label: 'No lock' }]} />
         {exitMode === 'own' && (
           <div className="grid grid-cols-2 gap-2">
             <Money label="Lock from +₹" value={start} onChange={(v) => ownRow(v, gap)} />
@@ -155,7 +155,7 @@ export function SharesOrderFields({ value, onChange, account = {} }) {
       <label className="flex items-center justify-between gap-3 text-xs text-muted">
         <span>Close its trades at (IST)</span>
         <select className="field num !w-36 !px-2 !py-1.5 !text-sm" value={o.exitMin || 0} onChange={(e) => setO('exitMin', Number(e.target.value))} aria-label="Time its trades close">
-          <option value={0}>Account ({clock(account.exitMin || 915)})</option>
+          <option value={0}>Default ({clock(account.exitMin || 915)})</option>
           {EXIT_TIMES.map((m) => <option key={m} value={m}>{clock(m)}</option>)}
         </select>
       </label>
@@ -227,7 +227,7 @@ export function LabOrders({ segment, combo, check = null, saved, account, testin
       const list = saved.map((c, i) => toPayload(fromSaved(combo && c.id === combo.id ? applyOrders(segment, c, draft) : c), i));
       if (!combo && check) list.push(toPayload(applyOrders(segment, { name: check.label.slice(0, 60), conds: [check.key], need: 0, window: 3, on: false }, draft), list.length));
       await api(endpoint, { method: 'PUT', body: { combos: list } });
-      toast.success(combo ? `Saved to ${combo.name}.${combo.on ? ' Live trades use them from the next entry.' : ''}` : 'Saved as a new combination, switched off. Turn it on under Account > Entries.');
+      toast.success(combo ? `Saved to ${combo.name}.${combo.on ? ' Live trades use them from the next entry.' : ''}` : 'Saved as a new combination, switched off. Turn it on under Combos.');
       onSaved?.();
     } catch (e) {
       toast.error(e.message || 'Could not save');
@@ -241,7 +241,7 @@ export function LabOrders({ segment, combo, check = null, saved, account, testin
       <div>
         <h3 className="text-sm font-semibold">Order settings{combo ? ` of ${combo.name}` : ''}</h3>
         <p className="text-[11px] leading-snug text-muted">
-          Change how its trades are placed and closed, tap <b>Test these</b> to see the result here (nothing is saved), then save them to the combination so live trades use them too. Empty boxes use your Account settings.
+          Change how its trades are placed and closed, tap <b>Test these</b> to see the result here (nothing is saved), then save them to the combination so live trades use them too. Empty boxes use your Settings.
         </p>
       </div>
       {segment === 'shares' ? <SharesOrderFields value={draft} onChange={setDraft} account={account} /> : <OptionsOrderFields value={draft} onChange={setDraft} />}

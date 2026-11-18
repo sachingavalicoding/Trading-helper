@@ -16,8 +16,6 @@ import { useTheme } from '../context/ThemeContext.jsx';
 import { Badge, Card, EmptyState, Fold, Segmented, Skeleton } from '../components/ui.jsx';
 import { Addons, Breakdown, Equity, Summary } from '../components/lab/LabParts.jsx';
 import { LabOrders } from '../components/lab/OrderSettings.jsx';
-import { SharesLab } from '../components/lab/SharesLab.jsx';
-import { LearnLab } from '../components/lab/LearnLab.jsx';
 
 const formatPnl = (v) => rawPnl(Math.round(v));
 const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -166,35 +164,11 @@ function DayHistory({ r, onShow }) {
   );
 }
 
-const SEGMENT = 'lab.segment';
-const MODE = 'lab.mode';
-const remembered = (key, fallback) => { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } };
-const remember = (key, value) => { try { localStorage.setItem(key, value); } catch { /* not remembered */ } };
-
-/** Combination Lab: options or shares. */
-export default function Lab({ embedded = false }) {
-  const [segment, setSegment] = useState(() => { try { return localStorage.getItem(SEGMENT) || 'options'; } catch { return 'options'; } });
-  const choose = (v) => { setSegment(v); remember(SEGMENT, v); };
-  const [mode, setMode] = useState(() => remembered(MODE, 'combo'));
-  const pickMode = (v) => { setMode(v); remember(MODE, v); };
-  return (
-    <div className="space-y-3">
-      {!embedded && (
-        <div>
-          <h1 className="flex items-center gap-2 text-lg font-bold"><FlaskConical className="h-5 w-5 text-accent2" /> Combination Lab</h1>
-          <p className="text-xs text-muted">Pick a combination, see how its entries did, change its order settings, and find which extra indicator would have skipped each loser.</p>
-        </div>
-      )}
-      <Segmented className="w-full" value={segment} onChange={choose} options={[{ value: 'options', label: 'Options' }, { value: 'shares', label: 'Shares' }]} />
-      {segment === 'options' && <Segmented className="w-full" size="sm" value={mode} onChange={pickMode} options={[{ value: 'combo', label: 'One combination' }, { value: 'learn', label: 'Learn' }]} />}
-      {segment === 'shares' ? <SharesLab /> : mode === 'learn' ? <LearnLab /> : <OptionsLab />}
-    </div>
-  );
-}
-
 /** Combination Lab for options: one combination or pattern over a month of trading, every entry, and which extra check would have skipped each loser. */
-function OptionsLab() {
-  const [base, setBase] = useState(() => { try { return localStorage.getItem(STORE) || ''; } catch { return ''; } });
+export function OptionsLab({ focus = 'all', fixedBase = null, onSaved = null }) {
+  const [kept, setBase] = useState(() => { try { return localStorage.getItem(STORE) || ''; } catch { return ''; } });
+  // the Combos page opens one combination (fixedBase); 'patterns' (Research > Test an idea) shows only patterns
+  const base = fixedBase ?? ((focus === 'combos' && kept && !kept.startsWith('combo:')) || (focus === 'patterns' && kept.startsWith('combo:')) ? '' : kept);
   const [add, setAdd] = useState([]);
   const [days, setDays] = useState('15');
   const [prices, setPrices] = useState('mixed');
@@ -231,7 +205,7 @@ function OptionsLab() {
   const comboBase = base.startsWith('combo:');
 
   const pickedLabels = r ? r.addons.filter((a) => add.includes(a.key)).map((a) => a.label) : [];
-  const afterSave = () => { own.reload?.(); choices.reload?.(); setAdd([]); setEdit(null); setSelected(null); };
+  const afterSave = () => { own.reload?.(); choices.reload?.(); setAdd([]); setEdit(null); setSelected(null); onSaved?.(); };
 
   /** A pattern with add-ons, saved as a new combination: the pattern as a check, and the add-ons, all must hold. */
   async function saveFromPattern() {
@@ -239,7 +213,7 @@ function OptionsLab() {
     try {
       await api('/options', { method: 'PUT', body: { combos: withFound(saved, { conds: [`p_${base.slice(8)}`, ...add], labels: [r.base.name, ...pickedLabels] }) } });
       afterSave();
-      toast.success('Saved, switched off. Turn it on under Account > Entries.');
+      toast.success('Saved, switched off. Turn it on under Combos.');
     } catch (e) {
       toast.error(e.message || 'Could not save');
     } finally {
@@ -252,14 +226,14 @@ function OptionsLab() {
   return (
     <div className="space-y-3">
       <Card className="space-y-2 p-3">
-        <label className="flex items-center justify-between gap-3 text-xs text-muted">
+        {!fixedBase && <label className="flex items-center justify-between gap-3 text-xs text-muted">
           <span>Start from</span>
           <select className="field !w-auto max-w-[70%] !px-2 !py-1.5 !text-xs" value={base} onChange={(e) => pick(e.target.value)} aria-label="Combination or pattern">
             <option value="">Choose…</option>
-            {list?.combos.length > 0 && <optgroup label="My combinations">{list.combos.map((c) => <option key={c.key} value={c.key}>{c.label}{c.off ? ' (off)' : ''}</option>)}</optgroup>}
-            {list && <optgroup label="Patterns">{list.patterns.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>}
+            {focus !== 'patterns' && list?.combos.length > 0 && <optgroup label="My combinations">{list.combos.map((c) => <option key={c.key} value={c.key}>{c.label}{c.off ? ' (off)' : ''}</option>)}</optgroup>}
+            {focus !== 'combos' && list && <optgroup label="Patterns">{list.patterns.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>}
           </select>
-        </label>
+        </label>}
         <Segmented className="w-full" size="sm" value={days} onChange={(v) => { setDays(v); setSelected(null); }} options={LAB_DAYS} />
         <Fold plain id="lab-prices" title="Option prices" summary={LAB_PRICES.find((p) => p.value === prices).label}>
           <Segmented className="w-full" size="sm" value={prices} onChange={setPrices} options={LAB_PRICES} />
@@ -292,9 +266,11 @@ function OptionsLab() {
         </Fold>
       </Card>
 
-      {!base && <EmptyState icon={FlaskConical} title="Pick a combination">Choose one of yours (or a pattern) above to see its entries over the last weeks.</EmptyState>}
+      {!base && <EmptyState icon={FlaskConical} title={focus === 'patterns' ? 'Pick a pattern' : 'Pick a combination'}>Choose {focus === 'patterns' ? 'a pattern' : focus === 'combos' ? 'one of yours' : 'one of yours (or a pattern)'} above to see its entries over the last weeks.</EmptyState>}
       {base && run.loading && !r && <Skeleton className="h-64 w-full" />}
       {run.error && <p className="text-xs text-down">{run.error.message || 'Could not run the lab'}</p>}
+      {/* no result yet (no saved days, or an error): the order settings can still be changed */}
+      {combo && !r && !run.loading && <LabOrders segment="options" combo={combo} saved={saved} testing={Boolean(edit)} onTest={(d) => { setEdit(d); setSelected(null); }} onSaved={afterSave} />}
       {r && (
         <>
           <Card className="space-y-3 p-3">

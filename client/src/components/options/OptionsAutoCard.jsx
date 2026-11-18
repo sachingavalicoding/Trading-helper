@@ -30,8 +30,7 @@ export function Switch({ on, onClick, disabled, label }) {
   );
 }
 
-/** What the trader buys on: the indexes, chart patterns picked from the study, and your own combinations. Lives in the Account tab. */
-export function OptionsEntries({ data, reload }) {
+function useSave(reload) {
   const [busy, setBusy] = useState(false);
   async function save(patch) {
     setBusy(true);
@@ -44,68 +43,124 @@ export function OptionsEntries({ data, reload }) {
       setBusy(false);
     }
   }
+  return [busy, save];
+}
+
+/** What the options bot buys on, in one line: shown on the bot card and on the Combos page. */
+export function buyingOn(s) {
+  const mine = (s.combos || []).filter((c) => c.on).length;
+  return [s.scoreEntries && `indicator score ${s.minScore ?? 70}+`, s.patternEntries && s.patterns.length > 0 && `${s.patterns.length} chart pattern${s.patterns.length === 1 ? '' : 's'}`, s.comboEntries && mine > 0 && `${mine} combination${mine === 1 ? '' : 's'}`].filter(Boolean);
+}
+
+/** Combos page > Options: the master switch for buying on your combinations, and the score a combination must also have. */
+export function ComboEntrySwitch({ data, reload }) {
+  const [busy, save] = useSave(reload);
+  const s = data.settings;
+  const mine = (s.combos || []).filter((c) => c.on).length;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] leading-snug text-muted">
+          <b className="text-fg">Buy on my combinations.</b> The bot buys when one of the combinations below that is switched on turns true ({mine ? `${mine} on now` : 'none on yet'}).
+        </p>
+        <Switch on={s.comboEntries} disabled={busy} label="My combinations" onClick={() => save({ comboEntries: !s.comboEntries })} />
+      </div>
+      {s.comboEntries && (
+        <div className="space-y-1">
+          <p className="text-[11px] leading-snug text-muted">
+            <b className="text-fg">Combination score.</b> Buy a combination only when the chart's score for that side is at least this. Off means the score is only shown, never used to skip.
+          </p>
+          <Segmented className="w-full" size="sm" value={s.comboMinScore ?? 0} onChange={(v) => save({ comboMinScore: v })} options={[{ value: 0, label: 'Off' }, { value: 50, label: '50+' }, { value: 60, label: '60+' }, { value: 70, label: '70+' }]} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Combos page > Options > Other buy triggers: the indicator score and the chart patterns (with their study results). */
+export function OptionsTriggers({ data, reload }) {
+  const [busy, save] = useSave(reload);
   const s = data.settings;
   const chosen = new Set(s.patterns);
   const toggle = (key) => save({ patterns: data.patternChoices.map((p) => p.key).filter((k) => (k === key ? !chosen.has(k) : chosen.has(k))) });
   const study = useApi('/study/options', []);
   const stats = useMemo(() => new Map((study.data?.result?.techniques ?? []).map((t) => [t.key, t])), [study.data]);
-  const mine = (s.combos || []).filter((c) => c.on).length;
-  const triggers = [s.scoreEntries && `indicator score ${s.minScore ?? 70}+`, s.patternEntries && s.patterns.length > 0 && 'patterns', s.comboEntries && mine > 0 && 'combinations'].filter(Boolean);
+  const triggers = buyingOn(s);
   return (
-    <div className="space-y-3">
-      <div className="space-y-2">
-        <h4 className="text-xs font-semibold">What triggers a buy</h4>
-        <p className="text-[11px] leading-snug text-muted">Switch on what you trust. The result beside each pattern is from your latest Options study ({study.data?.result ? `${study.data.result.period.days} days` : 'run one under Studies'}), so you can see which ones pay before you switch them on.</p>
-        <ScoreEntry s={s} busy={busy} save={save} />
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] leading-snug text-muted">
-            <b className="text-fg">Chart patterns.</b> Buys when a pattern completes on a closed 5-minute bar.
-          </p>
-          <Switch on={s.patternEntries} disabled={busy} label="Chart patterns" onClick={() => save({ patternEntries: !s.patternEntries })} />
-        </div>
-        {s.patternEntries && (
-          <ul className="divide-y divide-line">
-            {data.patternChoices.map((p) => {
-              const r = stats.get(p.key);
-              return (
-                <li key={p.key} className="flex items-center justify-between gap-2 py-1.5 text-xs">
-                  <span className="min-w-0">
-                    {p.label} {STUDY_WINNERS.includes(p.key) && <Badge tone="up">Study winner</Badge>}
-                    {r && <span className={`num block text-[11px] ${resultTone(r)}`}>{resultLine(r)}</span>}
-                  </span>
-                  <Switch on={chosen.has(p.key)} disabled={busy} label={p.label} onClick={() => toggle(p.key)} />
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        {s.patternEntries && (
-          <div className="space-y-1">
-            <p className="text-[11px] leading-snug text-muted">
-              <b className="text-fg">Pattern score.</b> Buy a pattern only when the chart's score for that side (the one on the Signal tab) is at least this. The study row "Patterns, score 70+ agrees" shows what that would have paid.
-            </p>
-            <Segmented className="w-full" size="sm" value={s.patternMinScore ?? 0} onChange={(v) => save({ patternMinScore: v })} options={[{ value: 0, label: 'Off' }, { value: 60, label: '60+' }, { value: 70, label: '70+' }, { value: 80, label: '80+' }]} />
-          </div>
-        )}
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] leading-snug text-muted">
-            <b className="text-fg">My combinations.</b> Buys when one of the combinations you built turns true ({mine ? `${mine} switched on` : 'none built yet, make one under My combinations'}).
-          </p>
-          <Switch on={s.comboEntries} disabled={busy} label="My combinations" onClick={() => save({ comboEntries: !s.comboEntries })} />
-        </div>
-        {s.comboEntries && (
-          <div className="space-y-1">
-            <p className="text-[11px] leading-snug text-muted">
-              <b className="text-fg">Combination score.</b> Buy a combination only when the chart's score for that side is at least this. Off means the score is only shown, never used to skip.
-            </p>
-            <Segmented className="w-full" size="sm" value={s.comboMinScore ?? 0} onChange={(v) => save({ comboMinScore: v })} options={[{ value: 0, label: 'Off' }, { value: 50, label: '50+' }, { value: 60, label: '60+' }, { value: 70, label: '70+' }]} />
-          </div>
-        )}
-        <p className={`text-[11px] leading-snug ${triggers.length ? 'text-muted' : 'text-warn'}`}>{triggers.length ? `Buying on: ${triggers.join(', ')}.` : 'Nothing will be bought: switch on at least one trigger.'}</p>
+    <div className="space-y-2">
+      <p className="text-[11px] leading-snug text-muted">Besides your combinations, the bot can buy on the indicator score and on chart patterns. The result beside each pattern is from your latest Options study ({study.data?.result ? `${study.data.result.period.days} days` : 'run one under Research'}).</p>
+      <ScoreEntry s={s} busy={busy} save={save} />
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] leading-snug text-muted">
+          <b className="text-fg">Chart patterns.</b> Buys when a pattern completes on a closed 5-minute bar.
+        </p>
+        <Switch on={s.patternEntries} disabled={busy} label="Chart patterns" onClick={() => save({ patternEntries: !s.patternEntries })} />
       </div>
+      {s.patternEntries && (
+        <ul className="divide-y divide-line">
+          {data.patternChoices.map((p) => {
+            const r = stats.get(p.key);
+            return (
+              <li key={p.key} className="flex items-center justify-between gap-2 py-1.5 text-xs">
+                <span className="min-w-0">
+                  {p.label} {STUDY_WINNERS.includes(p.key) && <Badge tone="up">Study winner</Badge>}
+                  {r && <span className={`num block text-[11px] ${resultTone(r)}`}>{resultLine(r)}</span>}
+                </span>
+                <Switch on={chosen.has(p.key)} disabled={busy} label={p.label} onClick={() => toggle(p.key)} />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {s.patternEntries && (
+        <div className="space-y-1">
+          <p className="text-[11px] leading-snug text-muted">
+            <b className="text-fg">Pattern score.</b> Buy a pattern only when the chart's score for that side (the one on the Signal tab) is at least this. The study row "Patterns, score 70+ agrees" shows what that would have paid.
+          </p>
+          <Segmented className="w-full" size="sm" value={s.patternMinScore ?? 0} onChange={(v) => save({ patternMinScore: v })} options={[{ value: 0, label: 'Off' }, { value: 60, label: '60+' }, { value: 70, label: '70+' }, { value: 80, label: '80+' }]} />
+        </div>
+      )}
+      <p className={`text-[11px] leading-snug ${triggers.length ? 'text-muted' : 'text-warn'}`}>{triggers.length ? `Buying on: ${triggers.join(', ')}.` : 'Nothing will be bought: switch on at least one trigger.'}</p>
+    </div>
+  );
+}
 
-      <SpeedSettings data={data} reload={reload} />
-      <p className="text-[11px] leading-snug text-muted">Where the stop goes, the trailing stop and the profit lock are in Account &gt; Limits.</p>
+/** Settings > Options: the safety rules every entry must pass (the study, finder and Lab replay them too). */
+export function SafetyRules({ data, reload }) {
+  const [busy, save] = useSave(reload);
+  const s = data.settings;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] leading-snug text-muted">
+          <b className="text-fg">With the day only.</b> Calls only while the index is above both today's open and today's average, puts only below both. On 4 Nov the ₹3,955 loss was a put bought on an up day.
+        </p>
+        <Switch on={Boolean(s.withDay)} disabled={busy} label="With the day only" onClick={() => save({ withDay: !s.withDay })} />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] leading-snug text-muted">
+          <b className="text-fg">With yesterday's close.</b> Calls only while the index is above yesterday's close, puts only below it. From 28 Oct to 17 Nov the trades against it lost ₹24,471; the ones with it made ₹3,780.
+        </p>
+        <Switch on={s.withPrev !== false} disabled={busy} label="With yesterday's close" onClick={() => save({ withPrev: s.withPrev === false })} />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] leading-snug text-muted">
+          <b className="text-fg">New combinations start at 1 lot.</b> A combination is bought with 1 lot until it has 10 closed live trades. A study of 10 days is a handful of trades; live is the real test.
+        </p>
+        <Switch on={s.probation !== false} disabled={busy} label="New combinations start at 1 lot" onClick={() => save({ probation: s.probation === false })} />
+      </div>
+      <div className="space-y-1">
+        <p className="text-[11px] leading-snug text-muted">
+          <b className="text-fg">Rest a losing entry.</b> After this many losses in a row today from the same pattern or combination, it stops until tomorrow. The others keep trading.
+        </p>
+        <Segmented size="sm" className="w-full" value={String(s.comboStreak ?? 0)} onChange={(v) => save({ comboStreak: Number(v) })} options={[{ value: '0', label: 'Off' }, { value: '2', label: '2 in a row' }, { value: '3', label: '3 in a row' }]} />
+      </div>
+      <p className="text-[11px] leading-snug text-muted">
+        {s.movedText ? `${s.movedText}. ` : 'No limit on how far the market already moved. '}
+        {s.chasePct > 0 ? `Skips a buy when the premium is over ${s.chasePct}% above its ${s.chaseMinutes ?? 15}-minute low. ` : ''}
+        Each skip and its reason is in the Options log. Test these under{' '}
+        <Link to="/research?tab=test&tool=late" className="font-semibold text-accent">Research &gt; Skip late entries</Link>.
+      </p>
     </div>
   );
 }
@@ -150,7 +205,7 @@ export function ScoreEntry({ s, busy, save }) {
   );
 }
 
-/** Account > Entries: how fast the bot buys (5 min / 1 min / 1 sec) and sells the chart stop. */
+/** Settings > Options: how fast the bot buys (5 min / 1 min / 1 sec) and sells the chart stop. */
 export function SpeedSettings({ data, reload }) {
   async function save(patch) {
     try {
@@ -184,7 +239,7 @@ export function SpeedSettings({ data, reload }) {
   );
 }
 
-/** Account > Limits > Options: where the first stop goes for every entry (pattern or combination): the chart level, capped, ATR or fixed points. */
+/** Settings > Options: where the first stop goes for every entry (pattern or combination): the chart level, capped, ATR or fixed points. */
 export function StopPlacement({ data, reload }) {
   const [busy, setBusy] = useState(false);
   async function save(patch) {
@@ -201,8 +256,7 @@ export function StopPlacement({ data, reload }) {
   const s = data.settings;
   const mode = STOP_MODES.find((m) => m.value === s.patternStopMode) ?? STOP_MODES[0];
   return (
-    <div className="space-y-2 border-t border-line pt-3">
-      <h4 className="text-sm font-semibold">Options: where the stop goes</h4>
+    <div className="space-y-2">
         <p className="text-[11px] leading-snug text-muted">Used for every entry (pattern or combination), in the study and in Review. {mode.hint}</p>
         <Segmented className="w-full" size="sm" value={s.patternStopMode} onChange={(v) => save({ patternStopMode: v })} options={STOP_MODES.map((m) => ({ value: m.value, label: m.label }))} />
         {(s.patternStopMode === 'cap' || s.patternStopMode === 'atr') && (
@@ -276,11 +330,12 @@ export function OptionsAutoCard({ data, reload }) {
         </button>
       </div>
       <p className="text-[11px] leading-snug text-muted">
-        Buys one Nifty at-the-money call or put when the indicator score is high enough (if on), a chart pattern or one of your combinations turns true. The stop and the profit lock are the ones in your Account tab, and everything the auto trader bought is closed at the exit time in your Account tab (15:15 unless you changed it).
+        Buys one Nifty at-the-money call or put on: {buyingOn(s).join(', ') || 'nothing yet (switch something on in Combos)'}.
       </p>
-      <p className="text-[11px] leading-snug text-muted">
-        Buys on: {s.scoreEntries ? `indicator score ${s.minScore ?? 70}+, ` : ''}{s.patternEntries ? `${s.patterns.length} chart patterns` : 'no chart patterns'}, {s.comboEntries ? 'your combinations' : 'no combinations'}. Change this in Account &gt; Entries.
-      </p>
+      <div className="flex gap-2">
+        <Link to="/combos?seg=options" className="btn btn-secondary btn-sm flex-1">What it buys</Link>
+        <Link to="/settings?seg=options" className="btn btn-secondary btn-sm flex-1">Settings</Link>
+      </div>
       {s.enabled && (
         <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 p-2">
           <p className="text-[11px] leading-snug text-muted">
@@ -289,46 +344,12 @@ export function OptionsAutoCard({ data, reload }) {
           <Switch on={Boolean(s.pausedToday)} disabled={busy} label="Pause new buys for today" onClick={() => save({ pauseToday: !s.pausedToday })} />
         </div>
       )}
-      <div className="space-y-2 rounded-lg bg-surface-2 p-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Safety rules (the study, finder and Lab replay them too)</p>
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] leading-snug text-muted">
-            <b className="text-fg">With the day only.</b> Calls only while the index is above both today's open and today's average, puts only below both. On 4 Nov the ₹3,955 loss was a put bought on an up day.
-          </p>
-          <Switch on={Boolean(s.withDay)} disabled={busy} label="With the day only" onClick={() => save({ withDay: !s.withDay })} />
-        </div>
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] leading-snug text-muted">
-            <b className="text-fg">With yesterday's close.</b> Calls only while the index is above yesterday's close, puts only below it. From 28 Oct to 17 Nov the trades against it lost ₹24,471; the ones with it made ₹3,780.
-          </p>
-          <Switch on={s.withPrev !== false} disabled={busy} label="With yesterday's close" onClick={() => save({ withPrev: s.withPrev === false })} />
-        </div>
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] leading-snug text-muted">
-            <b className="text-fg">New combinations start at 1 lot.</b> A combination is bought with 1 lot until it has 10 closed live trades. A study of 10 days is a handful of trades; live is the real test.
-          </p>
-          <Switch on={s.probation !== false} disabled={busy} label="New combinations start at 1 lot" onClick={() => save({ probation: s.probation === false })} />
-        </div>
-        <div className="space-y-1">
-          <p className="text-[11px] leading-snug text-muted">
-            <b className="text-fg">Rest a losing entry.</b> After this many losses in a row today from the same pattern or combination, it stops until tomorrow. The others keep trading.
-          </p>
-          <Segmented size="sm" className="w-full" value={String(s.comboStreak ?? 0)} onChange={(v) => save({ comboStreak: Number(v) })} options={[{ value: '0', label: 'Off' }, { value: '2', label: '2 in a row' }, { value: '3', label: '3 in a row' }]} />
-        </div>
-      </div>
-      <p className="text-[11px] leading-snug text-muted">
-        {s.movedText ? `${s.movedText}. ` : 'No limit on how far the market already moved. '}
-        {s.chasePct > 0 ? `Skips a buy when the premium is over ${s.chasePct}% above its ${s.chaseMinutes ?? 15}-minute low. ` : ''}
-        Each skip and its reason is in the Options log.{' '}
-        <Link to="/research?tab=moved" className="font-semibold text-accent">Test the already-moved check</Link> ·{' '}
-        <Link to="/research?tab=ladder" className="font-semibold text-accent">Test profit ladders</Link>
-      </p>
       <p className="text-[11px] leading-snug text-muted">{data.disclaimer}</p>
     </Card>
   );
 }
 
-/** The limits of the options auto-trader. They live in the Account tab, next to the stop and profit lock. */
+/** Settings > Options > Limits: the money and trade limits of the options auto-trader. */
 export function OptionsLimits({ data, reload }) {
   const s = data.settings;
 

@@ -33,6 +33,7 @@ const patch = z
         marketAgree: z.boolean(),
         minVsNifty: z.coerce.number().min(0).max(5),
         minRelVol: z.coerce.number().min(0).max(10),
+        minuteSecond: z.boolean(),
         confirmBar: z.boolean(),
         noChaseR: z.coerce.number().min(0.1).max(2),
         minStopPct: z.coerce.number().min(0).max(2),

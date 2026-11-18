@@ -41,7 +41,7 @@ export function TodayCheck({ index }) {
               </li>
             );
           })}
-          <li className="pt-1 text-[11px] text-muted">The market check reads the index's 5-minute bars today: how straight its path was (trend) or how much it went back and forth (chop), and its range against the last 10 days. It is a guide; the bot's own limits are in Account &gt; Limits.</li>
+          <li className="pt-1 text-[11px] text-muted">The market check reads the index's 5-minute bars today: how straight its path was (trend) or how much it went back and forth (chop), and its range against the last 10 days. It is a guide; the bot's own limits are in Settings.</li>
         </ul>
       )}
     </Card>

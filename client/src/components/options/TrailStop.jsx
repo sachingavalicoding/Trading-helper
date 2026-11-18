@@ -7,7 +7,7 @@ import { Segmented } from '../ui.jsx';
 const choices = (now, list = TRAIL_POINTS) => (list.includes(now) ? list : [...list, now].sort((a, b) => a - b));
 
 /**
- * Account > Limits > Options: the trailing stop in Nifty points. Once the index has moved the start distance your way, the chart stop
+ * Settings > Options: the trailing stop in Nifty points. Once the index has moved the start distance your way, the chart stop
  * follows the best price by the points you pick and never moves back. The sale is still on a closed 1-minute candle beyond the stop.
  */
 export function TrailStop({ data, reload }) {
