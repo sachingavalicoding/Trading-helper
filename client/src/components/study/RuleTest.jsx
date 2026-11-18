@@ -37,7 +37,7 @@ function Row({ x, onUse, busy }) {
   );
 }
 
-/** Shares study: every new entry rule tried on the same replayed ideas, against your settings now. "Turn on" saves it in Account > Entries > Shares. */
+/** Shares study: every new entry rule tried on the same replayed ideas, against your settings now. "Turn on" saves it in Settings > Shares. */
 export function RuleTest({ t }) {
   const [busy, setBusy] = useState(false);
   if (!t) return null;

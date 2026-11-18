@@ -19,7 +19,8 @@ const Dashboard = lazy(() => import('./pages/Dashboard.jsx'));
 const Account = lazy(() => import('./pages/Account.jsx'));
 const News = lazy(() => import('./pages/News.jsx'));
 const Research = lazy(() => import('./pages/Research.jsx'));
-const Lab = lazy(() => import('./pages/Lab.jsx'));
+const Combos = lazy(() => import('./pages/Combos.jsx'));
+const Settings = lazy(() => import('./pages/Settings.jsx'));
 const Review = lazy(() => import('./pages/Review.jsx'));
 
 function Protected() {
@@ -104,7 +105,10 @@ export default function App() {
                 <Route path="options" element={<Options />} />
                 <Route path="news" element={<News />} />
                 <Route path="research" element={<Research />} />
-                <Route path="lab" element={<Lab />} />
+                <Route path="combos" element={<Combos />} />
+                <Route path="settings" element={<Settings />} />
+                {/* the Combination Lab is now each combination's results on the Combos page */}
+                <Route path="lab" element={<Navigate to="/combos" replace />} />
                 <Route path="review" element={<Review />} />
                 <Route path="positions" element={<Positions />} />
                 <Route path="orders" element={<Orders />} />

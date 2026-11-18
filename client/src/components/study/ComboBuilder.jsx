@@ -1,14 +1,13 @@
 import { useMemo, useState } from 'react';
-import { Check, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Check, LineChart, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
 import { MAX_COMBOS } from '../../lib/autoFind.js';
-import { MAX_CHECKS, STOP_MODES, VERDICT, exitsText, orderText, shareSideWord, stopWord, sideWord, blankCombo, fromSaved, needOf, needsText, pickList, ruleText, toPayload, toggleCheck, verdictMap } from '../../lib/combos.js';
+import { MAX_CHECKS, VERDICT, exitsText, orderText, shareSideWord, stopWord, sideWord, blankCombo, fromSaved, needOf, needsText, pickList, ruleText, toPayload, toggleCheck, verdictMap } from '../../lib/combos.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
 import { InfoButton } from '../CheckInfo.jsx';
-import { ExitsBlock, SharesOrderFields } from '../lab/OrderSettings.jsx';
 
 const KIND_WORD = { state: 'Now', event: 'Event' };
 
@@ -24,8 +23,6 @@ function VerdictBadge({ verdict }) {
 
 function Editor({ catalog, kind, verdicts, initial, onSave, onCancel, busy }) {
   const [combo, setCombo] = useState(initial);
-  const auto = useApi(kind === 'shares' ? '/auto' : null, [kind]);
-  const shareAccount = { risk: auto.data?.rules?.stopLoss, maxAmount: auto.data?.settings?.maxTradeAmount, steps: auto.data?.rules?.steps, exitMin: auto.data?.rules?.exitMin };
   const [query, setQuery] = useState('');
   const [showDropped, setShowDropped] = useState(false);
   const byKey = useMemo(() => new Map(catalog.conditions.map((c) => [c.key, c])), [catalog]);
@@ -105,37 +102,7 @@ function Editor({ catalog, kind, verdicts, initial, onSave, onCancel, busy }) {
           </select>
         </label>
       )}
-      {kind === 'options' && (
-        <div className="space-y-1.5">
-          <div className="text-[11px] text-muted">Buys. A combination built from bullish checks should usually be calls only: its put twin is the mirror image and has lost money on rising days.</div>
-          <Segmented className="w-full" size="sm" value={combo.side || ''} onChange={(v) => set({ side: v })} options={[{ value: '', label: 'Calls and puts' }, { value: 'CE', label: 'Calls only' }, { value: 'PE', label: 'Puts only' }]} />
-        </div>
-      )}
-      {kind !== 'shares' && (
-        <div className="space-y-1.5">
-          <div className="text-[11px] text-muted">Stop for this combination. The Combination research in a study finds the best one for each.</div>
-          <Segmented className="w-full" size="sm" value={combo.stopMode || ''} onChange={(v) => set({ stopMode: v })} options={STOP_MODES} />
-          {(combo.stopMode === 'cap' || combo.stopMode === 'atr') && (
-            <label className="flex items-center justify-between gap-3 text-xs text-muted">
-              <span>ATRs (0.8 to 2.5)</span>
-              <input className="field num !w-20 !px-2 !py-1.5 text-right !text-sm" inputMode="decimal" value={combo.stopAtr ?? 2} onChange={(e) => set({ stopAtr: Number(e.target.value) })} aria-label="Stop in ATRs" />
-            </label>
-          )}
-          {combo.stopMode === 'fixed' && (
-            <label className="flex items-center justify-between gap-3 text-xs text-muted">
-              <span>Index points from the entry (10 to 150)</span>
-              <input className="field num !w-20 !px-2 !py-1.5 text-right !text-sm" inputMode="numeric" value={combo.stopPoints ?? 30} onChange={(e) => set({ stopPoints: Number(e.target.value) })} aria-label="Stop in points" />
-            </label>
-          )}
-        </div>
-      )}
-      {kind !== 'shares' && <ExitsBlock exits={combo.exits} onChange={(exits) => set({ exits })} />}
-      {kind === 'shares' && (
-        <div className="space-y-1.5 rounded-lg bg-surface-2 p-2">
-          <div className="text-[11px] text-muted">Order settings for this combination. Empty boxes use your Account settings. Try them first in Research &gt; Lab.</div>
-          <SharesOrderFields value={{ side: combo.side || null, order: combo.order || null, steps: combo.exits && Array.isArray(combo.exits.steps) ? combo.exits.steps : null }} onChange={(v) => set({ side: v.side || '', order: v.order || undefined, exits: v.steps == null ? undefined : { steps: v.steps } })} account={shareAccount} />
-        </div>
-      )}
+      <p className="rounded-lg bg-surface-2 p-2 text-[11px] leading-snug text-muted">This is what makes it fire. Calls or puts, its stop, profit ladder and money per trade are its order settings: after saving, they open with its results, where you can test them before saving.</p>
       {liveOnly && <p className="rounded-lg bg-surface-2 p-2 text-[11px] leading-snug text-muted">News is live only: past headlines are not kept, so a study cannot test a combination with a news check.</p>}
 
       <div className="space-y-2">
@@ -190,11 +157,11 @@ function Editor({ catalog, kind, verdicts, initial, onSave, onCancel, busy }) {
 }
 
 /**
- * Account > Entries: build entries from several checks at once (indicators, chart patterns, volume and VWAP, the 50-stock breadth).
+ * Combos page: build entries from several checks at once (indicators, chart patterns, volume and VWAP, the 50-stock breadth).
  * A combination fires on the first bar where enough of its checks hold, for a call/buy when they point up and a put/short when they point down.
  * The same combinations are tested in the study and used live. `endpoint` is '/options' or '/auto'.
  */
-export function ComboBuilder({ kind, endpoint, combos, reload }) {
+export function ComboBuilder({ kind, endpoint, combos, reload, onOpen, onCreated }) {
   const catalog = useApi('/combos/catalog', []);
   const study = useApi(`/study/${kind}`, []);
   const [editing, setEditing] = useState(null); // null, 'new' or a combination id
@@ -220,7 +187,11 @@ export function ComboBuilder({ kind, endpoint, combos, reload }) {
     const list = saved.map((c, i) => toPayload(fromSaved(c), i));
     const payload = toPayload(combo, saved.length);
     const next = editing === 'new' ? [...list, payload] : list.map((c) => (c.id === editing ? { ...payload, id: c.id } : c));
-    if (await put(next)) setEditing(null);
+    const created = editing === 'new';
+    if (await put(next)) {
+      setEditing(null);
+      if (created) onCreated?.();
+    }
   }
 
   const toggleOn = (id) => put(saved.map((c, i) => ({ ...toPayload(fromSaved(c), i), on: c.id === id ? !c.on : c.on })));
@@ -230,7 +201,7 @@ export function ComboBuilder({ kind, endpoint, combos, reload }) {
     <div className="space-y-2">
       <div>
         <p className="text-[11px] leading-snug text-muted">
-          <b className="text-fg">My combinations.</b> Pick several checks (indicators, chart patterns, volume and VWAP, the 50-stock breadth) and the bot buys only when enough of them agree. {kind === 'options' ? 'A call when they point up, a put when they point down.' : 'A buy when they point up, a short sale when they point down.'} The study tests the same combinations, so you see what they would have earned before you switch them on.
+          <b className="text-fg">My combinations.</b> The bot buys when enough of a combination's checks agree{kind === 'options' ? ' (a call when they point up, a put when down)' : ' (a buy when they point up, a short sale when down)'}. Tap Results to see what one would have earned before you switch it on.
         </p>
       </div>
       {!catalog.data && <Skeleton className="h-16" />}
@@ -254,17 +225,22 @@ export function ComboBuilder({ kind, endpoint, combos, reload }) {
                       <Switch on={c.on} disabled={busy} label={`Use ${c.name}`} onClick={() => toggleOn(c.id)} />
                     </div>
                     <p className="text-[11px] leading-snug text-muted">{c.conds.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}{c.also?.length ? ` · and must also hold: ${c.also.map((k) => catalog.data.conditions.find((x) => x.key === k)?.label || k).join(' + ')}` : ''}{kind === 'options' && c.side ? ` · ${sideWord(c)}` : ''}{kind === 'shares' && c.side ? ` · ${shareSideWord(c)}` : ''}{kind === 'shares' && orderText(c) ? ` · ${orderText(c)}` : ''}{stopWord(c) ? ` · ${stopWord(c)}` : ''}{kind !== 'shares' && exitsText(c) ? ` · ${exitsText(c)}` : ''}</p>
-                    {c.benchedOn && !c.on && <p className="rounded-lg bg-warn/15 px-2 py-1 text-[11px] leading-snug">Switched off by itself on {c.benchedOn} after losing trades in a row (Account &gt; Limits). Tap its trades in Options &gt; History to replay them before turning it back on.</p>}
+                    {c.benchedOn && !c.on && <p className="rounded-lg bg-warn/15 px-2 py-1 text-[11px] leading-snug">Switched off by itself on {c.benchedOn} after losing trades in a row (Settings). Tap its trades in Options &gt; History to replay them before turning it back on.</p>}
                     {kind === 'options' && !c.on && <p className="text-[11px] leading-snug text-muted">Off: the bot does not buy on it, but studies still try it, and one "together" row runs every combination as a set.</p>}
                     <div className="flex items-center justify-end gap-2">
                       <InfoButton keys={[...c.conds, ...(c.also || [])]} title={c.name} rule={ruleText(fromSaved(c))} text="How it works" className="!h-auto !w-auto gap-1 px-2 py-1 text-[11px]" />
-                      <button type="button" className="btn btn-sm" onClick={() => setEditing(c.id)} disabled={busy}>
-                        <Pencil className="h-3.5 w-3.5" /> Edit
+                      <button type="button" className="btn btn-sm" onClick={() => setEditing(c.id)} disabled={busy} aria-label={`Edit the checks of ${c.name}`}>
+                        <Pencil className="h-3.5 w-3.5" /> Checks
                       </button>
-                      <button type="button" className="btn btn-sm" onClick={() => remove(c.id)} disabled={busy} aria-label={`Delete ${c.name}`}>
+                      <button type="button" className="btn btn-sm" onClick={() => window.confirm(`Delete ${c.name}? This cannot be undone.`) && remove(c.id)} disabled={busy} aria-label={`Delete ${c.name}`}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
+                    {onOpen && (
+                      <button type="button" className="btn btn-primary btn-sm w-full" onClick={() => onOpen(c.id)}>
+                        <LineChart className="h-3.5 w-3.5" /> Results and order settings
+                      </button>
+                    )}
                   </Card>
                 </li>
               ),

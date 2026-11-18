@@ -3,9 +3,9 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { Switch } from '../options/OptionsAutoCard.jsx';
 
-// Account > Entries > Shares: the extra entry rules of the share auto trader (server/src/scanner/entryRules.js).
+// Settings > Shares: the extra entry rules of the share auto trader (server/src/scanner/entryRules.js).
 const SWITCHES = [
-  { key: 'minuteSecond', label: 'Buy on the minute, sell on the second', hint: 'Buy only at the close of a 1-minute candle, sized at that price (a spike that falls back is skipped). Then sell the second the trade has lost your per-trade loss limit (Account > Limits), so a ₹320 loss cannot grow to ₹500. Off until you switch it on.' },
+  { key: 'minuteSecond', label: 'Buy on the minute, sell on the second', hint: 'Buy only at the close of a 1-minute candle, sized at that price (a spike that falls back is skipped). Then sell the second the trade has lost your per-trade loss limit (Settings), so a ₹320 loss cannot grow to ₹500. Off until you switch it on.' },
   { key: 'marketAgree', label: 'Nifty must agree', hint: 'Buy only when Nifty 50 is trending up, sell only when it trends down. No share trade while Nifty moves sideways.' },
   { key: 'confirmBar', label: 'Wait for a 5-minute close', hint: 'Do not buy on the bar that breaks out. Wait up to 10 minutes for a 5-minute bar to close past the entry, then buy. A spike that falls straight back is skipped.' },
 ];

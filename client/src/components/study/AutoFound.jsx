@@ -13,7 +13,7 @@ const part = (p) => `${p.trades} trades · ${p.winRate ?? '–'}% win · ${forma
 
 /**
  * Combinations the study found by itself: learned on the older days, then checked on newer days it had not seen.
- * "Add" saves one under Account > Entries > My combinations, switched off, so nothing trades until you turn it on.
+ * "Add" saves one under Combos, switched off, so nothing trades until you turn it on.
  */
 export function AutoFound({ af, endpoint = '/options', title = 'Found for you', intro = null, empty = null }) {
   const opts = useApi(endpoint, []);
@@ -26,7 +26,7 @@ export function AutoFound({ af, endpoint = '/options', title = 'Found for you', 
     try {
       await api(endpoint, { method: 'PUT', body: { combos: withFound(saved, f) } });
       opts.reload?.();
-      toast.success('Added, switched off. Turn it on under Account > Entries.');
+      toast.success('Added, switched off. Turn it on under Combos.');
     } catch (e) {
       toast.error(e.message || 'Could not add');
     } finally {

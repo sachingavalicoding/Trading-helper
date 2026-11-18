@@ -1,4 +1,4 @@
-// The ways an options entry can place its stop (Account > Entries), described the same on the settings screen, in the study and in Review.
+// The ways an options entry can place its stop (Combos), described the same on the settings screen, in the study and in Review.
 
 export const STOP_MODES = [
   { value: 'chart', label: 'Calculated', hint: 'The stop sits at the chart level where the idea is proven wrong. A level that is too far away skips the trade.' },

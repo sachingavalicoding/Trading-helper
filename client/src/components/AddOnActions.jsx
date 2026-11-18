@@ -60,7 +60,7 @@ export function AddOnActions({ saved, comboId, add, labels, endpoint = '/options
           <button type="button" className="btn btn-sm" disabled={busy || !changes} onClick={() => setConfirm(true)}>
             Update {combo.name.length > 18 ? 'this combination' : combo.name}
           </button>
-          <button type="button" className="btn btn-sm" disabled={busy || !changes || !canAdd(saved)} onClick={() => put(withCopy(saved, comboId, add, labels, { all }), 'Saved as a new combination, switched off. Turn it on under Account > Entries.')}>
+          <button type="button" className="btn btn-sm" disabled={busy || !changes || !canAdd(saved)} onClick={() => put(withCopy(saved, comboId, add, labels, { all }), 'Saved as a new combination, switched off. Turn it on under Combos.')}>
             {canAdd(saved) ? 'Save as new combination' : 'My combinations is full (30)'}
           </button>
         </div>

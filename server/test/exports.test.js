@@ -31,7 +31,7 @@ test('a cell with a comma or quote is quoted, and an empty list gives only the h
 test('the guide lists every check of the app, so it never drifts, and covers the main how-tos', () => {
   const g = guideText();
   for (const c of CONDITIONS) assert.ok(g.includes(`**${c.label}**`), c.label);
-  for (const h of ['## 5. Studies', '## 6. Making a combination', 'View button', 'P&L tile', 'Open drive']) assert.ok(g.includes(h), h);
+  for (const h of ['## 5. Studies', '## 6. Making a combination', 'View button', 'Trades > P&L', 'Open drive']) assert.ok(g.includes(h), h);
 });
 
 test('the P&L summary groups trades by day, week and month, keeps a running total and finds the worst drawdown', async () => {

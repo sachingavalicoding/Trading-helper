@@ -119,7 +119,7 @@ export function Learner() {
           </button>
 
           {view.simulated && <p className="text-[11px] text-warn">The app is on the practice feed: its history is random, so results mean nothing and auto never changes anything here.</p>}
-          {view.traderOff && <p className="text-[11px] text-warn">{kind === 'shares' ? 'Auto shares is off in Account, so a pick will not trade until you turn it on.' : 'The options auto trader or combination entries are off in Account, so a pick will not trade until you turn them on.'}</p>}
+          {view.traderOff && <p className="text-[11px] text-warn">{kind === 'shares' ? 'Auto shares is off (Market > Scanner), so a pick will not trade until you turn it on.' : 'The options auto trader or combination entries are off in Account, so a pick will not trade until you turn them on.'}</p>}
 
           {!last && !running && <p className="text-xs text-muted">Not run yet. Tap Learn now, or turn the switch on and it runs after 16:30 on trading days.</p>}
           {last && (

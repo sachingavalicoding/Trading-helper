@@ -11,26 +11,25 @@ Paper money only. Nothing here places a real order. Not investment advice.
 
 | Tab | What it is for |
 |---|---|
-| Stocks | Your watchlist, the scanner ideas and today's strip. Tap a stock for its chart, order sheet and signal. |
-| Scanner | The share scanner and the auto share trader: today's ideas, what was bought, and how each setup has done. |
-| Options | Nifty options: the live chart read, your auto trader, open trades and the log. |
-| News | The morning news calls against what the stocks did. |
-| Trades | Open positions, with live profit and loss. |
-| Account | Your money, the rules (Limits, Entries), Research (studies, Combination Lab, Finder, saved data), Day review, the P&L charts and this guide. |
+| Market | Three small tabs: Stocks (your watchlist and today's strip; tap a stock for its chart, order sheet and signal), Scanner (the share ideas and the auto share trader's on/off switch) and News (the morning news calls). |
+| Options | Nifty options: the live chart read, the auto trader's on/off switch, open trades, history and the log. |
+| Combos | Your combinations, the one place for them: make one, edit its checks, switch it on or off, and tap Results for every entry over 15 days or more with its order settings (test, then save). The other buy triggers (score, patterns, share setups) are folded below. |
+| Trades | Four small tabs: Shares (open positions), P&L (charts and tables), Orders and Day review. |
+| More | Your money, Settings (every stop, profit lock, hour, limit and safety rule of both bots), Research (test an idea, Learn, saved data and day report), the replay and this guide. |
 
 ## 2. A normal day
 
-1. Before 09:15: open the Options tab and check the auto trader is ON and your rules (Account > Limits and Entries) are what you want.
+1. Before 09:15: open the Options tab and check the auto trader is ON, and that Combos (what it buys) and More > Settings (its rules) are what you want.
 2. During the day: you can leave it. Entries and exits are automatic.
-3. After 15:30: Account > Day review (every call against what happened), and Account > Research > Day report (copy it to paste in the chat).
+3. After 15:30: Trades > Day review (every call against what happened), and More > Research > Saved data and day report (copy it to paste in the chat).
 4. Once a week: run a study (section 5) and look at what paid and what did not.
 
 ## 3. How an options entry happens
 
 1. Every 15 seconds the app reads the Nifty 1-minute candles and builds 5-minute bars.
-2. When a 5-minute bar closes, it checks your chart patterns and your combinations (Account > Entries). An entry is acted on only if the bar closed less than 4 minutes ago, and only once per bar.
+2. When a 5-minute bar closes, it checks your chart patterns and your combinations (Combos). An entry is acted on only if the bar closed less than 4 minutes ago, and only once per bar.
 3. A signal becomes a trade only if the limits allow it:
-   - the entry hours (Account > Limits) and the trades-a-day cap are not used up
+   - the entry hours (More > Settings) and the trades-a-day cap are not used up
    - the daily loss limit is not reached
    - no call (or put) is already open
    - 20 minutes have passed since a losing trade, and 15 minutes since a trade on the same side closed
@@ -50,7 +49,7 @@ Paper money only. Nothing here places a real order. Not investment advice.
 
 A study replays past candles through your rules. It changes nothing live.
 
-**To run the Options study:** Account > Research > Options study.
+**To run the Options study:** More > Research > Test an idea > Score bot and studies.
 2. Pick the days. With real prices on, "10d" means the newest 10 days that have saved option prices.
 3. Keep "Use the real option prices" on. Without saved prices it falls back to an estimate and says so.
 4. Keep "Trade like the live bot" on, so the study obeys the same pauses, one call and one put at a time, the daily cap and the loss limit, and buys one minute after the signal bar.
@@ -71,14 +70,14 @@ A study replays past candles through your rules. It changes nothing live.
 
 ## 6. Making a combination
 
-Account > Entries > My combinations > New combination.
+Combos > Options (or Shares) > New combination.
 1. **Name** it.
 2. **Pick checks** (up to 20). Use search or the groups. Each check has a one-line description under its name. The dictionary at the end lists all of them.
 3. **Rule:** all together, or at least N of them.
 4. **Event window:** a "cross" or a "break" counts for this many bars (1 to 6, default 3).
 5. **Index:** Nifty. **Side:** calls and puts, calls only, or puts only. A combination built from bullish checks should usually be calls only: its put twin is the mirror image and can buy puts on a rising day.
 6. **Stop and exits:** its own stop, ladder, trail and break-even, or the shared ones.
-7. Save, then test it in Account > Research > Combination Lab before you switch it on.
+7. Save. It opens by itself with its results and order settings: check every entry over 15 days or more before you switch it on.
 
 **Good building rules**
 - Use one entry check (a break or a cross) plus two or three filters (trend, breadth, time of day).
@@ -87,19 +86,19 @@ Account > Entries > My combinations > New combination.
 
 **A trend-day idea to test (not proven):** Open drive + Breaks the opening range + Breadth 70%+ + ADX rising, calls only, entry hours 09:30 to 11:00.
 
-## 7. Combination Lab, Finder and the View button
+## 7. A combination's results, the Finder and the View button
 
-- **Combination Lab:** one combination over 10, 15 or 30 days: every entry on a chart, day by day, and which extra check would have skipped each loser.
-- **Finder:** tries extra checks, pairs and triples, and judges them on older and newer days. Slower. A shortlist, not an answer.
-- **View button:** next to a trade in a study or the Lab. It opens a card that says why the entry happened (which checks held, and what each check means), what the index and the option did, how it ended, and the numbers.
+- **Results (Combos > tap a combination):** one combination over 10, 15 or 30 days: every entry on a chart, day by day, and which extra check would have skipped each loser.
+- **Finder (Research > Test an idea > Best indicator, stop and exit):** tries extra checks, pairs and triples, and judges them on older and newer days. Slower. A shortlist, not an answer.
+- **View button:** next to a trade in a study or a combination's results. It opens a card that says why the entry happened (which checks held, and what each check means), what the index and the option did, how it ended, and the numbers.
 
 ## 8. Score
 
-The chart score is out of 100 for a call and for a put, from about 15 signs (trends, EMAs, VWAP side, ADX, RSI, MACD, key levels, breadth, candle, and so on). A high score means many signs agree. It is not a promise. Patterns and combinations can have a minimum score (Account > Entries); it is off by default.
+The chart score is out of 100 for a call and for a put, from about 15 signs (trends, EMAs, VWAP side, ADX, RSI, MACD, key levels, breadth, candle, and so on). A high score means many signs agree. It is not a promise. Patterns and combinations can have a minimum score (Combos); it is off by default.
 
-## 9. Profit and loss and the guide (Account)
+## 9. Profit and loss and the guide (Trades and More)
 
-- **P&L tile:** your result with charts and tables: bars for each day, week or month, a running total, and tables by weekday, hour and symbol, for 7, 30 or 90 days or all. Shares and options are kept apart.
+- **Trades > P&L:** your result with charts and tables: bars for each day, week or month, a running total, and tables by weekday, hour and symbol, for 7, 30 or 90 days or all. Shares and options are kept apart.
 - **App guide:** this file.
 
 ## 10. Honest limits

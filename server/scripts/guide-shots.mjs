@@ -16,24 +16,21 @@ const click = async (text, opts = {}) => { try { await p.getByText(text, { exact
 await go('/'); await shot('stocks');
 await go('/dashboard'); await p.locator('main').getByText('Options', { exact: true }).first().click(); await p.waitForTimeout(1000); await p.mouse.wheel(0, 700); await shot('pnl-top');
 await p.mouse.wheel(0, 900); await shot('pnl-charts');
-await go('/account'); await shot('account');
-await go('/research'); await shot('study-form');
+await go('/account'); await shot('more');
+await go('/settings?seg=options'); await shot('settings');
+await go('/combos?seg=options'); await shot('combos');
+await go('/research?tab=test&tool=score'); await shot('study-form');
 await p.mouse.wheel(0, 1700); await shot('study-results');
 await p.getByText('Breakout + Engulfing, stop 1.5', { exact: false }).first().click(); await p.waitForTimeout(800);
 const sc = p.getByText('If a minimum chart score was needed').first(); await sc.scrollIntoViewIfNeeded(); await shot('score-floors');
 const v = p.getByRole('button', { name: /view/i }).first(); await v.scrollIntoViewIfNeeded(); await shot('study-trades'); await v.click(); await p.waitForTimeout(900); await shot('view-popup');
-await go('/account'); if (await click('Limits')) await shot('limits');
-await go('/account'); if (await click('Entries')) { await shot('entries'); await p.getByText('New combination', { exact: false }).first().scrollIntoViewIfNeeded().catch(() => console.log('MISSING newcombo')); await shot('entries-combos');
-  if (await click('New combination', { exact: false })) { await shot('combo-new');
-    try {
-      await p.getByPlaceholder(/Name, for example/).fill('Morning trend (demo)');
-      for (const q of ['Open drive', 'Squeeze', 'ADX rising']) {
-        await p.getByPlaceholder(/Search the checks/).fill(q); await p.waitForTimeout(500);
-        await p.getByText(new RegExp(q, 'i')).locator('visible=true').nth(0).click({ timeout: 3000 }).catch(() => console.log('MISSING pick', q));
-        await p.waitForTimeout(400);
-      }
-      await p.getByPlaceholder(/Search the checks/).fill('');
-      await p.getByText('Calls only', { exact: true }).first().click().catch(() => {});
-      await p.getByPlaceholder(/Name, for example/).scrollIntoViewIfNeeded(); await shot('combo-built');
-    } catch (e) { console.log('combo fill failed', e.message.slice(0, 100)); } } }
+await go('/combos?seg=options'); if (await click('New combination', { exact: false })) { await shot('combo-new');
+  try {
+    await p.getByPlaceholder(/Name, for example/).fill('Morning trend (demo)');
+    for (const q of ['Open drive', 'Squeeze', 'ADX rising']) {
+      await p.getByPlaceholder(/Search the checks/).fill(q); await p.waitForTimeout(500);
+      await p.getByText(new RegExp(q, 'i')).locator('visible=true').nth(0).click({ timeout: 3000 }).catch(() => console.log('MISSING pick', q));
+      await p.waitForTimeout(400);
+    }
+  } catch (e) { console.log('combo fill failed', e.message.slice(0, 100)); } }
 await b.close();

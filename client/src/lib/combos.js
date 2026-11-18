@@ -1,6 +1,6 @@
 import { formatPnl } from './format.js';
 
-// Helpers for the combination builder (Account > Entries) and the indicator ranking in the studies.
+// Helpers for the combination builder (Combos) and the indicator ranking in the studies.
 
 export const MAX_CHECKS = 20;
 export const VERDICT = {

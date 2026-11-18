@@ -35,7 +35,7 @@ function Line({ x, split, onApply, busy }) {
 
 /**
  * The research on the exits: the same Breakout + Engulfing entries traded with other stop amounts, profit ladders and trailing stops.
- * "Use this" saves the setting in Account > Limits; nothing changes until you tap it.
+ * "Use this" saves the setting in Settings; nothing changes until you tap it.
  */
 export function Research({ r, onApplied }) {
   const [group, setGroup] = useState('stop');

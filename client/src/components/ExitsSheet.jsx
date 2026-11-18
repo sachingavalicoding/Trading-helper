@@ -235,9 +235,9 @@ export function ExitsSheet({ position, onClose }) {
           )}
           <p className="mt-1 text-[11px] leading-snug text-muted">
             {lockOn
-              ? `At ₹${Number(lockTrigger) || 0} profit the stop moves to lock in ₹${Number(lockAmount) || 0}, then keeps following the price up. The stop never moves back.${ladder.length ? ' Saving replaces your Account ladder for this position only.' : ''}`
+              ? `At ₹${Number(lockTrigger) || 0} profit the stop moves to lock in ₹${Number(lockAmount) || 0}, then keeps following the price up. The stop never moves back.${ladder.length ? ' Saving replaces your Settings ladder for this position only.' : ''}`
               : ladder.length
-                ? `Your Account ladder (${ladder.length} rows, from +₹${Math.round(ladder[0].at)} keeps ₹${Math.round(ladder[0].keep)}) is running on this position. Switch on to set your own lock for this position instead.`
+                ? `Your Settings ladder (${ladder.length} rows, from +₹${Math.round(ladder[0].at)} keeps ₹${Math.round(ladder[0].keep)}) is running on this position. Switch on to set your own lock for this position instead.`
                 : 'Off: no automatic profit protection on this trade.'}
           </p>
           {stopOff && !lockOn && !ladder.length && <p className="mt-1 text-[11px] font-semibold text-down">No stop and no profit lock: a gain can turn into a loss down to the floor.</p>}

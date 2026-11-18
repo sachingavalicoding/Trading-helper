@@ -3,8 +3,8 @@
 export const FIGURES = {
   1: [
     { file: 'm-stocks', caption: 'Stocks: the Nifty 50, search, filters, and the two auto traders at the top with what they made today.' },
-    { file: 'm-account', caption: 'Account: your money, then the tiles. P&L, Orders, Research, Day review, Limits, Entries and this guide.' },
-    { file: 'm-limits', caption: 'Account > Limits: the stop, the profit lock and the closing time for shares and options.' },
+    { file: 'm-more', caption: 'More: your money, then Settings, Research, this guide and the replay. P&L, Orders and Day review are small tabs under Trades.' },
+    { file: 'm-settings', caption: 'More > Settings: every rule of one bot in one list, Options or Shares at the top. Tap a row to open it.' },
   ],
   5: [
     { file: 'm-study-form', caption: 'Research > Options study: pick days, how many trades a day, real option prices and "trade like the live bot".' },
@@ -13,10 +13,8 @@ export const FIGURES = {
     { file: 'd-study-results', caption: 'The same screen on a computer.', wide: true },
   ],
   6: [
-    { file: 'm-entries', caption: 'Account > Entries: which patterns and combinations the auto trader may buy, with their study results beside them.' },
-    { file: 'm-entries-combos', caption: 'Scroll down to My combinations and tap New combination.' },
+    { file: 'm-combos', caption: 'Combos: the switch for buying on combinations, then each combination with its own switch, Checks, delete and Results and order settings.' },
     { file: 'm-combo-new', caption: 'A new combination: give it a name, then search and tap the checks.' },
-    { file: 'm-combo-built', caption: 'Three checks picked, all must hold together, calls only. Save it, then test it in the study.' },
   ],
   7: [
     { file: 'm-study-trades', caption: 'Every trade in a study has a View button.' },

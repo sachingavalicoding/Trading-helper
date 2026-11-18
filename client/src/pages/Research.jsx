@@ -19,7 +19,6 @@ export const RESEARCH_TABS = [
 
 // Old addresses (?tab=lab, finder ...) still open the right place.
 const OLD = {
-  lab: { tab: 'test', tool: 'combo' },
   finder: { tab: 'test', tool: 'finder' },
   ladder: { tab: 'test', tool: 'ladder' },
   moved: { tab: 'test', tool: 'late' },
@@ -29,7 +28,7 @@ const OLD = {
   report: { tab: 'data' },
 };
 
-/** Everything for trying ideas, in one place. (Day review lives in Account.) */
+/** Everything for trying ideas, in one place. (Day review lives in Trades, your combinations in Combos.) */
 export default function Research() {
   const [params, setParams] = useSearchParams();
   const asked = params.get('tab');
@@ -46,8 +45,10 @@ export default function Research() {
     }
     setParams(next, { replace: true });
   };
+  // the Combination Lab, and testing one combination, now live on the Combos page
+  if (asked === 'lab' || (tab === 'test' && tool === 'combo')) return <Navigate to="/combos" replace />;
   if (asked === 'review') {
-    // the old address of Day review: it now lives in Account
+    // the old address of Day review: it now lives in Trades
     const rest = new URLSearchParams(params);
     rest.delete('tab');
     return <Navigate to={`/review${rest.toString() ? `?${rest}` : ''}`} replace />;

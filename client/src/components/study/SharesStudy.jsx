@@ -48,7 +48,7 @@ function Group({ title, rows, note }) {
   );
 }
 
-/** The user's own combinations (Account > Entries), traded on the 50 stocks like the scanner's ideas. */
+/** The user's own combinations (Combos), traded on the 50 stocks like the scanner's ideas. */
 function ComboRows({ rows }) {
   if (!rows?.length) return null;
   return (
@@ -118,7 +118,7 @@ export function SharesStudy() {
             <p className="text-[11px] leading-snug text-muted">Replays the scanner on past candles of the 50 stocks, sized to your share stop. Choose how a winning trade is sold below. This does not change the live trading. It reads a lot of data, so it takes a few minutes.</p>
           </div>
         </div>
-        <Segmented className="w-full" size="sm" value={exit} onChange={setExit} options={[{ value: 'lock', label: 'Profit ladder (your Account rows)' }, { value: 'target', label: 'Fixed target' }]} />
+        <Segmented className="w-full" size="sm" value={exit} onChange={setExit} options={[{ value: 'lock', label: 'Profit ladder (your Settings rows)' }, { value: 'target', label: 'Fixed target' }]} />
         {exit === 'target' && (
           <label className="flex items-center justify-between gap-3 text-xs text-muted">
             <span>Sell when a trade's profit reaches (₹). No profit lock.</span>
@@ -166,7 +166,7 @@ export function SharesStudy() {
             )}
           </Card>
           {!r.finderOnly && <RuleTest t={r.ruleTest} />}
-          {!r.finderOnly && <Group title="By setup" rows={r.bySetup} note="Switch a losing setup off in Account > Entries." />}
+          {!r.finderOnly && <Group title="By setup" rows={r.bySetup} note="Switch a losing setup off in Combos." />}
           {!r.finderOnly && <ScoreStudy s={r.scoreStudy} />}
           {!r.finderOnly && <ComboRows rows={r.combos} />}
           <PairFinder pf={r.pairs} endpoint="/auto" callWord="Buys" putWord="Sells" />

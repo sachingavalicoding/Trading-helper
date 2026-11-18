@@ -1,21 +1,16 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronDown, ChevronRight, LayoutDashboard, ListOrdered, LogOut, Plus, RotateCcw, FlaskConical, SlidersHorizontal, Sun, Moon, Trash2, Wallet, GraduationCap } from 'lucide-react';
+import { ChevronDown, ChevronRight, LogOut, RotateCcw, FlaskConical, SlidersHorizontal, Sun, Moon, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { useMarket } from '../context/MarketContext.jsx';
 import { useApi } from '../lib/useApi.js';
 import { api } from '../lib/api.js';
-import { DEFAULT_EXIT_MIN, MAX_ROWS, ladderLines, ladderSummary, minOfTime, nextRow, rowsFromRules, rowsProblem, stepsOf, timeText } from '../lib/ladder.js';
 import { useStartingBalance } from '../lib/useStartingBalance.js';
 import { formatINR, formatPnl, pnlClass } from '../lib/format.js';
-import { Card, Segmented, Skeleton, Disclaimer, PopupTile, Sheet, useFold } from '../components/ui.jsx';
-import { AutoLimits } from '../components/AutoCard.jsx';
-import { OptionsLimits, StopPlacement, Switch } from '../components/options/OptionsAutoCard.jsx';
-import { TrailStop } from '../components/options/TrailStop.jsx';
-import { EntryChoices } from '../components/study/ReportsStudies.jsx';
-import { DayReviewTile, GuideTile } from '../components/AccountExports.jsx';
+import { Card, Skeleton, Disclaimer, useFold } from '../components/ui.jsx';
+import { GuideTile } from '../components/AccountExports.jsx';
 import { ReplayCard } from '../components/Replay.jsx';
 import { ReplayTestCard } from '../components/ReplayTest.jsx';
 
@@ -25,185 +20,6 @@ function Row({ label, value, className = '' }) {
       <span className="text-sm text-muted">{label}</span>
       <span className={`num text-sm font-semibold ${className}`}>{value}</span>
     </div>
-  );
-}
-
-const NUM = 'field num mt-1 !py-2';
-
-/** One segment's stop and its profit ladder: a stop in rupees, then rows of "profit reaches X, the stop keeps Y" that you type. */
-function RulesForm({ title, rules, onSave, onLock, saved, stopLabel = 'Stop loss (₹ a trade)', stopNote }) {
-  const [draft, setDraft] = useState(null);
-  const v = draft ?? { stopLoss: String(rules.stopLoss), rows: rowsFromRules(rules), exitTime: timeText(rules.exitMin ?? DEFAULT_EXIT_MIN) };
-  const edit = (next) => setDraft({ ...v, ...next });
-  const setRow = (i, k) => (e) => edit({ rows: v.rows.map((r, j) => (j === i ? { ...r, [k]: e.target.value } : r)) });
-  const problem = rowsProblem(v.rows);
-  const exitMin = minOfTime(v.exitTime);
-  const bad = !(Number(v.stopLoss) >= 0) || problem != null || exitMin == null;
-  const steps = stepsOf(v.rows);
-  return (
-    <div className="space-y-2">
-      <div className="text-sm font-semibold">{title}</div>
-      <label className="block text-xs text-muted">
-        {stopLabel}
-        <input className={NUM} inputMode="numeric" value={v.stopLoss} onChange={(e) => edit({ stopLoss: e.target.value })} />
-      </label>
-      <label className="block text-xs text-muted">
-        Close the auto trader's trades at (IST, 09:15 to 15:15)
-        <input type="time" min="09:15" max="15:15" className={NUM} value={v.exitTime} onChange={(e) => edit({ exitTime: e.target.value })} />
-      </label>
-      <div className="flex items-center justify-between gap-3 pt-1">
-        <div className="text-xs font-semibold">Profit lock (book profit)</div>
-        <Switch on={rules.lockOn !== false} label={`${title} profit lock`} onClick={() => onLock(rules.lockOn === false)} />
-      </div>
-      {rules.lockOn === false && <p className="text-xs text-warn">Off: new trades have no profit lock, so a gain is not protected by the ladder. Your rows below are kept; switch it back on to use them.</p>}
-      <div className={rules.lockOn === false ? 'space-y-2 opacity-50' : 'space-y-2'}>
-      {v.rows.length === 0 ? (
-        <p className="text-xs text-muted">No rows: no profit lock.</p>
-      ) : (
-        <div className="space-y-1.5">
-          <div className="grid grid-cols-[1fr_1fr_2.25rem] gap-2 text-[11px] text-muted">
-            <span>When the profit reaches (₹)</span>
-            <span>The stop keeps (₹)</span>
-            <span />
-          </div>
-          {v.rows.map((r, i) => (
-            <div key={i} className="grid grid-cols-[1fr_1fr_2.25rem] items-center gap-2">
-              <input className={NUM.replace('mt-1 ', '')} inputMode="numeric" aria-label={`Row ${i + 1} profit`} value={r.at} onChange={setRow(i, 'at')} />
-              <input className={NUM.replace('mt-1 ', '')} inputMode="numeric" aria-label={`Row ${i + 1} lock`} value={r.keep} onChange={setRow(i, 'keep')} />
-              <button type="button" aria-label={`Remove row ${i + 1}`} onClick={() => edit({ rows: v.rows.filter((_, j) => j !== i) })} className="btn btn-ghost !p-1.5 text-muted">
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      {v.rows.length < MAX_ROWS && (
-        <button type="button" onClick={() => edit({ rows: [...v.rows, nextRow(v.rows)] })} className="btn btn-secondary btn-sm w-full">
-          <Plus className="h-4 w-4" /> Add a row
-        </button>
-      )}
-      </div>
-      {problem && <p className="text-xs text-down">{problem}</p>}
-      <button type="button" disabled={bad || draft == null} onClick={async () => { if (await onSave({ stopLoss: Number(v.stopLoss), steps, exitMin })) setDraft(null); }} className="btn btn-primary w-full">
-        {saved && draft == null ? 'Saved' : `Save ${title.toLowerCase()}`}
-      </button>
-      <div className="space-y-1 text-[11px] leading-snug text-muted">
-        {rules.lockOn !== false && steps.length > 0 && !problem ? ladderLines(steps).map((l) => <p key={l.at}>{l.text}</p>) : null}
-        {rules.lockOn !== false && steps.length > 0 && !problem && <p>The stop never moves back. When the profit reaches the next row, that row takes over.</p>}
-        <p>{exitMin == null ? 'Enter a time from 09:15 to 15:15.' : `The auto trader closes its trades at ${v.exitTime} and takes no new one after it. The studies use this time too. A trade you place by hand is only closed by the 15:15 square-off.`}</p>
-        <p>{stopNote ?? (Number(v.stopLoss) > 0 ? `Every trade starts with a stop that loses at most ₹${Number(v.stopLoss)}.` : 'No automatic stop.')}</p>
-      </div>
-    </div>
-  );
-}
-
-const rs = (v) => `₹${Number(v).toLocaleString('en-IN')}`;
-
-const clockOf = (min) => timeText(min);
-
-/** Account > Limits: the hours new auto trades may be taken (09:15 to 15:15 unless changed), for options (`/options`) or shares (`/auto`). */
-function EntryHours({ data, reload, path = '/options', title = 'Options: when new trades may start', note = 'Applies to the bot, the studies, Review and the Lab alike, so a study shows what these hours would have done. Trades you open by hand, and the time the bot closes its trades, are not affected.' }) {
-  const s = data.settings;
-  const [from, setFrom] = useState(clockOf(s.entryFrom ?? 555));
-  const [to, setTo] = useState(clockOf(s.entryTo ?? 915));
-  const a = minOfTime(from);
-  const b = minOfTime(to);
-  const bad = a == null || b == null || a < 555 || b > 915 || a >= b;
-  const changed = a !== (s.entryFrom ?? 555) || b !== (s.entryTo ?? 915);
-  async function put() {
-    try {
-      await api(path, { method: 'PUT', body: { entryFrom: a, entryTo: b } });
-      toast.success('Saved. New automatic trades use these hours.');
-      reload();
-    } catch (e) {
-      toast.error(e.message || 'Could not save');
-    }
-  }
-  return (
-    <div className="space-y-2 border-t border-line pt-3">
-      <h4 className="text-sm font-semibold">{title}</h4>
-      <div className="grid grid-cols-2 gap-2">
-        <label className="block text-xs text-muted">
-          First entry (09:15 or later)
-          <input type="time" min="09:15" max="15:14" className={NUM} value={from} onChange={(e) => setFrom(e.target.value)} />
-        </label>
-        <label className="block text-xs text-muted">
-          Last entry (up to 15:15)
-          <input type="time" min="09:16" max="15:15" className={NUM} value={to} onChange={(e) => setTo(e.target.value)} />
-        </label>
-      </div>
-      {bad && <p className="text-xs text-down">Pick times between 09:15 and 15:15, the last one after the first.</p>}
-      <button type="button" disabled={bad || !changed} onClick={put} className="btn btn-primary w-full">
-        {changed ? 'Save entry hours' : 'Saved'}
-      </button>
-      <p className="text-[11px] leading-snug text-muted">{note}</p>
-    </div>
-  );
-}
-
-/** The limits in one short card. Tap "Set limits" for the forms, the ladder tables and the auto-trader limits. */
-function TradingRules() {
-  const { data, reload } = useApi('/trade-defaults', []);
-  const options = useApi('/options', []);
-  const auto = useApi('/auto', []);
-  const [saved, setSaved] = useState('');
-  const [open, setOpen] = useState(false);
-  if (!data) return <Skeleton className="h-20" />;
-
-  const save = (key) => async (rules) => {
-    try {
-      await api('/trade-defaults', { method: 'PUT', body: { [key]: rules } });
-      toast.success('Saved. New trades use this.');
-      setSaved(key);
-      reload();
-      options.reload();
-      return true;
-    } catch (e) {
-      toast.error(e.message || 'Could not save');
-      return false;
-    }
-  };
-
-  const lock = (key) => async (on) => {
-    try {
-      await api('/trade-defaults', { method: 'PUT', body: { [key]: { lockOn: on } } });
-      toast.success(on ? 'Profit lock on for new trades.' : 'Profit lock off for new trades.');
-      reload();
-      options.reload();
-    } catch (e) {
-      toast.error(e.message || 'Could not save');
-    }
-  };
-
-  const line = (r, stopWord) => `${r.stopLoss > 0 ? `${stopWord} ${rs(r.stopLoss)}` : 'no stop'} · ${r.lockOn === false ? 'profit lock off' : ladderSummary(r.steps)} · close ${timeText(r.exitMin ?? DEFAULT_EXIT_MIN)}`;
-
-  return (
-    <>
-      <PopupTile icon={SlidersHorizontal} label="Limits" hint="Stop, lock and exit time" onClick={() => setOpen(true)} />
-      {open && (
-        <Sheet title="Limits" subtitle={`Shares: ${line(data.shares, 'stop')}. Options: ${line(data.options, 'loss limit')}`} onClose={() => setOpen(false)}>
-      <div className="space-y-5">
-        <p className="text-xs text-muted">One set of rules for auto and manual trades, for new trades from the moment you save. A trade placed with its own stop keeps that stop. Type the ladder you want, change it any time.</p>
-        <RulesForm key={`s${JSON.stringify(data.shares)}`} title="Shares" rules={data.shares} onSave={save('shares')} onLock={lock('shares')} saved={saved === 'shares'} />
-        <RulesForm key={`o${JSON.stringify(data.options)}`} title="Options" rules={data.options} onSave={save('options')} onLock={lock('options')} saved={saved === 'options'} stopLabel="Most one trade may lose (₹)" stopNote={Number(data.options.stopLoss) > 0 ? `The bot sells when the Nifty chart level breaks, and buys only as many lots as keep that loss within ₹${data.options.stopLoss}. A hard stop sits behind it for a fast fall.` : 'No loss limit.'} />
-        {options.data && <EntryHours data={options.data} reload={options.reload} />}
-        {auto.data && <EntryHours data={auto.data} reload={auto.reload} path="/auto" title="Shares: when new auto trades may start" note="The auto share trader buys only inside these hours (and before the close time above). The scanner's own setups still start at 09:20 (news gap) and 09:30 (opening range); your share combinations can buy from 09:15." />}
-        {options.data && <StopPlacement data={options.data} reload={options.reload} />}
-        {options.data && <TrailStop data={options.data} reload={options.reload} />}
-        <div className="space-y-2 border-t border-line pt-3">
-          <div className="text-sm font-semibold">Auto shares: limits</div>
-          <AutoLimits />
-        </div>
-        {options.data && (
-          <div className="space-y-2 border-t border-line pt-3">
-            <div className="text-sm font-semibold">Auto options: limits</div>
-            <OptionsLimits data={options.data} reload={options.reload} />
-          </div>
-        )}
-      </div>
-        </Sheet>
-      )}
-    </>
   );
 }
 
@@ -282,12 +98,10 @@ export default function Account() {
         )}
       </Card>
 
-      <div className="grid grid-cols-3 gap-2">
+      <nav aria-label="More" className="grid grid-cols-2 gap-2">
         {[
-          { to: '/dashboard', label: 'P&L', hint: 'Profit and loss', icon: LayoutDashboard },
-          { to: '/orders', label: 'Orders', hint: 'Every order', icon: ListOrdered },
-          { to: '/research', label: 'Research', hint: 'Test ideas, learn, data', icon: FlaskConical },
-          { to: '/research?tab=learn&part=settings', label: 'Learn', hint: 'Find better settings, checked on hidden days', icon: GraduationCap },
+          { to: '/settings', label: 'Settings', hint: 'Stops, profit lock, limits, hours and safety rules of both bots', icon: SlidersHorizontal },
+          { to: '/research', label: 'Research', hint: 'Test an idea, Learn, saved data and day report', icon: FlaskConical },
         ].map(({ to, label, hint, icon: Icon }) => (
           <Link key={to} to={to} className="card-shadow flex flex-col items-start gap-1 rounded-2xl border border-line bg-surface p-3 transition-colors hover:border-accent2">
             <Icon className="h-5 w-5 text-accent2" />
@@ -297,12 +111,8 @@ export default function Account() {
             <span className="text-[11px] text-muted">{hint}</span>
           </Link>
         ))}
-        <DayReviewTile />
-        <TradingRules />
-        <EntryChoices />
         <GuideTile />
-      </div>
-
+      </nav>
 
       <ReplayCard />
       <ReplayTestCard />
