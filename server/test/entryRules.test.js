@@ -203,3 +203,16 @@ test('what wins: the track record split by stop size, market, strength and volum
 });
 
 const round = (n) => Math.round(n * 100) / 100;
+
+test('confirmMinute buys at the close of the 1-minute candle the idea was raised in', async () => {
+  const { confirmMinute } = await import('../src/scanner/entryRules.js');
+  const idea = { side: 'BUY', entry: 100, stopLoss: 99 };
+  const b = (m, o) => ({ time: T0 + m * 60, open: 100, high: 100.8, low: 99.5, close: 100.3, volume: 1, ...o });
+  assert.deepEqual(confirmMinute([b(0)], 0, idea), { waiting: true }, 'the candle is still forming');
+  assert.deepEqual(confirmMinute([b(0), b(1)], 0, idea), { index: 0, price: 100.3, time: T0 });
+  assert.match(confirmMinute([b(0, { low: 98.9 }), b(1)], 0, idea).dropped, /stop was touched/);
+  assert.match(confirmMinute([b(0, { close: 99.8 }), b(1)], 0, idea).dropped, /closed back under/);
+  assert.match(confirmMinute([b(0, { close: 101 }), b(1)], 0, idea).dropped, /already 1.00R past/);
+  const sell = { side: 'SELL', entry: 100, stopLoss: 101 };
+  assert.equal(confirmMinute([b(0, { close: 99.7, high: 100.4 }), b(1)], 0, sell).price, 99.7);
+});

@@ -116,7 +116,7 @@ export function AutoLimits() {
   );
 }
 
-const EXIT_LABEL = { STOP: 'Stopped', LOCK: 'Locked profit', TARGET: 'Target', MANUAL: 'Manual exit', SQUARE_OFF: 'Square-off', TIME: 'Time exit', TRAIL: 'Trailing stop', BREAKEVEN: 'Break-even stop' };
+const EXIT_LABEL = { STOP: 'Stopped', LOCK: 'Locked profit', TARGET: 'Target', MANUAL: 'Manual exit', SQUARE_OFF: 'Square-off', CUT: 'Loss cut', TIME: 'Time exit', TRAIL: 'Trailing stop', BREAKEVEN: 'Break-even stop' };
 
 /** Every decision the auto-trader made today with its reason and result, to review in the evening. */
 function AutoLog() {

@@ -10,7 +10,7 @@ import { normalizeCombos } from '../combos/combos.js';
 import { bars5Of, breadthByTime, comboMoney, shareChart, shareIdeas, newsDirection } from '../combos/shares.js';
 import { logger } from '../utils/logger.js';
 import { roundToTick } from '../utils/money.js';
-import { confirmEntry, rLadder, ruleBlock, shareRulesOf } from '../scanner/entryRules.js';
+import { confirmEntry, confirmMinute, rLadder, ruleBlock, shareRulesOf } from '../scanner/entryRules.js';
 const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -41,6 +41,8 @@ export class AutoTrader {
     this.timed = new Set(); // `${userId}|${symbol}` of trades closed by the exit time, so the log says TIME
     this.comboSlot = 0; // the 5-minute slot the combinations were last read for
     this.comboBusy = false;
+    this.cutDone = new Set(); // trades the loss cut sold, so the log says CUT
+    this.cutting = new Set(); // `${userId}|${symbol}` being sold by the 1-second loss cut, so it fires once
     this.pending = new Map(); // `${userId}|${ideaId}` -> { settings, idea }: ideas waiting for a 5-minute close (shareRules.confirmBar)
     this.onEntry = (idea) => {
       this.handle(idea).catch((e) => logger.error('auto-trader failed', e));
@@ -144,6 +146,12 @@ export class AutoTrader {
       x.bestR = Math.max(x.bestR, r);
       x.worstR = Math.min(x.worstR, r);
       this.excursion.set(key, x);
+      // "sell on the second": the moment the loss reaches the per-trade loss limit, sell, without waiting for the chart stop
+      if (x.cut > 0 && x.qty > 0 && !this.cutting.has(key) && x.qty * x.dir * (x.entry - ltp) >= x.cut) {
+        this.cutting.add(key);
+        this.cutDone.add(key);
+        this.engine.exitPosition(String(x.user), symbol).catch((e) => logger.warn(`loss cut for ${symbol} failed: ${e.message}`)).finally(() => this.cutting.delete(key));
+      }
     }
   }
 
@@ -184,8 +192,9 @@ export class AutoTrader {
     const x = this.excursion.get(key);
     this.excursion.delete(key);
     const gross = pos.realizedPnl;
-    const exitReason = order.role === 'TARGET' ? 'TARGET' : order.role === 'STOPLOSS' ? (gross > 0 ? 'LOCK' : 'STOP') : order.role === 'SQUAREOFF' ? 'SQUARE_OFF' : this.timed.has(`${userId}|${order.symbol}`) ? 'TIME' : 'MANUAL';
+    const exitReason = this.cutDone.has(`${userId}|${order.symbol}`) ? 'CUT' : order.role === 'TARGET' ? 'TARGET' : order.role === 'STOPLOSS' ? (gross > 0 ? 'LOCK' : 'STOP') : order.role === 'SQUAREOFF' ? 'SQUARE_OFF' : this.timed.has(`${userId}|${order.symbol}`) ? 'TIME' : 'MANUAL';
     this.timed.delete(`${userId}|${order.symbol}`);
+    this.cutDone.delete(`${userId}|${order.symbol}`);
     const risk = Math.abs(log.entry - log.stopLoss);
     const dir = log.side === 'BUY' ? 1 : -1;
     const exitPrice = order.avgFillPrice;
@@ -235,7 +244,8 @@ export class AutoTrader {
       const { order } = result;
       const position = await Position.findOne({ user: settings.user, symbol: idea.symbol, status: 'OPEN' }, '_id').lean();
       const risk = Math.abs(idea.entry - idea.stopLoss);
-      this.excursion.set(`${settings.user}|${idea.symbol}`, { user: settings.user, openedAt: Date.now(), symbol: idea.symbol, entry: order.avgFillPrice ?? idea.entry, risk, dir: idea.side === 'BUY' ? 1 : -1, bestR: 0, worstR: 0 });
+      const cut = shareRulesOf(settings.shareRules).minuteSecond ? result.cut ?? 0 : 0;
+      this.excursion.set(`${settings.user}|${idea.symbol}`, { user: settings.user, openedAt: Date.now(), symbol: idea.symbol, entry: order.avgFillPrice ?? idea.entry, risk, dir: idea.side === 'BUY' ? 1 : -1, bestR: 0, worstR: 0, qty: order.qty, cut });
       await this.#record(settings, idea, { ...base, decision: 'PLACED', status: 'OPEN', qty: order.qty, fillPrice: order.avgFillPrice, order: order._id, position: position?._id });
     }
     return result;
@@ -331,7 +341,7 @@ export class AutoTrader {
         logger.warn(`lock in risks for ${idea.symbol} not set: ${e.message}`);
       }
     }
-    return { order };
+    return { order, cut: own ? own.riskAmount : rules.stopLoss };
   }
 
   /** Account > Entries > Shares "fixed profit target": sell at that profit in place of the ladder. */
@@ -362,16 +372,17 @@ export class AutoTrader {
    * The bars are the scanner's own 1-minute candles.
    */
   async checkPending() {
-    for (const [key, { settings, idea }] of this.pending) {
+    for (const [key, { settings, idea, mode }] of this.pending) {
       const c1 = this.scanner?.store?.get(idea.symbol);
       const t = Math.floor(new Date(idea.createdAt ?? Date.now()).getTime() / 60_000) * 60;
       const from = c1 ? c1.findLastIndex((b) => b.time <= t) : -1;
       let res;
       if (from < 0) res = Date.now() - new Date(idea.createdAt).getTime() > 15 * 60_000 ? { dropped: 'no candles to confirm the entry on' } : { waiting: true };
+      else if (mode === '1m') res = confirmMinute(c1, from, idea, { noChaseR: shareRulesOf(settings.shareRules).noChaseR });
       else res = confirmEntry(c1, from, idea, { noChaseR: shareRulesOf(settings.shareRules).noChaseR });
       if (res.waiting) continue;
       this.pending.delete(key);
-      const next = res.dropped ? { ...idea, dropReason: `waited for a 5-minute close: ${res.dropped}` } : { ...idea, entry: res.price, confirmedAt: new Date(res.time * 1000 + 60_000) };
+      const next = res.dropped ? { ...idea, dropReason: `waited for a ${mode === '1m' ? '1-minute' : '5-minute'} close: ${res.dropped}` } : { ...idea, entry: res.price, confirmedAt: new Date(res.time * 1000 + 60_000) };
       const r = await this.consider(settings, next);
       if (r.skipped) logger.info(`auto skip ${idea.symbol} ${idea.side} for ${settings.user}: ${r.skipped}`);
     }
@@ -395,8 +406,9 @@ export class AutoTrader {
   async handle(idea) {
     const all = await AutoSettings.find({ enabled: true }).lean();
     for (const s of all) {
-      if (shareRulesOf(s.shareRules).confirmBar && !idea.combo && !idea.comboSnap) {
-        this.pending.set(`${s.user}|${idea._id}`, { settings: s, idea });
+      const sr = shareRulesOf(s.shareRules);
+      if ((sr.minuteSecond || sr.confirmBar) && !idea.combo && !idea.comboSnap) {
+        this.pending.set(`${s.user}|${idea._id}`, { settings: s, idea, mode: sr.minuteSecond ? '1m' : '5m' });
         continue;
       }
       try {

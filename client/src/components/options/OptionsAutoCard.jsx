@@ -320,8 +320,8 @@ export function OptionsAutoCard({ data, reload }) {
         {s.movedText ? `${s.movedText}. ` : 'No limit on how far the market already moved. '}
         {s.chasePct > 0 ? `Skips a buy when the premium is over ${s.chasePct}% above its ${s.chaseMinutes ?? 15}-minute low. ` : ''}
         Each skip and its reason is in the Options log.{' '}
-        <Link to="/research?tab=moved" className="font-semibold text-accent">Test the already-moved check</Link> ·{' '}
-        <Link to="/research?tab=ladder" className="font-semibold text-accent">Test profit ladders</Link>
+        <Link to="/research?tab=test&tool=late" className="font-semibold text-accent">Test the already-moved check</Link> ·{' '}
+        <Link to="/research?tab=test&tool=ladder" className="font-semibold text-accent">Test profit ladders</Link>
       </p>
       <p className="text-[11px] leading-snug text-muted">{data.disclaimer}</p>
     </Card>

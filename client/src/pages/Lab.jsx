@@ -172,7 +172,7 @@ const remembered = (key, fallback) => { try { return localStorage.getItem(key) |
 const remember = (key, value) => { try { localStorage.setItem(key, value); } catch { /* not remembered */ } };
 
 /** Combination Lab: options or shares. */
-export default function Lab({ embedded = false }) {
+export default function Lab({ embedded = false, focus = 'all' }) {
   const [segment, setSegment] = useState(() => { try { return localStorage.getItem(SEGMENT) || 'options'; } catch { return 'options'; } });
   const choose = (v) => { setSegment(v); remember(SEGMENT, v); };
   const [mode, setMode] = useState(() => remembered(MODE, 'combo'));
@@ -186,15 +186,17 @@ export default function Lab({ embedded = false }) {
         </div>
       )}
       <Segmented className="w-full" value={segment} onChange={choose} options={[{ value: 'options', label: 'Options' }, { value: 'shares', label: 'Shares' }]} />
-      {segment === 'options' && <Segmented className="w-full" size="sm" value={mode} onChange={pickMode} options={[{ value: 'combo', label: 'One combination' }, { value: 'learn', label: 'Learn' }]} />}
-      {segment === 'shares' ? <SharesLab /> : mode === 'learn' ? <LearnLab /> : <OptionsLab />}
+      {segment === 'options' && !embedded && <Segmented className="w-full" size="sm" value={mode} onChange={pickMode} options={[{ value: 'combo', label: 'One combination' }, { value: 'learn', label: 'Learn' }]} />}
+      {segment === 'shares' ? <SharesLab /> : !embedded && mode === 'learn' ? <LearnLab /> : <OptionsLab focus={focus} />}
     </div>
   );
 }
 
 /** Combination Lab for options: one combination or pattern over a month of trading, every entry, and which extra check would have skipped each loser. */
-function OptionsLab() {
-  const [base, setBase] = useState(() => { try { return localStorage.getItem(STORE) || ''; } catch { return ''; } });
+function OptionsLab({ focus = 'all' }) {
+  const [kept, setBase] = useState(() => { try { return localStorage.getItem(STORE) || ''; } catch { return ''; } });
+  // 'combos' or 'patterns' (Research > Test an idea) shows only that kind; a remembered pick of the other kind is not used
+  const base = (focus === 'combos' && kept && !kept.startsWith('combo:')) || (focus === 'patterns' && kept.startsWith('combo:')) ? '' : kept;
   const [add, setAdd] = useState([]);
   const [days, setDays] = useState('15');
   const [prices, setPrices] = useState('mixed');
@@ -256,8 +258,8 @@ function OptionsLab() {
           <span>Start from</span>
           <select className="field !w-auto max-w-[70%] !px-2 !py-1.5 !text-xs" value={base} onChange={(e) => pick(e.target.value)} aria-label="Combination or pattern">
             <option value="">Choose…</option>
-            {list?.combos.length > 0 && <optgroup label="My combinations">{list.combos.map((c) => <option key={c.key} value={c.key}>{c.label}{c.off ? ' (off)' : ''}</option>)}</optgroup>}
-            {list && <optgroup label="Patterns">{list.patterns.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>}
+            {focus !== 'patterns' && list?.combos.length > 0 && <optgroup label="My combinations">{list.combos.map((c) => <option key={c.key} value={c.key}>{c.label}{c.off ? ' (off)' : ''}</option>)}</optgroup>}
+            {focus !== 'combos' && list && <optgroup label="Patterns">{list.patterns.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>}
           </select>
         </label>
         <Segmented className="w-full" size="sm" value={days} onChange={(v) => { setDays(v); setSelected(null); }} options={LAB_DAYS} />
@@ -292,7 +294,7 @@ function OptionsLab() {
         </Fold>
       </Card>
 
-      {!base && <EmptyState icon={FlaskConical} title="Pick a combination">Choose one of yours (or a pattern) above to see its entries over the last weeks.</EmptyState>}
+      {!base && <EmptyState icon={FlaskConical} title={focus === 'patterns' ? 'Pick a pattern' : 'Pick a combination'}>Choose {focus === 'patterns' ? 'a pattern' : focus === 'combos' ? 'one of yours' : 'one of yours (or a pattern)'} above to see its entries over the last weeks.</EmptyState>}
       {base && run.loading && !r && <Skeleton className="h-64 w-full" />}
       {run.error && <p className="text-xs text-down">{run.error.message || 'Could not run the lab'}</p>}
       {r && (
