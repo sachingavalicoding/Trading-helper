@@ -7,6 +7,11 @@ import { addDays, daysBetween } from './days.js';
 import { INDEXES, atmStrike, chooseExpiry, weeklyExpiries, parseOptionSymbol, isIndexKey } from '../options/symbols.js';
 
 const HISTORY_TTL_MS = 30000;
+// The price feed counts as down when the index has sent no price for this long while the market is open (18 Nov: a network change
+// stopped every price from 9:39 to 10:03, and the options bot still bought at 9:51 on the old ones). A replay on 1-minute candles
+// hands out a price every 20 seconds at most, so it never trips this by itself.
+export const FEED_STALE_MS = 30000;
+const FEED_WATCH_MS = 5000;
 
 /**
  * Single owner of the provider connection. Keeps the latest tick per symbol and
@@ -28,9 +33,14 @@ export class MarketDataService extends EventEmitter {
     this.historyCache = new Map();
     this.feedStatus = { connected: false, message: 'Not started' };
     this.contracts = new Map(); // option symbol -> { symbol, strike, type, expiry, lotSize } for every contract picked so far
+    this.tickAt = new Map(); // symbol -> when its last price arrived (this process's clock: the virtual one in a replay)
+    this.wasStale = false;
+    this.staleTimer = null;
 
     provider.on('tick', (tick) => {
       this.latest.set(tick.symbol, tick);
+      this.tickAt.set(tick.symbol, Date.now());
+      if (this.wasStale && tick.symbol === INDEXES.NIFTY.symbol) this.#checkStale();
       this.emit('tick', tick);
     });
     provider.on('status', (status) => {
@@ -42,10 +52,45 @@ export class MarketDataService extends EventEmitter {
   async start() {
     await this.provider.connect();
     await this.provider.subscribe(ALL_SYMBOLS);
+    this.staleTimer = setInterval(() => this.#checkStale(), FEED_WATCH_MS);
+    this.staleTimer.unref?.();
   }
 
   async stop() {
+    clearInterval(this.staleTimer);
+    this.staleTimer = null;
     await this.provider.disconnect();
+  }
+
+  /** Milliseconds since `symbol` last sent a price (Infinity when it never did). */
+  priceAge(symbol, now = Date.now()) {
+    const at = this.tickAt.get(symbol);
+    return at == null ? Infinity : now - at;
+  }
+
+  /**
+   * Is the price feed down? True while the market is open and `symbol` (the Nifty by default) has sent no price for FEED_STALE_MS.
+   * Outside market hours no prices are expected, so it is never "down" then, nor on the simulated feed. The bots make no new automatic buy while it is.
+   */
+  isStale(symbol = INDEXES.NIFTY.symbol, now = new Date()) {
+    if (this.provider.isSimulated !== false) return false; // only a real feed (the broker, or a replay of real prices) can go quiet
+    if (!getMarketStatus(now, this.holidays).isOpen) return false;
+    return this.priceAge(symbol, now.getTime()) > FEED_STALE_MS;
+  }
+
+  /** Why a new automatic buy must wait, or null when the feed is fine. */
+  staleReason(symbol = INDEXES.NIFTY.symbol, now = new Date()) {
+    if (!this.isStale(symbol, now)) return null;
+    const age = this.priceAge(symbol, now.getTime());
+    const name = symbol === INDEXES.NIFTY.symbol ? 'Nifty' : symbol;
+    return `the price feed is down (no ${name} price for ${Number.isFinite(age) ? `${Math.round(age / 1000)} seconds` : 'a while'}): no new buy until prices come back; open trades stay open`;
+  }
+
+  #checkStale() {
+    const stale = this.isStale();
+    if (stale === this.wasStale) return;
+    this.wasStale = stale;
+    this.emit('status', this.status());
   }
 
   getTick(symbol) {
@@ -71,6 +116,7 @@ export class MarketDataService extends EventEmitter {
         simulated: this.provider.isSimulated,
         connected: this.feedStatus.connected,
         message: this.feedStatus.message,
+        stale: this.isStale(INDEXES.NIFTY.symbol, now), // connected, but no Nifty price for a while: no new automatic buys
         capabilities: this.provider.capabilities,
         replay: this.provider.replayInfo?.() ?? null,
       },

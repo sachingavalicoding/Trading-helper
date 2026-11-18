@@ -245,6 +245,8 @@ export class AutoTrader {
     const userId = settings.user;
     const sr = shareRulesOf(settings.shareRules);
     if (idea.dropReason) return { skipped: idea.dropReason };
+    const feedDown = this.engine.market?.staleReason?.();
+    if (feedDown) return { skipped: feedDown };
 
     // The idea was raised a moment ago; skip it if price has already run away from the entry.
     const ltp = this.engine.market.getLtp(idea.symbol);

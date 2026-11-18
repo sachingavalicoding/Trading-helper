@@ -15,6 +15,11 @@ export function MarketStatus({ compact = false }) {
       </span>
       {status.feed.simulated && <Badge tone="warn">Simulated</Badge>}
       {(!connected || !status.feed.connected) && <Badge tone="down">Feed offline</Badge>}
+      {connected && status.feed.connected && status.feed.stale && (
+        <span title="No Nifty price for over 30 seconds. No new automatic buys until prices come back; open trades stay open.">
+          <Badge tone="down">Feed down: no new buys</Badge>
+        </span>
+      )}
     </div>
   );
 }
