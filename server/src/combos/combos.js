@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { CONDITION_BY_KEY, holds, usable, buildChart, BUFFER_ATR } from './conditions.js';
 import { istParts } from '../market/marketHours.js';
 import { FIRST_ENTRY_MIN, LAST_ENTRY_MIN } from '../options/signal.js';
+import { normalizeBot, activeBot } from './bot.js';
 
 // A combination is a short list of conditions picked by the user, and how many of them must hold together for a trade:
 // { id, name, conds: [condition keys], need: how many of them (all by default), window: how many bars an "event" condition stays true }.
@@ -17,7 +18,7 @@ const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 
 /** What the settings routes accept; `normalizeCombos` then drops unknown conditions. */
 export const comboInput = z
-  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), also: z.array(z.string().max(40)).max(6).nullish(), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional(), benchedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(), side: z.enum(['CE', 'PE']).nullish(), stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(), stopAtr: z.coerce.number().min(0.8).max(2.5).optional(), stopPoints: z.coerce.number().min(10).max(150).optional(), exits: z.object({ steps: z.array(z.object({ at: z.coerce.number(), keep: z.coerce.number() })).max(12).optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional(), cut: z.coerce.number().min(0).max(50_000).nullish() }).nullish(), order: z.object({ risk: z.coerce.number().min(0).max(1_000_000).optional(), maxAmount: z.coerce.number().min(0).max(100_000_000).optional(), stopPct: z.coerce.number().min(0).max(10).optional(), target: z.coerce.number().min(0).max(10_000_000).optional(), exitMin: z.coerce.number().min(0).max(24 * 60).optional() }).nullish() }))
+  .array(z.object({ id: z.string().max(60).optional(), name: z.string().max(60).optional(), conds: z.array(z.string().max(40)).max(20), also: z.array(z.string().max(40)).max(6).nullish(), need: z.coerce.number().optional(), window: z.coerce.number().optional(), on: z.boolean().optional(), benchedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(), side: z.enum(['CE', 'PE']).nullish(), stopMode: z.enum(['chart', 'cap', 'atr', 'fixed']).nullish(), stopAtr: z.coerce.number().min(0.8).max(2.5).optional(), stopPoints: z.coerce.number().min(10).max(150).optional(), exits: z.object({ steps: z.array(z.object({ at: z.coerce.number(), keep: z.coerce.number() })).max(12).optional(), trail: z.object({ points: z.coerce.number(), start: z.coerce.number().optional() }).nullish(), breakEven: z.coerce.number().min(0).max(150).optional(), cut: z.coerce.number().min(0).max(50_000).nullish() }).nullish(), order: z.object({ risk: z.coerce.number().min(0).max(1_000_000).optional(), maxAmount: z.coerce.number().min(0).max(100_000_000).optional(), stopPct: z.coerce.number().min(0).max(10).optional(), target: z.coerce.number().min(0).max(10_000_000).optional(), exitMin: z.coerce.number().min(0).max(24 * 60).optional() }).nullish(), bot: z.object({ on: z.boolean().optional(), stop: z.coerce.number(), targets: z.array(z.object({ at: z.coerce.number(), part: z.coerce.number().optional() })).max(5), setAt: z.string().max(40).nullish(), info: z.any().optional(), prev: z.any().optional() }).nullish() }))
   .max(MAX_COMBOS);
 
 /** Clean a combination from user input: known conditions only, no repeats, at most MAX_CONDITIONS, `need` between 1 and the count. */
@@ -47,6 +48,9 @@ export function normalizeCombo(raw, index = 0) {
   if (exits) out.exits = exits;
   const order = normalizeOrder(raw.order);
   if (order) out.order = order;
+  // bot-calculated stop and targets (combos/bot.js): kept with their switch; off = the normal ladder
+  const bot = normalizeBot(raw.bot);
+  if (bot) out.bot = bot;
   return out;
 }
 
@@ -170,6 +174,7 @@ export function comboSignals(chart, combo, { from = 15, windows = true, when = n
   const out = [];
   const stopRule = comboStopRule(combo);
   const exits = comboExits(combo);
+  const bot = activeBot(combo);
   for (const d of [1, -1]) {
     if (combo.side && (combo.side === 'CE') !== (d > 0)) continue; // a combination locked to calls (or puts) gives no signal on the other side
     const view = chart.views[d];
@@ -214,6 +219,7 @@ export function comboSignals(chart, combo, { from = 15, windows = true, when = n
         atr: a,
         ...(stopRule ? { stopRule } : {}),
         ...(exits ? { exits } : {}),
+        ...(bot ? { bot } : {}),
       });
     }
   }

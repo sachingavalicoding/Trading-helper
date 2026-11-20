@@ -5,6 +5,7 @@ import { prepare, findSignals, turnoverSeries } from '../study/patterns.js';
 import { breadthSeries, tradesFor } from '../study/optionsStudy.js';
 import { buildChart, usable, CONDITION_BY_KEY } from '../combos/conditions.js';
 import { comboSignals, comboExits } from '../combos/combos.js';
+import { activeBot } from '../combos/bot.js';
 import { optionSeries } from '../combos/optionData.js';
 import { entryTest } from '../options/signal.js';
 
@@ -69,10 +70,11 @@ export function learnContext({ nifty1, stocks5 = null, book = null, params, days
     for (const c of s.combos.filter((x) => x.on !== false)) {
       const key = comboKey(c, s);
       // the signals do not depend on the exits, so they are found once and a combination's own exits are put on them each time
-      if (!cache.has(key)) cache.set(key, comboSignals(chart, { ...c, exits: undefined }, /** @type {any} */ ({ when: windowOf(s), label: `combo:${c.id}` })).filter(inDays));
+      if (!cache.has(key)) cache.set(key, comboSignals(chart, { ...c, exits: undefined, bot: undefined }, /** @type {any} */ ({ when: windowOf(s), label: `combo:${c.id}` })).filter(inDays));
       const found = /** @type {any[]} */ (cache.get(key));
       const exits = comboExits(c);
-      out.push(...(exits ? found.map((x) => ({ ...x, exits })) : found));
+      const bot = activeBot(c); // bot-calculated stop and targets in place of the ladder (combos/bot.js)
+      out.push(...(exits || bot ? found.map((x) => ({ ...x, ...(exits ? { exits } : {}), ...(bot ? { bot } : {}) })) : found));
     }
     if (s.patternEntries && s.patterns.length) {
       const key = JSON.stringify(['patterns', [...s.patterns].sort(), s.entryFrom, s.entryTo]);

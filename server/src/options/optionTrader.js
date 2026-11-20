@@ -20,6 +20,8 @@ import { formingBar, followsSlot, Holds } from './second.js';
 import { loadRules } from '../models/TradeDefaults.js';
 import { istParts } from '../market/marketHours.js';
 import { logger } from '../utils/logger.js';
+import { allot, stopAfter } from '../combos/bot.js';
+import { roundTripCharges } from '../services/charges.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -141,6 +143,7 @@ export class OptionTrader {
         bestSpot: log.detail?.bestSpot ?? log.detail?.entrySpot ?? null,
         bestR: log.detail?.bestR ?? 0,
         worstR: log.detail?.worstR ?? 0,
+        ...(log.detail?.bot?.targets ? { bot: { ...log.detail.bot } } : {}),
         stopOff: Boolean(log.position && (await Position.findById(log.position, 'stopOff').lean())?.stopOff),
       });
       await this.market.watchOption(log.symbol, log.detail?.contract ?? null).catch(() => {});
@@ -487,7 +490,7 @@ export class OptionTrader {
       const sideScore = read[hit.side === 'CE' ? 'ce' : 'pe']?.score;
       let stop = ruleStop(hit, spot, hit.stopRule ?? stopRuleOf(settings, read.index));
       if (d * (spot - stop) < MIN_STOP_ATR * hit.atr) stop = spot - d * MIN_STOP_ATR * hit.atr;
-      const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: sideScore, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique, ...(hit.clock ? { clock: hit.clock } : {}), ...(hit.comboId ? { comboId: hit.comboId } : {}), atr: hit.atr, ...(hit.exits ? { exits: hit.exits } : {}), ...(hit.combo ? { combo: hit.combo } : {}) };
+      const side = { type: hit.side, index: read.index ?? DEFAULT_INDEX, d, score: sideScore, checks: [], gates: [], blocked: [], levels: [], trigger: { kind: label, level: roundToTick(hit.close) }, stop: { price: roundToTick(stop), note: `${hit.note}; stop at ${INDEXES[read.index ?? DEFAULT_INDEX].short} ${roundToTick(stop)}`, ok: true }, pattern: hit.technique, ...(hit.clock ? { clock: hit.clock } : {}), ...(hit.comboId ? { comboId: hit.comboId } : {}), atr: hit.atr, ...(hit.exits ? { exits: hit.exits } : {}), ...(hit.bot ? { bot: hit.bot } : {}), ...(hit.combo ? { combo: hit.combo } : {}) };
       if (minScore && !(sideScore >= minScore)) {
         result = await this.#skip(settings, side, `${label} ${hit.side}: the chart score ${sideScore == null ? 'is not known' : `is ${Math.round(sideScore)}`}, under the ${minScore} you asked for`);
         continue;
@@ -595,18 +598,23 @@ export class OptionTrader {
     const fill = order.avgFillPrice ?? plan.premium;
     // a combination's own exits replace the shared ones (Account > Limits and Entries) for its trades; a part it leaves out keeps the shared one
     const own = side.exits ?? null;
-    const exitTrail = own && 'trail' in own ? own.trail : trailOf(settings);
-    const exitBreakEven = own && 'breakEven' in own ? own.breakEven : breakEvenOf(settings);
-    if (own && 'steps' in own) {
+    // bot-calculated stop and targets (combos/bot.js, the combination's switch on): no profit ladder, trail or break-even; parts are sold at
+    // each target (see #botTarget) and the stop moves up after each. Rupees are for one lot.
+    const lotSize = plan.lotSize || order.qty;
+    const botLots = side.bot && !manual ? Math.max(1, Math.round(order.qty / lotSize)) : 0;
+    const bot = botLots ? { stop: side.bot.stop, targets: side.bot.targets, lots: allot(botLots, side.bot.targets), lotSize, entry: fill, hit: 0, chargesLot: roundTripCharges({ qty: lotSize, price: fill, segment: 'OPT' }) } : null;
+    const exitTrail = bot ? null : own && 'trail' in own ? own.trail : trailOf(settings);
+    const exitBreakEven = bot ? 0 : own && 'breakEven' in own ? own.breakEven : breakEvenOf(settings);
+    if (bot || (own && 'steps' in own)) {
       try {
-        await this.engine.setExits(userId, plan.symbol, { lockSteps: own.steps, lockTrigger: null, lockAmount: null });
+        await this.engine.setExits(userId, plan.symbol, { lockSteps: bot ? [] : own.steps, lockTrigger: null, lockAmount: null });
       } catch (e) {
         logger.warn(`Own profit ladder not applied to ${plan.symbol}: ${e.message}`);
       }
     }
-    // the loss cut (rupees): a combination's own (exits.cut), else the one for all trades (Account, lossCut). The premium stop moves up to
-    // where the trade is that much down, when that is closer than the chart stop
-    const cut = own?.cut > 0 ? own.cut : settings.lossCut > 0 ? settings.lossCut : 0;
+    // the loss cut (rupees): the bot's stop for all the lots, else a combination's own (exits.cut), else the one for all trades (Account, lossCut).
+    // The premium stop moves up to where the trade is that much down, when that is closer than the chart stop
+    const cut = bot ? bot.stop * botLots : own?.cut > 0 ? own.cut : settings.lossCut > 0 ? settings.lossCut : 0;
     const cutAt = cut > 0 && order.qty > 0 ? roundToTick(Math.max(fill - cut / order.qty, 0.05)) : null;
     if (cutAt != null && cutAt > (plan.stopLoss ?? 0)) {
       try {
@@ -615,7 +623,7 @@ export class OptionTrader {
         logger.warn(`Own loss cut not applied to ${plan.symbol}: ${e.message}`);
       }
     }
-    this.#watch(userId, plan.symbol, { type: plan.type, index, stopSpot: plan.stopSpot, entry: fill, risk: Math.max(fill - (plan.stopLoss ?? 0), 0.05), openedAt: this.now(), manual, entrySpot: read.spot ?? null, trail: exitTrail, breakEven: exitBreakEven, stopWhy: 'STOP', bestSpot: read.spot ?? null, bestR: 0, worstR: 0 });
+    this.#watch(userId, plan.symbol, { type: plan.type, index, stopSpot: plan.stopSpot, entry: fill, risk: Math.max(fill - (plan.stopLoss ?? 0), 0.05), openedAt: this.now(), manual, entrySpot: read.spot ?? null, trail: exitTrail, breakEven: exitBreakEven, stopWhy: 'STOP', bestSpot: read.spot ?? null, bestR: 0, worstR: 0, ...(bot ? { bot } : {}) });
     await this.#record(settings, {
       symbol: plan.symbol,
       side: 'BUY',
@@ -631,7 +639,7 @@ export class OptionTrader {
       order: order._id,
       position: position?._id,
       card: { checks: side.checks, gates: side.gates },
-      detail: { ...plan, index, label: optionLabel(plan.symbol), manual, entrySpot: read.spot ?? null, trail: exitTrail, breakEven: exitBreakEven, ...(own ? { ownExits: own } : {}), trigger: side.trigger, pattern: side.pattern ?? null, ...(side.clock ? { clock: side.clock } : {}), firstStopSpot: plan.stopSpot, ...(side.comboId ? { comboId: side.comboId } : {}), ...(probationLots ? { probation: true } : {}), ...(side.combo ? { combo: { id: side.combo.id, name: side.combo.name, conds: side.combo.conds, need: side.combo.need, window: side.combo.window } } : {}), contract: { symbol: plan.symbol, strike: plan.strike, type: plan.type, expiry: plan.expiry, lotSize: plan.lotSize }, snapshot: read.snapshot },
+      detail: { ...plan, index, label: optionLabel(plan.symbol), manual, entrySpot: read.spot ?? null, trail: exitTrail, breakEven: exitBreakEven, ...(own ? { ownExits: own } : {}), ...(bot ? { bot } : {}), trigger: side.trigger, pattern: side.pattern ?? null, ...(side.clock ? { clock: side.clock } : {}), firstStopSpot: plan.stopSpot, ...(side.comboId ? { comboId: side.comboId } : {}), ...(probationLots ? { probation: true } : {}), ...(side.combo ? { combo: { id: side.combo.id, name: side.combo.name, conds: side.combo.conds, need: side.combo.need, window: side.combo.window } } : {}), contract: { symbol: plan.symbol, strike: plan.strike, type: plan.type, expiry: plan.expiry, lotSize: plan.lotSize }, snapshot: read.snapshot },
     });
     return { order, plan };
   }
@@ -703,6 +711,40 @@ export class OptionTrader {
         w.bestR = Math.max(w.bestR, r);
         w.worstR = Math.min(w.worstR, r);
       }
+      const b = symbol === w.symbol ? w.bot : null;
+      if (b && !b.busy && b.hit < b.targets.length && ltp >= b.entry + b.targets[b.hit].at / b.lotSize) this.#botTarget(w).catch((e) => logger.warn(`bot target on ${w.symbol} failed: ${e.message}`));
+    }
+  }
+
+  /**
+   * A bot target was reached (combos/bot.js): sell its part of the lots and move the premium stop up: to the entry plus charges after the
+   * first target, to the first target after the second. The last target sells everything left. With one lot only the last one sells.
+   */
+  async #botTarget(w) {
+    const b = w.bot;
+    b.busy = true;
+    try {
+      const k = b.hit;
+      const pos = await Position.findOne({ user: w.user, symbol: w.symbol, status: 'OPEN' }, 'netQty').lean();
+      if (!pos || !(pos.netQty > 0)) return;
+      const left = Math.round(pos.netQty / b.lotSize);
+      const last = k >= b.targets.length - 1;
+      const n = last ? left : Math.min(left, b.lots[k] ?? 0);
+      b.hit = k + 1;
+      if (n >= left) {
+        await this.#exit(w.user, w.symbol, 'TARGET');
+        return;
+      }
+      if (n > 0) await this.engine.placeOrder(w.user, { symbol: w.symbol, side: 'SELL', orderType: 'MARKET', qty: n * b.lotSize, source: 'AUTO' });
+      const level = roundToTick(b.entry + stopAfter(b, b.hit, b.chargesLot) / b.lotSize);
+      try {
+        await this.engine.setExits(w.user, w.symbol, { stopLoss: level });
+      } catch (e) {
+        logger.warn(`bot stop not moved on ${w.symbol}: ${e.message}`);
+      }
+      await AutoLog.updateOne({ user: w.user, segment: 'OPT', symbol: w.symbol, status: 'OPEN' }, { $set: { 'detail.bot.hit': b.hit }, $push: { 'detail.bot.sold': { target: k + 1, lots: n, stop: level } } }).catch(() => {});
+    } finally {
+      b.busy = false;
     }
   }
 

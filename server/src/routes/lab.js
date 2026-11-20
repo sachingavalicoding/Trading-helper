@@ -76,6 +76,12 @@ export function labRoutes({ lab, learn = null }) {
     router.post('/learn/shares/apply', validate(force), async (req, res) => res.json({ ...(await learn.applyShares(req.userId, { force: req.body.force })), note: LEARN_NOTE }));
     router.post('/learn/shares/undo', async (req, res) => res.json({ ...(await learn.undoShares(req.userId)), note: LEARN_NOTE }));
     router.post('/learn/evening', validate(z.object({ on: z.boolean() })), async (req, res) => res.json({ ...(await learn.setEvening(req.userId, req.body.on)), note: LEARN_NOTE }));
+    // bot-calculated stop and targets for one options combination (combos/bot.js): suggest (nothing saved), apply, undo, switch on or off
+    const botId = z.object({ id: z.string().min(1).max(60) });
+    router.post('/learn/bot/suggest', validate(botId.extend({ parts: z.array(z.coerce.number().min(1).max(98)).length(3).optional() })), async (req, res) => res.json(await learn.botSuggest(req.userId, req.body.id, { parts: req.body.parts })));
+    router.post('/learn/bot/apply', validate(botId.extend({ stop: z.coerce.number(), targets: z.array(z.object({ at: z.coerce.number(), part: z.coerce.number() })).min(3).max(5), info: z.any().optional() })), async (req, res) => res.json(await learn.botApply(req.userId, req.body.id, { stop: req.body.stop, targets: req.body.targets }, req.body.info ?? null)));
+    router.post('/learn/bot/undo', validate(botId), async (req, res) => res.json(await learn.botUndo(req.userId, req.body.id)));
+    router.post('/learn/bot/switch', validate(botId.extend({ on: z.boolean() })), async (req, res) => res.json(await learn.botSwitch(req.userId, req.body.id, req.body.on)));
   }
 
   router.get('/', validate(query, 'query'), async (req, res) => {

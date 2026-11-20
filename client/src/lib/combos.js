@@ -38,7 +38,7 @@ export function toPayload(combo, index = 0) {
   const own = combo.stopMode ? { stopMode: combo.stopMode, stopAtr: combo.stopAtr || 2, stopPoints: combo.stopPoints || 30 } : {};
   const exits = combo.exits && Object.keys(combo.exits).length ? { exits: combo.exits } : {};
   const order = combo.order && Object.values(combo.order).some((v) => Number(v) > 0) ? { order: Object.fromEntries(Object.entries(combo.order).filter(([, v]) => Number(v) > 0).map(([k, v]) => [k, Number(v)])) } : {};
-  return { id: combo.id, name: combo.name.trim() || `Combination ${index + 1}`, conds: combo.conds, ...(combo.also?.length ? { also: combo.also } : {}), need: needOf(combo), window: combo.window || 3, on: combo.on !== false, ...(combo.side === 'CE' || combo.side === 'PE' ? { side: combo.side } : {}), ...(combo.on === false && combo.benchedOn ? { benchedOn: combo.benchedOn } : {}), ...own, ...exits, ...order };
+  return { id: combo.id, name: combo.name.trim() || `Combination ${index + 1}`, conds: combo.conds, ...(combo.also?.length ? { also: combo.also } : {}), need: needOf(combo), window: combo.window || 3, on: combo.on !== false, ...(combo.side === 'CE' || combo.side === 'PE' ? { side: combo.side } : {}), ...(combo.on === false && combo.benchedOn ? { benchedOn: combo.benchedOn } : {}), ...own, ...exits, ...order, ...(combo.bot ? { bot: combo.bot } : {}) };
 }
 
 /** A profit ladder of 8 rows 500 apart: lock `gap` points less than the gain reached. */
@@ -48,6 +48,7 @@ export function roomSteps(start = 1000, gap = 500) {
 
 /** A combination's own exits in words, or null when it uses the Account ones. */
 export function exitsText(c) {
+  if (c?.bot?.on) return `bot stop and ${c.bot.targets.length} targets`; // the bot's levels replace the ladder, trail and break-even (Combos > the combination)
   const e = c?.exits;
   if (!e) return null;
   const out = [];
