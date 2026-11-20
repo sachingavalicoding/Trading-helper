@@ -23,7 +23,7 @@ import { mongoSettingsSync } from './dayreplay/settingsLink.js';
 import { dayReplayRoutesDeps } from './dayreplay/manager.js';
 import { finishWhenDone } from './dayreplay/result.js';
 import { ReplayLadder } from './dayreplay/ladder.js';
-import { YearTest } from './yeartest/yearTest.js';
+import { YearTest, YearSource } from './yeartest/yearTest.js';
 import { TestRunner } from './dayreplay/testRunner.js';
 import { StudyService } from './study/service.js';
 import { LearnerService } from './learner/service.js';
@@ -89,7 +89,7 @@ async function main() {
   const ticks = new TickRecorder({ market, config: env });
   ticks.start();
   const dayReplay = dayReplayRoutesDeps({ config: env, clock: replay?.clock ?? null, market, optionTrader, scanner, engine });
-  const study = new StudyService({ market, config: env });
+  const study = new StudyService({ market, config: env, years: new YearSource({ yearFiles, imports: archive.imports }) });
   const learner = new LearnerService({ study, market, config: env });
   if (!replay) learner.schedule(); // each trading evening, for users who switched auto on
   const lab = new LabService({ market, config: env });

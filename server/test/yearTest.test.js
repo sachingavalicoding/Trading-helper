@@ -103,3 +103,15 @@ test('the Replay check gives up after its time limit and stops the Replay copies
   assert.equal(stops.length, 2);
   assert.equal(ladder.borrowed, false);
 });
+
+test('Study on year files: without the files the study fails with "Data not found", and ladder needs saved data', async () => {
+  const { StudyService } = await import('../src/study/service.js');
+  const years = new YearSource({ yearFiles: { list: async () => [] }, imports: { list: async () => [] } });
+  const study = new StudyService({ market: { provider: {} }, config: {}, years });
+  const uid = '6ad9955f986262870e56129d';
+  const job = study.start(uid, 'options', { source: 'year', years: 2 });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(job.state, 'failed');
+  assert.match(job.error, /Data not found/);
+  assert.throws(() => study.start(uid, 'ladder', { source: 'year' }), /saved data/);
+});

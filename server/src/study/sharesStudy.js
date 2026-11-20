@@ -37,7 +37,7 @@ export async function runSharesStudy({ nifty1, history, params, onProgress = () 
   const live = []; // the ideas as the live scanner would raise them, for "Test the new entry rules" (study/ruleTest.js)
   for (const [n, symbol] of params.finderOnly ? [] : symbols.entries()) {
     onProgress(`Replaying the scanner on ${symbol} (${n + 1}/${symbols.length})`);
-    ideas.push(...replayStock({ symbol, c1: history[symbol], nifty: nifty1, days: params.days, exits: 'live', money, collect: every, marketAt, live }));
+    ideas.push(...replayStock({ symbol, c1: history[symbol], nifty: nifty1, days: params.days, exits: 'live', money, collect: every, marketAt, live, maxBars: params.maxBars || 0 }));
     await yieldTurn();
   }
   if (params.liveOnly) return { live, opts: { ...opts, maxAmount: params.maxAmount || 0 }, stocks: symbols.length }; // Learn > Shares needs only the live-like ideas

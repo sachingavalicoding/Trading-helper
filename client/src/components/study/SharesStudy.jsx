@@ -1,3 +1,4 @@
+import { StudySource } from './StudySource.jsx';
 import { useState } from 'react';
 import { ClipboardCopy, FlaskConical, Play } from 'lucide-react';
 import { toast } from 'sonner';
@@ -136,7 +137,9 @@ export function SharesStudy() {
         </div>
         {finderOn && <p className="rounded-lg bg-surface-2 p-2 text-[11px] leading-snug text-muted">A finder is on, so only the finder runs, not the normal share study. It takes a few minutes. Turn the finders off to run the normal study.</p>}
         {running && <p className="text-xs text-muted">{state.status.step}. This takes a few minutes.</p>}
+        <StudySource kind={'shares'} />
         {state?.status?.state === 'failed' && <p className="text-xs text-down">{state.status.error}</p>}
+        {state?.result?.dataSource && <p className="text-xs text-warn">{state.result.dataSource.text}</p>}
         {error && <p className="text-xs text-down">{error}</p>}
       </Card>
 

@@ -11,6 +11,21 @@ const MIN_BARS = 60;
 const TTL_BARS = 120;
 const SQUARE_OFF_MIN = 15 * 60 + 15;
 
+/** Index of the last bar whose time is at or before `t` (bars oldest first), or -1. */
+function lastAtOrBefore(bars, t) {
+  let lo = 0;
+  let hi = bars.length - 1;
+  let out = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (bars[mid].time <= t) {
+      out = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return out;
+}
+
 /** The tick the scanner would have seen at bar `i`, rebuilt from candles (no order book). */
 function tickAt(c1, i, dayStart, prevClose, niftyChangePct) {
   const today = c1.slice(dayStart, i + 1);
@@ -173,7 +188,7 @@ function liveIdea(symbol, c1, i, candidates, now, ladder, money) {
   return out;
 }
 
-export function replayStock({ symbol, c1, nifty = null, days = 3, legacy = false, skipDays = 0, exits = 'target1', stopScale = 1, ladder = LADDER, money = null, collect = null, marketAt = null, live = null }) {
+export function replayStock({ symbol, c1, nifty = null, days = 3, legacy = false, skipDays = 0, exits = 'target1', stopScale = 1, ladder = LADDER, money = null, collect = null, marketAt = null, live = null, maxBars = 0 }) {
   const dayOf = (b) => istDay(b.time);
   const sessions = [...new Set(c1.map(dayOf))];
   const replayDays = new Set(sessions.slice(Math.max(0, sessions.length - days - skipDays), sessions.length - skipDays));
@@ -182,23 +197,34 @@ export function replayStock({ symbol, c1, nifty = null, days = 3, legacy = false
   const raisedLive = new Set();
   const liveStock = { day: null, count: 0, openUntil: 0, stopped: false };
   const ideas = [];
+  const dayStartOf = new Map();
+  const niftyPrevOf = new Map();
 
   for (let i = MIN_BARS; i < c1.length; i += STEP) {
     const day = dayOf(c1[i]);
     if (!replayDays.has(day)) continue;
-    const dayStart = c1.findIndex((b) => dayOf(b) === day);
+    if (!dayStartOf.has(day)) dayStartOf.set(day, c1.findIndex((b) => dayOf(b) === day));
+    const dayStart = dayStartOf.get(day);
     const prevBar = dayStart > 0 ? c1[dayStart - 1] : null;
     if (!prevBar) continue;
     let niftyChangePct = null;
     if (nifty?.length) {
-      const nBars = nifty.filter((b) => b.time <= c1[i].time);
-      const nPrev = nBars.filter((b) => dayOf(b) < day).at(-1);
-      if (nBars.length && nPrev) niftyChangePct = ((nBars.at(-1).close - nPrev.close) / nPrev.close) * 100;
+      // the last Nifty bar at or before this minute, and the last one of an earlier day (found by halving, not by filtering every time)
+      const k = lastAtOrBefore(nifty, c1[i].time);
+      if (k >= 0) {
+        if (!niftyPrevOf.has(day)) {
+          let j = k;
+          while (j >= 0 && dayOf(nifty[j]) >= day) j--;
+          niftyPrevOf.set(day, j >= 0 ? nifty[j] : null);
+        }
+        const nPrev = niftyPrevOf.get(day);
+        if (nPrev) niftyChangePct = ((nifty[k].close - nPrev.close) / nPrev.close) * 100;
+      }
     }
     const tick = tickAt(c1, i, dayStart, prevBar.close, niftyChangePct);
     const now = new Date(c1[i].time * 1000);
     const marketState = marketAt ? marketAt(c1[i].time) : null;
-    const { candidates } = evaluateStock({ symbol, tick, c1: c1.slice(0, i + 1), niftyChangePct, marketState }, { now, enforceWindows: true, legacy });
+    const { candidates } = evaluateStock({ symbol, tick, c1: c1.slice(maxBars > 0 ? Math.max(0, i + 1 - maxBars) : 0, i + 1), niftyChangePct, marketState }, { now, enforceWindows: true, legacy });
     if (live && money && !(money.exitMin && istParts(now).minutes >= money.exitMin)) {
       const top = candidates.find((c) => c.score >= MIN_SCORE && c.status !== 'MISSED' && !c.blocked.length && !LIVE_OFF.has(c.setup));
       const keyLive = top && `${day}|${top.setup}|${top.side}`;

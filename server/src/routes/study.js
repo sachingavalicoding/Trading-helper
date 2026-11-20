@@ -12,6 +12,8 @@ const KINDS = ['options', 'shares', 'ladder', 'moved'];
 export const MOVED_NOTE = 'A replay of the entries your auto trader takes, on the real option prices saved each evening, with and without a limit on how far the market had already moved before the buy. Each limit is picked on the older days and checked on the newest days it never saw. It changes nothing until you tap Use. Past results do not promise future ones.';
 export const LADDER_NOTE = 'A replay of the entries your auto trader takes, on the real option prices saved each evening, sold with many profit ladders. Each ladder is picked on the older days and checked on the newest days it never saw. It changes nothing until you tap Use. Past results do not promise future ones.';
 const runSchema = z.object({
+  source: z.enum(['saved', 'year']).default('saved'), // year = the year files (Research > Saved data), 1 or 2 years; options prices estimated there
+  years: z.coerce.number().int().min(1).max(2).default(1),
   days: z.coerce.number().int().min(1).max(65).optional(),
   iv: z.coerce.number().min(0.08).max(0.4).default(0.14),
   exit: z.enum(['lock', 'target']).default('lock'),
@@ -52,7 +54,7 @@ export function studyRoutes({ study }) {
 
   router.post('/:kind', validate(runSchema), (req, res) => {
     const { kind } = req.params;
-    if (req.body.days != null && req.body.days > MAX_DAYS[kind]) throw badRequest(`days must be 1 to ${MAX_DAYS[kind]}`, 'VALIDATION');
+    if (req.body.source !== 'year' && req.body.days != null && req.body.days > MAX_DAYS[kind]) throw badRequest(`days must be 1 to ${MAX_DAYS[kind]}`, 'VALIDATION');
     if (kind === 'options' && req.body.from && req.body.to && req.body.from > req.body.to) throw badRequest('the first date must not be after the last', 'VALIDATION');
     study.start(req.userId, kind, req.body);
     res.status(202).json({ status: study.status(req.userId, kind) });

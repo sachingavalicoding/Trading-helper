@@ -1,3 +1,4 @@
+import { StudySource } from '../study/StudySource.jsx';
 import { useState } from 'react';
 import { ExitTimeField, useExitTime } from '../study/ExitTimeField.jsx';
 import { ChevronDown, ClipboardCopy, Eye, FlaskConical, Play } from 'lucide-react';
@@ -288,7 +289,9 @@ export function OptionsStudy() {
         </div>
         {finderOn && <p className="rounded-lg bg-surface-2 p-2 text-[11px] leading-snug text-muted">A finder is on, so only the finder runs, not the normal study (the other two switches above are off for this run). It takes a few minutes. Turn the finders off to run the normal study.</p>}
         {running && <p className="text-xs text-muted">{state.status.step}. {finderOn ? 'The finder takes a few minutes.' : 'This takes a minute or two.'}</p>}
+        <StudySource kind={'options'} />
         {state?.status?.state === 'failed' && <p className="text-xs text-down">{state.status.error}</p>}
+        {state?.result?.dataSource && <p className="text-xs text-warn">{state.result.dataSource.text}</p>}
         {error && <p className="text-xs text-down">{error}</p>}
       </Card>
 
