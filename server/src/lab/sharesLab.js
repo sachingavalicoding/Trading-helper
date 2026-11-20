@@ -140,7 +140,7 @@ function breakdown(trades, midTime) {
  * @param base     'combo:<id>' or 'check:<key>'
  * @param edit     order settings to try in place of the saved ones: { side, order, steps } (see withOrder)
  */
-export function analyzeSharesLab({ nifty1, history, params, base, from = null, to = null, days = 22, edit = null }) {
+export function analyzeSharesLab({ nifty1, history, params, base, from = null, to = null, days = 22, edit = null, rank = true }) {
   const cut = (c) => (to ? c.filter((b) => dayKey(b.time) <= to) : c);
   const index1 = cut(nifty1);
   const allDays = [...new Set(index1.map((b) => DAY(b.time)))].sort((a, b) => a - b);
@@ -243,7 +243,7 @@ export function analyzeSharesLab({ nifty1, history, params, base, from = null, t
 
   // every other check, added on its own: which taken entries it would have skipped (and which it lets in, once a slot is free)
   const rows = [];
-  for (const cond of CONDITIONS) {
+  for (const cond of rank ? CONDITIONS : []) {
     if (conds.includes(cond.key) || !have || !usable(cond, have) || cond.needs === 'news') continue;
     const { trades } = traded([cond.key]);
     const keep = new Set(trades.map((t) => t.id));

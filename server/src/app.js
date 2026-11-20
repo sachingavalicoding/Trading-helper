@@ -29,6 +29,7 @@ import { labRoutes } from './routes/lab.js';
 import { HistorySync } from './market/historySync.js';
 import { historyRoutes } from './routes/history.js';
 import { yearDataRoutes } from './routes/yearData.js';
+import { yearTestRoutes } from './routes/yearTest.js';
 import { tickRoutes } from './routes/ticks.js';
 import { dayReplayRoutes } from './routes/dayReplay.js';
 import { optionHistoryRoutes } from './routes/optionHistory.js';
@@ -38,7 +39,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 export const DISCLAIMER = 'Paper trading for learning. Not investment advice.';
 
-export function createApp({ market, engine, config, tracker, scanner, news, autoTrader, optionTrader, review = new ReviewService({ market, config }), study = new StudyService({ market, config }), learner = new LearnerService({ study, market, config }), lab = new LabService({ market, config }), learn = new LearnService({ lab, market, study, config }), replay = new TradeReplayService({ market, config }), history = new HistorySync({ market }), optionHistory = null, ticks = null, dayReplay = null, archive = null }) {
+export function createApp({ market, engine, config, tracker, scanner, news, autoTrader, optionTrader, review = new ReviewService({ market, config }), study = new StudyService({ market, config }), learner = new LearnerService({ study, market, config }), lab = new LabService({ market, config }), learn = new LearnService({ lab, market, study, config }), replay = new TradeReplayService({ market, config }), history = new HistorySync({ market }), optionHistory = null, ticks = null, dayReplay = null, archive = null, yearTest = null }) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
@@ -71,6 +72,7 @@ export function createApp({ market, engine, config, tracker, scanner, news, auto
   app.use('/api/combos', auth, comboRoutes());
   app.use('/api/history', auth, historyRoutes({ history }));
   if (archive) app.use('/api/year-data', auth, yearDataRoutes(archive));
+  if (yearTest) app.use('/api/year-test', auth, yearTestRoutes({ yearTest }));
   if (optionHistory) app.use('/api/option-history', auth, optionHistoryRoutes({ optionHistory }));
   if (ticks) app.use('/api/ticks', auth, tickRoutes({ recorder: ticks }));
   if (dayReplay) app.use('/api/replay-day', auth, dayReplayRoutes(dayReplay));
