@@ -147,6 +147,11 @@ export class LabService {
     };
   }
 
+  /** The user's share money settings and limits, as the shares Lab plays them (also for Research > Year test). */
+  shareParams(userId) {
+    return this.#shareParams(userId);
+  }
+
   /** What can be picked as the starting point for shares. */
   async shareChoices(userId) {
     const params = await this.#shareParams(userId);

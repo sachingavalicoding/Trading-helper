@@ -256,6 +256,7 @@ export class ReplayLadder {
     const side = pickSide(sideIn);
     const together = Math.max(1, Math.min(parallel, this.runners.length));
     if (this.job) throw conflict(`A ${sideName(this.job.side)} replay test is already running. Stop it first.`);
+    if (this.borrowed) throw conflict('The year test is checking itself against Replay right now. Try again in a few minutes.');
     if (!DAY_CHOICES.includes(count)) throw badRequest(`Pick ${DAY_CHOICES.join(', ')} days`);
     const st = await LearnerState.findOne({ user: userId, kind: KIND }).lean();
     const cands = topCandidates(ladderCandidates(st).filter((c) => SIDE[c.kind] === side));

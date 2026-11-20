@@ -306,6 +306,15 @@ export class TempImports {
     return obj;
   }
 
+  /** The whole imported year object (for Research > Year test). A read gives the import another day. */
+  async object(id) {
+    const obj = await this.#load(id);
+    const metaFile = `${this.#file(id)}.json`;
+    const meta = JSON.parse(await readFile(metaFile, 'utf8'));
+    await writeFile(metaFile, JSON.stringify({ ...meta, expiresAt: this.now() + this.ttlMs }));
+    return obj;
+  }
+
   /** The imported candles of one symbol between two days, oldest first. Each read gives the import another day. */
   async candles(id, symbol, from, to) {
     const obj = await this.#load(id);

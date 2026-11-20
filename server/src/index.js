@@ -23,6 +23,7 @@ import { mongoSettingsSync } from './dayreplay/settingsLink.js';
 import { dayReplayRoutesDeps } from './dayreplay/manager.js';
 import { finishWhenDone } from './dayreplay/result.js';
 import { ReplayLadder } from './dayreplay/ladder.js';
+import { YearTest } from './yeartest/yearTest.js';
 import { TestRunner } from './dayreplay/testRunner.js';
 import { StudyService } from './study/service.js';
 import { LearnerService } from './learner/service.js';
@@ -99,7 +100,10 @@ async function main() {
     dayReplay.ladder = new ReplayLadder({ runners: [0, 1, 2, 3].map((slot) => new TestRunner({ config: env, slot })), learn });
     process.on('exit', () => dayReplay.ladder.runners.forEach((r) => r.child?.kill()));
   }
-  const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history, optionHistory, archive, ticks, dayReplay, study, learner, lab, learn });
+  // Research > Year test: one thing over months of the year files, in the background; a run cut short by a restart carries on
+  const yearTest = replay ? null : new YearTest({ dir: path.join(env.archiveDir, 'year-tests'), yearFiles, imports: archive.imports, lab, ladder: dayReplay.ladder ?? null });
+  yearTest?.resumeAll().catch((e) => logger.warn(`year test resume failed: ${e.message}`));
+  const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history, optionHistory, archive, ticks, dayReplay, study, learner, lab, learn, yearTest });
   const server = http.createServer(app);
   const io = attachSocket(server, { market, engine, config: env, scanner });
 

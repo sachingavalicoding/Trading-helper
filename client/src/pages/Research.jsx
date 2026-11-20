@@ -1,12 +1,13 @@
 import { lazy, Suspense, useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
-import { GraduationCap, Database, FlaskConical } from 'lucide-react';
+import { GraduationCap, Database, FlaskConical, CalendarRange } from 'lucide-react';
 import { Picker, Segmented, Skeleton } from '../components/ui.jsx';
 import { TestIdea } from '../components/study/TestIdea.jsx';
 
 // each part loads only when it is opened, so the Research page itself opens fast
 const LearnLab = lazy(() => import('../components/lab/LearnLab.jsx').then((m) => ({ default: m.LearnLab })));
 const Learner = lazy(() => import('../components/study/Learner.jsx').then((m) => ({ default: m.Learner })));
+const YearTest = lazy(() => import('../components/study/YearTest.jsx').then((m) => ({ default: m.YearTest })));
 const HistoryData = lazy(() => import('../components/study/HistoryData.jsx').then((m) => ({ default: m.HistoryData })));
 const DayReportButton = lazy(() => import('../components/DayReportButton.jsx').then((m) => ({ default: m.DayReportButton })));
 
@@ -14,6 +15,7 @@ const DayReportButton = lazy(() => import('../components/DayReportButton.jsx').t
 export const RESEARCH_TABS = [
   { value: 'test', label: 'Test an idea', icon: FlaskConical, hint: 'Pick a combination, pattern or the score bot: every trade over the last days, then find a better indicator, stop and profit ladder' },
   { value: 'learn', label: 'Learn', icon: GraduationCap, hint: 'Find better settings, checked on hidden days, and the auto-learner with its on/off switch' },
+  { value: 'year', label: 'Year test', icon: CalendarRange, hint: 'One thing (score bot or one combination) over months of the year files, in the background' },
   { value: 'data', label: 'Saved data and day report', icon: Database, hint: 'The candles and option prices the tests read, and the day report to copy' },
 ];
 
@@ -64,6 +66,7 @@ export default function Research() {
             {part === 'auto' ? <Learner /> : <LearnLab />}
           </div>
         )}
+        {tab === 'year' && <YearTest />}
         {tab === 'data' && (
           <div className="space-y-3">
             <HistoryData />
