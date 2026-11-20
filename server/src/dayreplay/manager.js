@@ -7,7 +7,11 @@ import { testDays } from './ladder.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_ENTRY = path.resolve(here, '../index.js');
-export const SPEEDS = [1, 2, 5, 10, 25, 50];
+export const SPEEDS = [1, 2, 5, 10, 25, 50, 100, 200];
+export const SAFE_MAX_SPEED = 50; // faster only after a speed check found the same trades (dayreplay/speedCheck.js)
+
+/** The speeds that may be picked: up to 50x, and 100x/200x once `fastOk`. */
+export const allowedSpeeds = (fastOk) => SPEEDS.filter((s) => s <= SAFE_MAX_SPEED || fastOk);
 
 /**
  * Runs a replay as a second copy of this server on another port, with its own database and virtual clock, so the live server and its
@@ -21,6 +25,11 @@ export class ReplayManager {
     this.readyTimeoutMs = readyTimeoutMs;
     this.child = null;
     this.run = { state: 'idle' };
+    this.speedCheck = null; // set by index.js
+  }
+
+  get fastOk() {
+    return Boolean(this.speedCheck?.fastOk);
   }
 
   get port() {
@@ -48,6 +57,7 @@ export class ReplayManager {
 
   async start({ day, speed = 1, seconds = false }) {
     if (!SPEEDS.includes(speed)) throw Object.assign(new Error(`Speed must be one of ${SPEEDS.join(', ')}`), { status: 400, code: 'BAD_SPEED' });
+    if (!allowedSpeeds(this.fastOk).includes(speed)) throw Object.assign(new Error(`${speed}x needs a passed speed check first (Replay > Check 200x). Use ${SAFE_MAX_SPEED}x or slower.`), { status: 400, code: 'SPEED_NOT_CHECKED' });
     const known = (await this.days()).find((d) => d.day === day);
     if (!known) throw Object.assign(new Error(`Nothing was saved for ${day}`), { status: 400, code: 'NO_DAY' });
     if (!known.minutes && !seconds) seconds = true; // only the seconds were saved for that day
@@ -57,7 +67,7 @@ export class ReplayManager {
     this.run = run;
     const child = this.spawnFn(process.execPath, [SERVER_ENTRY], {
       cwd: path.resolve(here, '../..'),
-      env: { ...process.env, REPLAY_DAY: day, REPLAY_SPEED: String(speed), REPLAY_SECONDS: seconds ? '1' : '0', REPLAY_TEST: '0', PORT: String(this.port), REPLAY_SOURCE_MONGO_URI: this.config.mongoUri, REPLAY_LIVE_PORT: String(this.config.port) },
+      env: { ...process.env, REPLAY_DAY: day, REPLAY_SPEED: String(speed), REPLAY_SECONDS: seconds ? '1' : '0', REPLAY_FAST: this.fastOk ? '1' : '0', REPLAY_TEST: '0', PORT: String(this.port), REPLAY_SOURCE_MONGO_URI: this.config.mongoUri, REPLAY_LIVE_PORT: String(this.config.port) },
       stdio: 'inherit',
     });
     this.child = child;

@@ -9,7 +9,8 @@ import { Switch as AutoSwitch } from './options/OptionsAutoCard.jsx';
 // account, so nothing here touches the real paper history. This file has the banner shown inside a replay and the Account card that starts one.
 
 const TOOLS_KEY = 'npt_replay_tools';
-const SPEEDS = [1, 2, 5, 10, 25, 50];
+const SPEEDS = [1, 2, 5, 10, 25, 50, 100, 200];
+const SAFE_MAX = 50; // 100x and 200x open after a speed check found the same trades
 const clock = (ms) => new Date(ms).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false });
 const dayText = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
@@ -27,10 +28,15 @@ export function useReplayStatus() {
   useEffect(() => {
     let alive = true;
     let timer;
+    let prev = null;
     const load = () =>
       api('/replay-day/status')
         .then((d) => {
           if (!alive) return;
+          // the real speed: virtual seconds per real second since the last look (lower than chosen when the computer cannot keep up)
+          const at = Date.now();
+          if (d.mode === 'replay' && prev && !d.paused && at > prev.at) d.realSpeed = Math.round((d.virtualNow - prev.virtualNow) / (at - prev.at));
+          prev = { at, virtualNow: d.virtualNow };
           setS(d);
           if (d.mode === 'replay') timer = setTimeout(load, 1500); // the clock only moves in a replay
         })
@@ -126,6 +132,7 @@ export function ReplayBanner() {
       <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-3 gap-y-1.5">
         <span className="rounded-md bg-warn px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-black">Replay mode</span>
         <span className="font-semibold">{dayText(s.day)} · <span className="num">{clock(s.virtualNow)}</span> IST{s.finished ? ' · day finished' : ''}</span>
+        {!s.finished && !s.paused && s.realSpeed > 0 && <span className="num text-muted" title="How fast the day really moves. Lower than the chosen speed when the computer is busy: nothing is skipped, it just runs slower.">real {s.realSpeed}x</span>}
         <span className="text-muted">Test paper account, not your real trades.</span>
         <div className="ml-auto flex items-center gap-1">
           <button type="button" className="btn btn-secondary btn-sm" disabled={s.finished} onClick={() => control({ paused: !s.paused })} aria-label={s.paused ? 'Resume' : 'Pause'}>
@@ -165,11 +172,13 @@ export function ReplayCard() {
   const [inReplay, setInReplay] = useState(false);
   const [check, setCheck] = useState(null);
   const [seconds, setSeconds] = useState(false);
+  const [allowed, setAllowed] = useState(SPEEDS.filter((x) => x <= SAFE_MAX));
+  const [speedCheck, setSpeedCheck] = useState(null);
 
   useEffect(() => {
     if (!tools) return undefined;
     let alive = true;
-    api('/replay-day/status').then((d) => alive && (setInReplay(d.mode === 'replay'), setRun(d.run ?? null))).catch(() => {});
+    api('/replay-day/status').then((d) => alive && (setInReplay(d.mode === 'replay'), setRun(d.run ?? null), d.speeds && setAllowed(d.speeds), setSpeedCheck(d.speedCheck ?? null))).catch(() => {});
     api('/replay-day/days').then((d) => alive && (setDays(d.days), setDay((cur) => cur || d.days[0]?.day || ''))).catch(() => alive && setDays([]));
     return () => {
       alive = false;
@@ -193,6 +202,27 @@ export function ReplayCard() {
     const t = setInterval(() => api('/replay-day/status').then((d) => setRun(d.run)).catch(() => {}), 1500);
     return () => clearInterval(t);
   }, [run?.state]);
+
+  // while the speed check plays, ask every few seconds
+  useEffect(() => {
+    if (speedCheck?.state !== 'running') return undefined;
+    const t = setInterval(
+      () =>
+        api('/replay-day/status')
+          .then((d) => (setSpeedCheck(d.speedCheck ?? null), d.speeds && setAllowed(d.speeds)))
+          .catch(() => {}),
+      5000,
+    );
+    return () => clearInterval(t);
+  }, [speedCheck?.state]);
+
+  async function checkSpeed(stopIt = false) {
+    try {
+      setSpeedCheck(await api(stopIt ? '/replay-day/speed-check/stop' : '/replay-day/speed-check', { method: 'POST', body: stopIt ? {} : { day } }));
+    } catch (e) {
+      toast.error(e.message);
+    }
+  }
 
   const toggle = () => {
     const next = !tools;
@@ -271,13 +301,14 @@ export function ReplayCard() {
               </div>
               <div>
                 <div className="mb-1 text-xs text-muted">Speed</div>
-                <div className="grid grid-cols-6 gap-1">
+                <div className="grid grid-cols-4 gap-1">
                   {SPEEDS.map((x) => (
-                    <button key={x} type="button" onClick={() => setSpeed(x)} className={`btn btn-sm ${speed === x ? 'btn-primary' : 'btn-secondary'}`}>{x}x</button>
+                    <button key={x} type="button" disabled={!allowed.includes(x)} onClick={() => setSpeed(x)} className={`btn btn-sm ${speed === x ? 'btn-primary' : 'btn-secondary'}`} title={allowed.includes(x) ? undefined : 'Run the speed check first'}>{x}x</button>
                   ))}
                 </div>
-                <div className="mt-1 text-[11px] text-muted">The market day is 6¼ hours: 10x takes about 38 minutes, 50x about 8. You can change the speed during the replay.</div>
+                <div className="mt-1 text-[11px] text-muted">The market day is 6¼ hours: 10x takes about 38 minutes, 50x about 8, 200x about 2 if the computer keeps up. Nothing is skipped at any speed: every second plays in order, a busy computer just runs slower. You can change the speed during the replay.</div>
               </div>
+              <SpeedCheckBox c={speedCheck} day={day} onStart={() => checkSpeed(false)} onStop={() => checkSpeed(true)} />
               {run?.state === 'starting' && <p className="text-xs text-muted">Getting the day ready… this takes up to a minute.</p>}
               {run?.state === 'failed' && <p className="text-xs text-down">{run.error}</p>}
               <div className="flex gap-2">
@@ -294,5 +325,42 @@ export function ReplayCard() {
         </div>
       )}
     </Card>
+  );
+}
+
+const mins = (sec) => (sec >= 90 ? `${Math.round(sec / 60)} min` : `${sec} s`);
+
+/** The speed check: one day at 200x and at 50x with the settings now, every trade compared. 100x and 200x open only when they match. */
+function SpeedCheckBox({ c, day, onStart, onStop }) {
+  const state = c?.state ?? 'idle';
+  return (
+    <div className="rounded-xl border border-line p-3 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <div className="font-semibold">Speed check for 100x / 200x</div>
+        {state === 'running' ? (
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onStop}>Stop</button>
+        ) : (
+          <button type="button" className="btn btn-secondary btn-sm" disabled={!day} onClick={onStart}>Check 200x on {day ? dayText(day) : 'this day'}</button>
+        )}
+      </div>
+      {state === 'idle' && <p className="mt-1 text-muted">Plays the chosen day at 200x and at 50x with your settings now (1-minute candles) and compares every trade: time, side, price, exit and P&amp;L. 100x and 200x open only if they match. Takes about 10 minutes.</p>}
+      {state === 'running' && <p className="mt-1">Running: {c.step}…</p>}
+      {state === 'failed' && <p className="mt-1 text-down">The check failed: {c.error}</p>}
+      {state === 'done' && c.same && (
+        <p className="mt-1 text-up">
+          Same trades at 200x as at 50x on {dayText(c.day)} ({c.runs?.[0]?.trades ?? 0} trade(s)). 100x and 200x are open. 50x took {mins(c.runs?.[0]?.seconds ?? 0)}, 200x took {mins(c.runs?.[1]?.seconds ?? 0)}: {mins(Math.max(c.savedSeconds ?? 0, 0))} saved per day.
+        </p>
+      )}
+      {state === 'done' && !c.same && (
+        <div className="mt-1 text-down">
+          <p className="font-semibold">Trades differ at this speed, use a lower speed (50x or slower).</p>
+          <ul className="mt-1 list-disc pl-4">
+            {(c.diffs ?? []).map((d, i) => (
+              <li key={i}>{d}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 // Runs a job again and again, `ms` apart, and never starts a run while the last one is still going.
 //
-// On a live day that is a plain timer. In a day replay the process's clock is a virtual one (dayreplay/clock.js) that can run 50 times faster
+// On a live day that is a plain timer. In a day replay the process's clock is a virtual one (dayreplay/clock.js) that can run 200 times faster
 // than the real one, so a real-time timer would scan once every 12 virtual minutes and miss most 5-minute bars, and the work would pile up.
 // There the job runs every `ms` of virtual time instead, and the replay clock is held while a run is busy: the replay then slows down to
 // what the phone can manage rather than skipping bars or hanging.
@@ -53,19 +53,28 @@ export function every(ms, fn, { onError = () => {}, clock = replayClock() } = {}
   if (!clock) {
     timer = setInterval(run, ms);
   } else {
-    timer = setInterval(() => {
-      if (busy) return;
-      const now = clock.now();
-      if (now - last < ms) return;
-      last = now;
-      run();
-    }, Math.max(20, Math.min(ms, 100)));
+    // looks at the clock at least twice per virtual second, so at 200x a job is as close to its time as at 50x
+    const check = () => {
+      if (stopped) return;
+      if (!busy) {
+        const now = clock.now();
+        if (now - last >= ms) {
+          last = now - ((now - last) % ms); // stays on its grid (9:15:00, 9:15:15, ...) so two replays of a day scan at the same moments
+          run();
+        }
+      }
+      const perSecond = clock.realMsPerSecond ?? 100;
+      timer = setTimeout(check, Math.max(2, Math.min(20, ms, Math.floor(perSecond / 2))));
+      timer.unref?.();
+    };
+    timer = setTimeout(check, 0);
   }
-  timer.unref?.();
+  timer?.unref?.();
   return {
     stop() {
       stopped = true;
       clearInterval(timer);
+      clearTimeout(timer);
     },
   };
 }

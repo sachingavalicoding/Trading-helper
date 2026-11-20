@@ -24,7 +24,7 @@ export async function prepareReplay(env) {
   const settings = test && settingsFile ? mongoose.mongo.BSON.EJSON.parse(readFileSync(settingsFile, 'utf8')) : null;
   const copied = await seedReplayDb({ sourceUri, targetUri, day, seconds, settings, priorDays: test ? 30 : 0 });
   if (!copied.niftyMinutes && !copied.ticks) throw new Error(`No saved Nifty candles for ${day}. Pick a day from the list in Account.`);
-  const clock = new ReplayClock({ startMs: atMinute(day, OPEN_MIN), endMs: atMinute(day, CLOSE_MIN + 5), speed, maxStepMs: 500 }); // a busy phone slows the replay instead of jumping it ahead
+  const clock = new ReplayClock({ startMs: atMinute(day, OPEN_MIN), endMs: atMinute(day, CLOSE_MIN + 5), speed, maxStepMs: 500, maxVirtualStepMs: 1000 }); // a busy phone slows the replay instead of jumping it ahead, and no step skips more than 1 virtual second at any speed
   const provider = new ReplayProvider({ source: new MongoSource(day), clock, day, lotSize: lotSizeOf('NIFTY', env), useSeconds: Boolean(seconds && copied.ticks) });
   installClock(clock);
   logger.info(`Replay of ${day} ready at ${speed}x on ${seconds && copied.ticks ? `recorded seconds (${copied.ticks} chunks)` : '1-minute candles'}. Orders and positions are kept in the separate replay database.`);

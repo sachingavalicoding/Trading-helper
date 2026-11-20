@@ -32,6 +32,7 @@ export const env = {
         speed: num(process.env.REPLAY_SPEED, 1),
         sourceMongoUri: process.env.REPLAY_SOURCE_MONGO_URI || '',
         livePort: num(process.env.REPLAY_LIVE_PORT, 0),
+        fast: bool(process.env.REPLAY_FAST, false), // 100x and 200x may be picked (a speed check found the same trades as 50x)
         seconds: bool(process.env.REPLAY_SECONDS, false), // play the recorded seconds where they exist (default: 1-minute candles for everything)
         // A test run (dayreplay/ladder.js): own settings from REPLAY_SETTINGS_FILE, never linked to the live settings, writes its result to
         // REPLAY_RESULT_FILE and exits when the day is over.

@@ -146,7 +146,9 @@ test('the manager refuses an unknown speed', async () => {
   await assert.rejects(() => m.start({ day: DAY, speed: 7 }), /Speed must be one of/);
   await assert.rejects(() => m.start({ day: '2026-01-01', speed: 1 }), /Nothing was saved/);
   await assert.rejects(() => m.start({ day: DAY, speed: 1, seconds: true }), /no 1-second record/);
-  assert.deepEqual(SPEEDS, [1, 2, 5, 10, 25, 50]);
+  assert.deepEqual(SPEEDS, [1, 2, 5, 10, 25, 50, 100, 200]);
+  await assert.rejects(() => m.start({ day: DAY, speed: 200 }), /needs a passed speed check/);
+  await assert.rejects(() => m.start({ day: DAY, speed: 100 }), /needs a passed speed check/);
 });
 
 test('a busy job holds the clock, and a late step counts at most maxStepMs', () => {
@@ -272,4 +274,92 @@ test('"why no trades" lists the blockers and the bot skip reasons', () => {
   assert.match(text, /No price for the strike the bot would buy .*expiry 17 Nov/);
   assert.match(text, /Replay clock 9 Nov 10:42/);
   assert.match(text, /skipped 2×: no live premium/);
+});
+
+test('100x and 200x open only after a passed speed check', async () => {
+  const { allowedSpeeds } = await import('../src/dayreplay/manager.js');
+  assert.deepEqual(allowedSpeeds(false), [1, 2, 5, 10, 25, 50]);
+  assert.deepEqual(allowedSpeeds(true), [1, 2, 5, 10, 25, 50, 100, 200]);
+  const m = new ReplayManager({ config: { port: 5000 }, spawnFn: () => assert.fail('no spawn') });
+  m.speedCheck = { fastOk: true };
+  assert.equal(m.fastOk, true);
+});
+
+test('the clock never runs more than maxVirtualStepMs past the last step, at any speed', () => {
+  let real = 0;
+  const clock = new ReplayClock({ startMs: open, endMs: open + 6 * 3600000, speed: 200, realNow: () => real, maxStepMs: 500, maxVirtualStepMs: 1000 });
+  real += 3;
+  assert.equal(clock.now(), open + 600);
+  real += 100; // the feed did not step for a while
+  assert.equal(clock.now(), open + 1000, 'waits at one virtual second');
+  clock.step();
+  real += 5;
+  assert.equal(clock.now(), open + 2000);
+  assert.equal(clock.realMsPerSecond, 5);
+});
+
+test('the speed check compares every trade and names each difference', async () => {
+  const { compareTrades } = await import('../src/dayreplay/speedCheck.js');
+  const t = { symbol: OPT, side: 'BUY', openedAt: sec + 600, closedAt: sec + 1200, entry: 100, exit: 110, net: 600 };
+  assert.deepEqual(compareTrades([t], [{ ...t, openedAt: sec + 615 }]), [], 'a few seconds apart in the same minute is the same trade');
+  assert.match(compareTrades([t], [{ ...t, exit: 108 }])[0], /exit 110 vs 108/);
+  assert.match(compareTrades([t], [{ ...t, closedAt: sec + 1500, net: 500 }])[0], /exit time, P&L 600 vs 500/);
+  assert.match(compareTrades([t, t], [t])[0], /made 2 trade\(s\), 200x made 1/);
+});
+
+test('the day result lists every trade with its times and prices', async () => {
+  const { dayResult } = await import('../src/dayreplay/result.js');
+  const p = { symbol: OPT, segment: 'OPT', status: 'CLOSED', direction: 'LONG', buyQty: 65, buyValue: 6500, sellQty: 65, sellValue: 7150, realizedPnl: 650, charges: 50, openedAt: new Date(sec * 1000 + 60000), closedAt: new Date(sec * 1000 + 120000) };
+  const r = dayResult(DAY, [p]);
+  assert.deepEqual(r.list, [{ symbol: OPT, side: 'BUY', openedAt: sec + 60, closedAt: sec + 120, entry: 100, exit: 110, net: 600 }]);
+});
+
+/**
+ * The same day at 50x and at 200x: the real feed and the real every() timer, a bot that scans every 15 virtual seconds and buys on a
+ * rising candle, and a stop/target watcher on every tick. Both speeds must make the same trades at the same seconds.
+ */
+test('a day plays the same trades at 50x and at 200x', async () => {
+  const { every } = await import('../src/utils/every.js');
+  const minutes = 6;
+  const candles = Array.from({ length: minutes }, (_, i) => {
+    const o = 100 + Math.round(Math.sin(i) * 300) / 100;
+    const c = o + (i % 3 === 0 ? -1.5 : 2);
+    return { time: sec + i * 60, open: o, high: Math.max(o, c) + 1, low: Math.min(o, c) - 1, close: c, volume: 10 };
+  });
+  const src = { tickSymbols: async () => [], readTicks: async () => [], readDayCandles: async () => candles, readPrior: async () => [] };
+  async function play(speed) {
+    const clock = new ReplayClock({ startMs: open, endMs: open + minutes * 60000, speed, maxStepMs: 500, maxVirtualStepMs: 1000 });
+    const p = new ReplayProvider({ source: src, clock, day: DAY, pollMs: 200 });
+    const trades = [];
+    let pos = null;
+    p.on('tick', (t) => {
+      if (!pos) return;
+      if (t.ltp <= pos.stop || t.ltp >= pos.target) {
+        trades.push({ ...pos, exitAt: t.ts / 1000, exit: t.ltp });
+        pos = null;
+      }
+    });
+    await p.connect();
+    await p.subscribe(['X']);
+    const job = every(15000, async () => {
+      if (pos) return;
+      const done = await p.getTodayCandles('X', 1);
+      const last = done.at(-1);
+      const at = Math.floor(clock.now() / 1000);
+      if (last && last.close > last.open && at - last.time < 75) {
+        const ltp = p.priceAfter('X', 0);
+        pos = { at, entry: ltp, stop: ltp - 1.2, target: ltp + 1.8 };
+      }
+    }, { clock });
+    const t0 = Date.now();
+    while (!clock.finished) await new Promise((r) => setTimeout(r, 5));
+    job.stop();
+    await p.disconnect();
+    return { trades, ms: Date.now() - t0 };
+  }
+  const slow = await play(50);
+  const fast = await play(200);
+  assert.ok(slow.trades.length >= 2, 'the test day makes trades');
+  assert.deepEqual(fast.trades, slow.trades);
+  assert.ok(fast.ms < slow.ms / 2, `200x (${fast.ms} ms) is much faster than 50x (${slow.ms} ms)`);
 });

@@ -6,6 +6,27 @@ import { logger } from '../utils/logger.js';
 
 const r2 = (n) => Math.round(n * 100) / 100;
 
+const avg = (value, qty) => (qty > 0 ? r2(value / qty) : null);
+const secOf = (d) => (d ? Math.floor(new Date(d).getTime() / 1000) : null);
+
+/** Every round trip of the day, oldest first: when it opened and closed, which way, at what average prices, and its money after charges. */
+export function tradeList(positions) {
+  return positions
+    .map((p) => {
+      const long = p.direction !== 'SHORT';
+      return {
+        symbol: p.symbol,
+        side: long ? 'BUY' : 'SELL',
+        openedAt: secOf(p.openedAt),
+        closedAt: p.status === 'CLOSED' ? secOf(p.closedAt) : null,
+        entry: long ? avg(p.buyValue ?? 0, p.buyQty ?? 0) : avg(p.sellValue ?? 0, p.sellQty ?? 0),
+        exit: p.status === 'CLOSED' ? (long ? avg(p.sellValue ?? 0, p.sellQty ?? 0) : avg(p.buyValue ?? 0, p.buyQty ?? 0)) : null,
+        net: r2((p.realizedPnl ?? 0) - (p.charges ?? 0)),
+      };
+    })
+    .sort((a, b) => (a.openedAt ?? 0) - (b.openedAt ?? 0) || a.symbol.localeCompare(b.symbol));
+}
+
 /** One day's result from its positions (plain objects with segment, status, realizedPnl, charges, symbol). */
 export function dayResult(day, positions) {
   const trades = positions.map((p) => ({ symbol: p.symbol, segment: p.segment ?? 'EQ', open: p.status === 'OPEN', net: r2((p.realizedPnl ?? 0) - (p.charges ?? 0)), charges: r2(p.charges ?? 0) }));
@@ -23,6 +44,7 @@ export function dayResult(day, positions) {
     options: part('OPT'),
     shares: part('EQ'),
     stillOpen: trades.filter((t) => t.open).length, // should be 0: the day squares off at 15:15
+    list: tradeList(positions), // every round trip, for the speed check (dayreplay/speedCheck.js)
   };
 }
 

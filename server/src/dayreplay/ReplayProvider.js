@@ -13,6 +13,7 @@ import { logger } from '../utils/logger.js';
 //
 // `source` supplies the data (see mongoSource.js): tickSymbols(), readTicks(symbol), readDayCandles(symbol), readPrior(symbol, fromDay).
 
+const MIN_POLL_MS = 2; // the fastest the feed steps (200x: one virtual second is 5 ms)
 const PRIOR_DAYS = 12; // calendar days of earlier candles kept for charts and indicators
 const isIndexSymbol = (s) => INDICES.some((i) => i.symbol === s);
 
@@ -69,13 +70,27 @@ export class ReplayProvider extends BaseProvider {
     this.candleOptions = new Set((await this.source.optionCandleSymbols?.()) ?? []);
     for (const [symbol, span] of (await this.source.optionSpans?.()) ?? []) this.spans.set(symbol, { ...span, kind: 'candles' });
     if (this.useSeconds) for (const [symbol, span] of (await this.source.tickSpans?.()) ?? []) this.spans.set(symbol, { ...span, kind: 'ticks' }); // seconds win over candles
-    this.timer = setInterval(() => this.#advance(), this.pollMs);
-    this.timer.unref?.();
+    this.#schedule();
     this.setStatus(true, `Replay of ${this.day}`);
   }
 
+  /**
+   * Steps the feed at least once per virtual second (pollMs at slow speeds, 1000/speed ms at fast ones, never under 4 ms): at 100x or 200x
+   * every second of the day is still played, in order, as at 50x; the steps just come closer together.
+   */
+  #schedule() {
+    const perSecond = this.clock.realMsPerSecond ?? this.pollMs;
+    const wait = Math.max(MIN_POLL_MS, Math.min(this.pollMs, Math.floor(perSecond / 2)));
+    this.timer = setTimeout(() => {
+      if (!this.timer) return;
+      this.#advance();
+      this.#schedule();
+    }, wait);
+    this.timer.unref?.();
+  }
+
   async disconnect() {
-    clearInterval(this.timer);
+    clearTimeout(this.timer);
     this.timer = null;
     this.setStatus(false, 'Replay stopped');
   }

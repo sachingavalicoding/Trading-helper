@@ -1,5 +1,5 @@
 // The clock of a replay run. Replaying a day means the whole app must believe it is that day, so the process's own clock
-// (`new Date()` and `Date.now()`) is replaced by a virtual one that starts on the chosen day at the chosen time and runs at 1x to 50x.
+// (`new Date()` and `Date.now()`) is replaced by a virtual one that starts on the chosen day at the chosen time and runs at 1x to 200x.
 // This is only ever installed in the separate replay process (see dayreplay/boot.js); the live server never calls installClock.
 
 const RealDate = Date;
@@ -10,9 +10,15 @@ export class ReplayClock {
    * @param {number} maxStepMs  the most real time one step may count (see `step`). A busy phone that answers late then makes the replay run
    *                            slower instead of jumping ahead. Infinity (the default) counts all of it.
    */
-  constructor({ startMs, endMs, speed = 1, realNow = () => RealDate.now(), maxStepMs = Infinity }) {
+  /**
+   * @param {number} maxVirtualStepMs the most virtual time the clock may run ahead of the last step. At 1 second, every virtual second gets a
+   *                            step of the feed at any speed, so 200x hands out the same prices at the same seconds as 50x; if the computer
+   *                            cannot keep up the replay just runs slower. Infinity (the default) does not cap it.
+   */
+  constructor({ startMs, endMs, speed = 1, realNow = () => RealDate.now(), maxStepMs = Infinity, maxVirtualStepMs = Infinity }) {
     this.realNow = realNow;
     this.maxStepMs = maxStepMs;
+    this.maxVirtualStepMs = maxVirtualStepMs;
     this.holds = 0; // jobs that asked the clock to wait for them (utils/every.js)
     this.startMs = startMs;
     this.endMs = endMs;
@@ -24,7 +30,8 @@ export class ReplayClock {
 
   now() {
     if (this.paused || this.holds > 0) return this.baseVirtual;
-    return Math.min(this.baseVirtual + Math.min(this.realNow() - this.baseReal, this.maxStepMs) * this.speed, this.endMs);
+    const ahead = Math.min(Math.min(this.realNow() - this.baseReal, this.maxStepMs) * this.speed, this.maxVirtualStepMs);
+    return Math.min(this.baseVirtual + ahead, this.endMs);
   }
 
   /** Called by the feed on each poll: counts the real time since the last step, at most `maxStepMs` of it. */
@@ -64,6 +71,11 @@ export class ReplayClock {
     if (this.finished) return;
     this.#rebase();
     this.paused = false;
+  }
+
+  /** How many real milliseconds one virtual second takes at this speed: how often the feed and the timers should look at the clock. */
+  get realMsPerSecond() {
+    return 1000 / this.speed;
   }
 
   get finished() {
