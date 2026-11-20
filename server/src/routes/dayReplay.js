@@ -8,7 +8,10 @@ import { istParts } from '../market/marketHours.js';
 import { DAY_CHOICES, DELAY_CHOICES, PARALLEL_CHOICES, SLIPPAGE_CHOICES } from '../dayreplay/ladder.js';
 
 const startBody = z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), speed: z.number().int().refine((s) => SPEEDS.includes(s)).default(1), seconds: z.boolean().default(false) });
+const sideField = z.enum(['options', 'shares']).default('options');
+const sideBody = z.object({ side: sideField });
 const testBody = z.object({
+  side: sideField,
   days: z.number().int().refine((d) => DAY_CHOICES.includes(d)),
   slippagePct: z.number().refine((x) => SLIPPAGE_CHOICES.includes(x)).default(0.5),
   fillDelaySec: z.number().int().refine((x) => DELAY_CHOICES.includes(x)).default(2),
@@ -25,22 +28,21 @@ export function dayReplayRoutes({ config, clock, manager, ladder = null, market,
 
   // Replay test, step by step (dayreplay/ladder.js): your settings now, then each change Learn suggested, kept only if it beats the best so far.
   const needLadder = (res) => (ladder ? false : (res.status(400).json({ error: { code: 'IN_REPLAY', message: 'Run replay tests from the live app.' } }), true));
+  const sideOf = (req) => (req.query.side === 'shares' ? 'shares' : 'options');
   r.get('/test', (req, res, next) => {
     if (needLadder(res)) return;
-    ladder.view(req.userId).then((d) => res.json(d), errOut(res, next));
+    ladder.view(req.userId, sideOf(req)).then((d) => res.json(d), errOut(res, next));
   });
   r.post('/test/start', validate(testBody), (req, res, next) => {
     if (needLadder(res)) return;
     ladder.start(req.userId, req.body).then((d) => res.json(d), errOut(res, next));
   });
-  r.post('/test/stop', (req, res, next) => {
-    if (needLadder(res)) return;
-    ladder.stop(req.userId).then((d) => res.json(d), errOut(res, next));
-  });
-  r.post('/test/apply', (req, res, next) => {
-    if (needLadder(res)) return;
-    ladder.apply(req.userId).then((d) => res.json(d), errOut(res, next));
-  });
+  for (const action of ['stop', 'apply', 'undo']) {
+    r.post(`/test/${action}`, validate(sideBody), (req, res, next) => {
+      if (needLadder(res)) return;
+      ladder[action](req.userId, req.body.side).then((d) => res.json(d), errOut(res, next));
+    });
+  }
 
   r.get('/status', (_req, res) => {
     if (config.replay) return res.json({ mode: 'replay', bootId: BOOT_ID, day: config.replay.day, livePort: config.replay.livePort, speeds: SPEEDS, ...clock.info() });
