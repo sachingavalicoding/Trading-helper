@@ -386,3 +386,41 @@ test('a run the server never finished shows as interrupted, and a failing run le
   assert.equal(after.interrupted, null);
   assert.equal(after.last.verdict, 'error');
 });
+
+// ---------- bot-calculated stop and targets ----------
+
+test('the bot works out a stop and 3 targets for one combination on the older days and replays the newest days both ways; Apply, switch and Undo', async (t) => {
+  const nifty1 = minutes(30);
+  const days = [...new Set(nifty1.map((b) => dayKey(b.time)))].slice(-24);
+  const book = bookFor(nifty1, { days });
+  const settings = { combos: normalizeCombos([{ id: 'trend', name: 'Trend', conds: ['emaFastOverSlow', 'rsiAbove50'] }]), maxTrades: 3, dailyLossPct: 10, patternEntries: false };
+  const defaults = { options: { stopLoss: 1500, steps: [{ at: 1000, keep: 750 }], lockOn: true } };
+  fakeModels(t, { settings, defaults, last: null });
+  t.mock.method(OptionSettings, 'updateOne', async (_q, update) => Object.assign(settings, update.$set));
+  const lab = { priceBook: async () => book, optionsData: async () => ({ nifty1, stocks5: null }), optionParams: async () => ({ ...PARAMS }) };
+  const learn = new LearnService({ lab, market: { provider: {} }, now: () => new Date('2026-11-20T06:00:00Z') });
+  const r = await learn.botSuggest('u1', 'trend');
+  assert.equal(r.skipped, undefined, r.skipped);
+  assert.equal(r.targets.length, 3);
+  assert.ok(r.targets.every((x, i) => i === 0 || x.at > r.targets[i - 1].at), 'targets rise');
+  assert.ok(r.stop >= 200 && r.stop <= 1500, `stop ${r.stop}`);
+  assert.equal(r.hiddenDays + r.calcDays, days.length);
+  assert.ok(r.hiddenFrom > r.calcTo, 'the test days come after the days used for the levels');
+  for (const k of ['normal', 'bot']) assert.ok(Number.isFinite(r.test.hidden[k].net) && r.test.hidden[k].trades >= 0);
+  assert.ok(['better', 'worse', 'thin'].includes(r.verdict));
+  await assert.rejects(learn.botSwitch('u1', 'trend', true), /apply the levels first/);
+  let saved = await learn.botApply('u1', 'trend', { stop: r.stop, targets: r.targets }, { verdict: r.verdict });
+  assert.equal(saved.bot.on, true);
+  assert.equal(saved.bot.prev, null, 'nothing before: Undo removes it');
+  assert.equal(saved.bot.setAt, '2026-11-20T06:00:00.000Z');
+  saved = await learn.botSwitch('u1', 'trend', false);
+  assert.equal(saved.bot.on, false, 'off keeps the levels; the normal ladder works');
+  assert.deepEqual(saved.bot.targets, r.targets);
+  saved = await learn.botApply('u1', 'trend', { stop: 700, targets: [{ at: 400, part: 50 }, { at: 800, part: 25 }, { at: 1200, part: 25 }] });
+  assert.equal(saved.bot.prev.stop, r.stop);
+  saved = await learn.botUndo('u1', 'trend');
+  assert.equal(saved.bot.stop, r.stop, 'Undo put the first levels back');
+  assert.equal(saved.bot.on, false);
+  saved = await learn.botUndo('u1', 'trend').catch((e) => e);
+  assert.match(saved.message, /Nothing to undo/);
+});

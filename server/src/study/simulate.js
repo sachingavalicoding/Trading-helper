@@ -4,6 +4,7 @@ import { calculateCharges } from '../services/charges.js';
 import { istParts } from '../market/marketHours.js';
 import { round2 } from '../utils/money.js';
 import { chaseRise, candlesBefore, chaseSkip } from '../options/chase.js';
+import { allot, stopAfter } from '../combos/bot.js';
 
 // Replays one option buy on the Nifty 1-minute chart. There is no history of real option prices, so the premium is estimated
 // with Black-Scholes at a fixed volatility. Direction and timing are real; the rupee amounts are an estimate.
@@ -100,6 +101,41 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   const buyCharges = calculateCharges({ side: 'BUY', qty, price: paid, segment: 'OPT' }).total;
   const profitAt = (premium) => (premium * (1 - SLIPPAGE) - paid) * qty;
   const day = istParts(entryAt).dateKey;
+
+  // bot-calculated stop and targets (combos/bot.js) in place of the ladder: parts sold at each target, the stop moving up after each
+  const bot = signal.bot && !noStop && !(target > 0) ? signal.bot : null;
+  if (bot) {
+    const run = botPath({ c1, start, day, exitMin, long, bot, lots, lotSize, qty, paid, premiumAt, profitAt, chartStop: signal.stop, hardLoss });
+    const charges = round2(buyCharges + run.sellCharges);
+    if (prices) prices.stats.used += 1;
+    return {
+      technique: signal.technique,
+      side: signal.side,
+      bar: signal.i ?? null,
+      note: signal.note,
+      tag: signal.tag,
+      score: signal.score,
+      lots,
+      entryTime: entryBar.time,
+      exitTime: run.exit.time,
+      entrySpot: round2(entryBar.open),
+      exitSpot: round2(run.exit.spot),
+      stop: round2(signal.stop),
+      strike,
+      expiry,
+      priced: real ? 'real' : 'estimated',
+      entryPremium: round2(paid),
+      gross: round2(run.gross),
+      charges,
+      net: round2(run.gross - charges),
+      reason: run.exit.reason,
+      minutes: Math.max(1, Math.round((run.exit.time - entryBar.time) / 60)),
+      best: round2(run.best),
+      worst: round2(run.worst),
+      rise,
+      bot: { hit: run.hit, sold: run.sold },
+    };
+  }
 
   let best = 0;
   let worst = 0;
@@ -232,6 +268,79 @@ export function simulateTrade({ c1, byTime, signal, params }) {
     rise,
     ...(noStop ? { noStop: true } : {}),
   };
+}
+
+/**
+ * One trade with the bot's stop and targets (combos/bot.js), on 1-minute bars, the cautious way round inside a bar: the stop first,
+ * then the targets. Before the first target the stop is the bot stop (rupees a lot); after it the entry plus the charges; after the
+ * second the first target. The chart stop (a 1-minute close beyond the level) and the hard stop still sell what is left.
+ */
+function botPath({ c1, start, day, exitMin, long, bot, lots, lotSize, qty, paid, premiumAt, profitAt, chartStop, hardLoss }) {
+  const lotsAt = allot(lots, bot.targets);
+  const perLot = (premium) => profitAt(premium) / qty * lotSize; // rupees a lot at this premium
+  const chargesLot = (calculateCharges({ side: 'BUY', qty: lotSize, price: paid, segment: 'OPT' }).total + calculateCharges({ side: 'SELL', qty: lotSize, price: paid, segment: 'OPT' }).total);
+  const hardLot = hardLoss > -Infinity ? hardLoss / lots : -Infinity;
+  let left = lots;
+  let hit = 0;
+  let gross = 0;
+  let sellCharges = 0;
+  let best = 0;
+  let worst = 0;
+  const sold = [];
+  const sell = (n, lotProfit, why, time, spot) => {
+    if (n <= 0) return;
+    gross += lotProfit * n;
+    const premium = Math.max((lotProfit / lotSize + paid) / (1 - SLIPPAGE), 0.05);
+    sellCharges += calculateCharges({ side: 'SELL', qty: n * lotSize, price: premium, segment: 'OPT' }).total;
+    sold.push({ lots: n, at: round2(lotProfit), why });
+    left -= n;
+    return { time, spot, reason: why };
+  };
+  let exit = null;
+  for (let j = start; j < c1.length && left > 0; j++) {
+    const bar = c1[j];
+    const at = istParts(new Date(bar.time * 1000));
+    if (at.dateKey !== day) {
+      const prev = c1[j - 1];
+      exit = sell(left, perLot(premiumAt(prev.close, prev.time, 'close')), 'EOD', prev.time + 60, prev.close);
+      break;
+    }
+    if (at.minutes >= exitMin) {
+      exit = sell(left, perLot(premiumAt(bar.open, bar.time, 'open')), 'EOD', bar.time, bar.open);
+      break;
+    }
+    const against = long ? bar.low : bar.high;
+    const favour = long ? bar.high : bar.low;
+    const open = perLot(premiumAt(bar.open, bar.time, 'open'));
+    const low = perLot(premiumAt(against, bar.time, 'low'));
+    const level = Math.max(stopAfter(bot, hit, chargesLot), hardLot);
+    const why = hit === 0 ? (level === hardLot ? 'HARD' : 'CUT') : 'LOCK';
+    if (open <= level || low <= level) {
+      worst = Math.min(worst, (open <= level ? open : level) * lots);
+      exit = sell(left, open <= level ? open : level, why, bar.time, open <= level ? bar.open : against);
+      break;
+    }
+    worst = Math.min(worst, low * lots);
+    const close = perLot(premiumAt(bar.close, bar.time, 'close'));
+    if (long ? bar.close < chartStop : bar.close > chartStop) {
+      exit = sell(left, close, 'STOP', bar.time + 60, bar.close);
+      break;
+    }
+    const high = perLot(premiumAt(favour, bar.time, 'high'));
+    best = Math.max(best, high * lots);
+    while (hit < bot.targets.length && left > 0 && high >= bot.targets[hit].at) {
+      const t = bot.targets[hit];
+      const last = hit === bot.targets.length - 1;
+      const done = sell(last ? left : Math.min(left, lotsAt[hit]), Math.max(t.at, open), `TARGET${hit + 1}`, bar.time + 60, favour);
+      hit += 1;
+      if (left === 0) exit = { ...done, reason: 'TARGET' };
+    }
+  }
+  if (!exit) {
+    const last = c1.at(-1);
+    exit = sell(left, perLot(premiumAt(last.close, last.time, 'close')), 'EOD', last.time + 60, last.close) ?? { time: last.time + 60, spot: last.close, reason: 'EOD' };
+  }
+  return { exit, gross, sellCharges, best, worst, hit, sold };
 }
 
 /** The numbers that say whether a set of trades is worth following. Rupees are for one lot, after charges. */

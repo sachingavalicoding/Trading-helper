@@ -9,12 +9,13 @@ import { trailOf, breakEvenOf } from '../study/simulate.js';
 import { entryWindowOf } from '../options/signal.js';
 import { LIVE_PATTERNS, DEFAULT_PATTERNS } from '../options/optionTrader.js';
 import { istParts, isTradingDay } from '../market/marketHours.js';
-import { badRequest, conflict } from '../utils/errors.js';
+import { badRequest, conflict, notFound } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 import { tune, steady, MIN_DAYS } from './tune.js';
 import { tuneCombo, strip } from './comboTune.js';
 import { tuneShares, shareSettingsOf, sharePatch, shareTrades } from './shareTune.js';
 import { learnContext, dayKey } from './learnRun.js';
+import { calcBot, normalizeLevels, normalizeBot, DEFAULT_PARTS, REACH_SETS } from '../combos/bot.js';
 
 // Lab > Learn: runs the settings learner (tune.js) for a user in the background, keeps the last result, and applies it to the paper
 // options settings on request. A result that failed on the hidden days is applied only with `force` (the screen asks first), and only
@@ -34,6 +35,8 @@ export const EVENING_AFTER_MIN = 17 * 60; // 17:00 IST: after the evening save o
 const EVENING_TICK_MS = 10 * 60_000;
 const TRACK_MAX = 20;
 const WHAT = ['setup', 'combos', 'shares'];
+export const BOT_DAYS = 30; // the bot's stop and targets look at the combination's last 30 saved days
+export const BOT_MIN_DAYS = 8;
 export const SHARE_DAYS = 15; // the share candles saved are kept short (the shares study allows 15 days)
 const SHARE_SEARCH_MS = 2 * 60_000;
 
@@ -361,6 +364,95 @@ export class LearnService {
     for (const k of ['combos', 'applied', 'log']) st.markModified(k);
     await st.save();
     return this.view(userId);
+  }
+
+  // ---------- bot-calculated stop and targets, one combination (combos/bot.js) ----------
+
+  /**
+   * Works out a stop and three targets for one combination from its own trades on the older saved days (no profit lock, so each trade
+   * shows how far it really ran), then replays the newest days, which the calculation never saw, both ways: the combination as it is
+   * (normal ladder) and with the bot's levels. Charges and 0.3% slippage each way are in both. Nothing is saved.
+   * @param {string} userId
+   * @param {string} id
+   * @param {{ parts?: number[] }} [o]
+   */
+  async botSuggest(userId, id, { parts = DEFAULT_PARTS } = {}) {
+    const cur = await this.#current(userId);
+    const combo = cur.settings.combos.find((c) => c.id === id);
+    if (!combo) throw notFound('That combination is not in your options list');
+    const { ctx, useDays, real, notes } = await this.#prepare(userId, { step: '' }, BOT_DAYS, cur);
+    if (useDays.length < BOT_MIN_DAYS) throw badRequest(`Only ${useDays.length} saved days; the bot needs at least ${BOT_MIN_DAYS}.`);
+    const hiddenN = Math.max(3, Math.round(useDays.length / 4));
+    const calcDays = new Set(useDays.slice(0, -hiddenN));
+    const hidden = useDays.slice(-hiddenN);
+    const hiddenSet = new Set(hidden);
+    const only = (/** @type {any} */ c) => ({ ...cur.settings, combos: [{ ...c, on: true }], patternEntries: false });
+    const { bot: _b, ...plain } = /** @type {any} */ (combo);
+    const free = { ...plain, exits: { ...(plain.exits ?? {}), steps: [], trail: null, breakEven: 0 } };
+    const freeTrades = (await ctx.evaluate(only(free))).filter((t) => calcDays.has(dayKey(t.entryTime)));
+    const lots = freeTrades.map((t) => t.lots ?? 1).sort((a, b) => a - b);
+    const midLots = lots.length ? lots[Math.floor(lots.length / 2)] : 1;
+    const rawCut = Number(cur.raw?.lossCut ?? 0);
+    const capTrade = Number(combo.exits?.cut ?? 0) > 0 ? Number(combo.exits?.cut) : rawCut > 0 ? rawCut : cur.settings.lossLimit || 2000;
+    const head = { id, name: combo.name, pricing: real ? 'real' : 'estimated', notes, calcDays: [...calcDays].length, calcFrom: [...calcDays][0] ?? null, calcTo: [...calcDays].at(-1) ?? null, hiddenDays: hidden.length, hiddenFrom: hidden[0], hiddenTo: hidden.at(-1), slippagePct: 0.3 };
+    const sum = (/** @type {any[]} */ ts) => ({ trades: ts.length, wins: ts.filter((t) => t.net > 0).length, net: Math.round(ts.reduce((a, t) => a + t.net, 0)), charges: Math.round(ts.reduce((a, t) => a + t.charges, 0)) });
+    const part = (/** @type {any[]} */ ts, /** @type {Set<string>} */ set) => sum(ts.filter((t) => set.has(dayKey(t.entryTime))));
+    // a few target sets (closer, middle, further), each judged on the days it was set from; the best there goes to the test days
+    let r = /** @type {any} */ (null);
+    let withBot = /** @type {any[]} */ ([]);
+    for (const reach of REACH_SETS) {
+      const c = /** @type {any} */ (calcBot(freeTrades, { cap: capTrade / midLots, parts, reach }));
+      if (c.skipped) return { ...head, skipped: c.skipped };
+      const ts = await ctx.evaluate(only({ ...plain, bot: { on: true, stop: c.stop, targets: c.targets } }));
+      c.calcNet = part(ts, calcDays).net;
+      if (!r || c.calcNet > r.calcNet) [r, withBot] = [c, ts];
+    }
+    const levels = { stop: r.stop, targets: r.targets };
+    const normal = await ctx.evaluate(only(plain));
+    const test = { hidden: { normal: part(normal, hiddenSet), bot: part(withBot, hiddenSet) }, calc: { normal: part(normal, calcDays), bot: part(withBot, calcDays) } };
+    const verdict = test.hidden.bot.trades < 3 ? 'thin' : test.hidden.bot.net > test.hidden.normal.net ? 'better' : 'worse';
+    return { ...head, ...levels, basis: r.basis, test, verdict, midLots };
+  }
+
+  /** Saves bot levels on one combination and switches them on. What it had before is kept, so Undo can put it back. */
+  async botApply(/** @type {string} */ userId, /** @type {string} */ id, /** @type {any} */ levels, /** @type {any} */ info = null) {
+    const clean = normalizeLevels(levels);
+    if (!clean) throw badRequest('These levels cannot be used: a stop and at least 3 rising targets are needed');
+    return this.#botEdit(userId, id, (/** @type {any} */ old) => {
+      const prev = old ? { stop: old.stop, targets: old.targets, on: old.on, ...(old.setAt ? { setAt: old.setAt } : {}) } : null;
+      return { on: true, ...clean, setAt: this.now().toISOString(), ...(info && typeof info === 'object' ? { info } : {}), prev };
+    });
+  }
+
+  /** Puts back the combination's bot levels from before the last Apply (none: the bot is removed and the normal ladder works). */
+  async botUndo(/** @type {string} */ userId, /** @type {string} */ id) {
+    return this.#botEdit(userId, id, (/** @type {any} */ old) => {
+      if (!old || old.prev === undefined) throw badRequest('Nothing to undo');
+      return old.prev ? { ...old.prev, prev: undefined } : undefined;
+    });
+  }
+
+  /** The switch: on = the bot's levels, off = the normal ladder. The levels are kept either way. */
+  async botSwitch(/** @type {string} */ userId, /** @type {string} */ id, /** @type {boolean} */ on) {
+    return this.#botEdit(userId, id, (/** @type {any} */ old) => {
+      if (!old) throw badRequest('Calculate and apply the levels first');
+      return { ...old, on };
+    });
+  }
+
+  async #botEdit(/** @type {string} */ userId, /** @type {string} */ id, /** @type {(old: any) => any} */ change) {
+    const s = await OptionSettings.findOne({ user: userId }).lean();
+    const list = normalizeCombos(s?.combos ?? []);
+    const at = list.findIndex((c) => c.id === id);
+    if (at < 0) throw notFound('That combination is not in your options list');
+    const next = change(normalizeBot(/** @type {any} */ (list[at]).bot) ?? null);
+    const combo = /** @type {any} */ ({ ...list[at] });
+    if (next) combo.bot = next;
+    else delete combo.bot;
+    list[at] = combo;
+    await OptionSettings.updateOne({ user: userId }, { $set: { combos: normalizeCombos(list) } }, { runValidators: true });
+    const saved = normalizeCombos((await OptionSettings.findOne({ user: userId }).lean())?.combos ?? []).find((c) => c.id === id);
+    return { id, bot: /** @type {any} */ (saved)?.bot ?? null };
   }
 
   /** Starts a run in the background; poll view(). */

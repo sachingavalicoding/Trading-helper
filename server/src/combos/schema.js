@@ -17,6 +17,7 @@ export const comboSchema = new mongoose.Schema(
     stopPoints: { type: Number, min: 10, max: 150, default: undefined },
     order: { type: mongoose.Schema.Types.Mixed, default: undefined }, // a share combination's own risk, money per trade, stop %, target and exit time (see normalizeOrder)
     exits: { type: mongoose.Schema.Types.Mixed, default: undefined }, // its own profit ladder, trail and break-even (see normalizeExits); a part left out uses the shared setting
+    bot: { type: mongoose.Schema.Types.Mixed, default: undefined }, // bot-calculated stop and targets with their on/off switch (combos/bot.js); off or missing = the normal ladder
   },
   { _id: false },
 );

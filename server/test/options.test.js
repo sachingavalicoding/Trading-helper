@@ -1041,6 +1041,57 @@ test('a signal is tried again on the next scan when the contract it picked had n
 
 const ltpOf = (c) => ctx.market.getLtp(c.symbol);
 
+test('a combination with its bot switch on sells a part at each bot target and moves the stop up; the last target sells the rest', async () => {
+  const realNow = optionTrader.now;
+  optionTrader.now = () => new Date(MIDMORNING());
+  try {
+    const who = await registerUser(app);
+    const uid = who.user.id || who.user._id;
+    await TradeDefaults.create({ user: uid, options: { stopLoss: 50000, lockStart: 1000, lockGap: 250 } });
+    const bot = { on: true, stop: 900, targets: [{ at: 300, part: 33 }, { at: 600, part: 33 }, { at: 900, part: 34 }] };
+    const combos = normalizeCombos([{ name: 'Bot break', conds: ['p_breakout', 'aboveEma20'], exits: { steps: [{ at: 3000, keep: 2500 }] }, bot }]);
+    assert.deepEqual(combos[0].bot.targets.map((t) => t.at), [300, 600, 900], 'the bot is kept with the combination');
+    const s = (await OptionSettings.create({ user: uid, enabled: true, maxLots: 3, budget: 1_000_000, probation: false, combos })).toObject();
+    const r = await optionTrader.considerCombos(s, breakoutRead());
+    assert.ok(r.order, r.skipped);
+    const { symbol, lotSize } = r.plan;
+    assert.equal(r.order.qty, 3 * lotSize, 'three lots');
+    const fill = r.order.avgFillPrice;
+    const pos0 = await Position.findOne({ user: uid, symbol, status: 'OPEN' }).lean();
+    assert.equal(pos0.lockSteps.length, 0, 'no profit ladder: the bot replaces it');
+    assert.equal(pos0.lockTrigger ?? null, null);
+    const sl0 = await Order.findOne({ user: uid, symbol, status: 'OPEN', role: 'STOPLOSS' }).lean();
+    assert.ok(Math.abs((fill - sl0.triggerPrice) * 3 * lotSize - 2700) < 3 * lotSize * 0.1, `the bot stop is ₹900 a lot below the entry: ${sl0.triggerPrice} vs ${fill}`);
+    const log = await AutoLog.findOne({ user: uid, segment: 'OPT', decision: 'PLACED' }).lean();
+    assert.deepEqual(log.detail.bot.lots, [1, 1, 1]);
+    optionTrader.start();
+    const tickTo = async (profitLot) => {
+      ctx.provider.setPrice(symbol, Math.round((fill + profitLot / lotSize) * 20) / 20);
+      await settle();
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    };
+    await tickTo(310);
+    let pos = await Position.findOne({ user: uid, symbol, status: 'OPEN' }).lean();
+    assert.equal(pos.netQty, 2 * lotSize, 'one lot sold at the first target');
+    let sl = await Order.findOne({ user: uid, symbol, status: 'OPEN', role: 'STOPLOSS' }).lean();
+    assert.ok(sl.triggerPrice > fill && sl.triggerPrice < fill + 300 / lotSize, `stop at the entry plus charges: ${sl.triggerPrice}`);
+    await tickTo(620);
+    pos = await Position.findOne({ user: uid, symbol, status: 'OPEN' }).lean();
+    assert.equal(pos.netQty, lotSize, 'another lot sold at the second target');
+    sl = await Order.findOne({ user: uid, symbol, status: 'OPEN', role: 'STOPLOSS' }).lean();
+    assert.ok(Math.abs(sl.triggerPrice - (fill + 300 / lotSize)) <= 0.05, `stop at the first target: ${sl.triggerPrice}`);
+    await tickTo(920);
+    assert.equal(await Position.countDocuments({ user: uid, symbol, status: 'OPEN' }), 0, 'the last target sold the rest');
+    const done = await AutoLog.findOne({ _id: log._id }).lean();
+    assert.equal(done.status, 'CLOSED');
+    assert.equal(done.outcome.exitReason, 'TARGET');
+    assert.ok(done.outcome.grossPnl > 1700, `about 300 + 600 + 900: ${done.outcome.grossPnl}`);
+  } finally {
+    optionTrader.stop();
+    optionTrader.now = realNow;
+  }
+});
+
 test('a combination with exits of its own buys with its own profit ladder, trail and break-even; with none it keeps the Account ones', async () => {
   const realNow = optionTrader.now;
   optionTrader.now = () => new Date(MIDMORNING());
