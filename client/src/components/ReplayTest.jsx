@@ -5,7 +5,7 @@ import { formatPnl, pnlClass } from '../lib/format.js';
 import { Card } from './ui.jsx';
 
 // Replay test, step by step: plays past days with your settings now, then each change Learn suggested on top of the best so far.
-// A change is kept only if it earns more over all the days AND on the newest days. Each run has its own copy of the settings; your live
+// A change is kept only if it earns more over all the days AND on the newest days. Replay plays only Learn's best few ideas (it takes minutes a day); Learn's own numbers are estimates. Each run has its own copy of the settings; your live
 // settings change only when you press Apply, and Apply opens only when something was kept.
 // Options and shares are tested apart (one switch at the top): each has its own test settings, result, Apply and Undo, so a shares
 // improvement goes in without touching options, and the other way round.
@@ -53,6 +53,7 @@ function StepRow({ s, i, hidden, base, total }) {
           <div className="text-xs text-muted">Step {i + 1}</div>
           <div className="text-sm font-semibold">{s.name}</div>
           {s.changes?.length > 0 && <div className="mt-0.5 text-[11px] text-muted">{s.changes.join(' · ')}</div>}
+          {s.learnVerdict && <div className="mt-0.5 text-[11px] text-muted">Learn estimated {formatPnl(s.learnGain)} over its days ({s.learnVerdict}); Replay is the real check.</div>}
         </div>
         <span className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-semibold ${v.cls}`}>{v.text}</span>
       </div>
@@ -191,7 +192,7 @@ function SideTest({ side, pick, setPick }) {
           ) : (
             <>
               <div className="text-xs">
-                <span className="text-muted">{SIDE_NAME[side]} changes to try: </span>
+                <span className="text-muted">{SIDE_NAME[side]} changes to try (Learn's best {d.candidates.length}{d.notChecked > 0 ? `, ${d.notChecked} weaker not played` : ''}): </span>
                 {d.candidates.map((c) => c.name).join(' · ')}
               </div>
               <Choice label="Days (newest saved days)" options={d.choices.days} value={days} onChange={(x) => setPick({ days: x })} fmt={(x) => `${x} days`} />

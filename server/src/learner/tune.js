@@ -343,11 +343,15 @@ export async function tune({ days, current, evaluate, dayOf, labelOf = (k) => k,
  * @param {Steady} old
  * @param {Steady} neu
  */
+export const ONE_DAY_SHARE = 0.6; // with enough hidden days, no single day may be more than this share of the new profit
+export const ONE_DAY_MIN_DAYS = 4;
 export function judge(old, neu) {
+  const lone = neu.days >= ONE_DAY_MIN_DAYS && neu.net > 0 && neu.bestDay > ONE_DAY_SHARE * neu.net;
   return [
     { key: 'score', ok: neu.score > old.score, text: neu.score > old.score ? `steadier: ${rs(neu.score)} a day against ${rs(old.score)}` : `not steadier: score ${rs(neu.score)} a day against ${rs(old.score)}` },
     { key: 'profit', ok: neu.net > 0 && neu.net >= old.net, text: neu.net > 0 && neu.net >= old.net ? `made ${rs(neu.net)} against ${rs(old.net)}` : neu.net === 0 ? 'made nothing' : neu.net < 0 ? `lost money (${rs(neu.net)})` : `made less (${rs(neu.net)} against ${rs(old.net)})` },
     { key: 'badDays', ok: neu.badDays <= old.badDays, text: neu.badDays <= old.badDays ? `${neu.badDays} losing day${neu.badDays === 1 ? '' : 's'} against ${old.badDays}` : `more losing days (${neu.badDays} against ${old.badDays})` },
+    { key: 'oneDay', ok: !lone, text: lone ? `one day gave ${Math.round((neu.bestDay / neu.net) * 100)}% of the profit (${rs(neu.bestDay)} of ${rs(neu.net)}); without it ${rs(neu.net - neu.bestDay)}` : 'no single day carried the profit' },
     { key: 'trades', ok: neu.trades >= MIN_HIDDEN_TRADES, text: neu.trades >= MIN_HIDDEN_TRADES ? `${neu.trades} trades to judge by` : `only ${neu.trades} trade${neu.trades === 1 ? '' : 's'}, too few to judge` },
   ];
 }

@@ -166,7 +166,8 @@ export async function tuneCombo({ combo, base, days, evaluate, dayOf, labelOf = 
   const split = splitDays(days);
   if (!split) return { ...head, verdict: 'short', text: 'Not enough saved days.', changes: [] };
   const { learn, hidden } = split;
-  const alone = (/** @type {Combo} */ c) => /** @type {Settings} */ ({ ...base, patternEntries: false, combos: [{ ...c, on: true }] });
+  // the combination on its own: no patterns and no indicator-score entries (its minimum chart score still applies, as live)
+  const alone = (/** @type {Combo} */ c) => /** @type {Settings} */ ({ ...base, patternEntries: false, scoreEntries: false, combos: [{ ...c, on: true }] });
   /** @type {Map<string, Trade[]>} */
   const memo = new Map();
   let tried = 0;
