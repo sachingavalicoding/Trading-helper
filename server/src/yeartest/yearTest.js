@@ -25,6 +25,9 @@ import { logger } from '../utils/logger.js';
 // after a restart, and changes no setting. Options premiums are ESTIMATED by the model over these months (only ~30 days of real option
 // prices exist). At the end the fast mode is played against the full Replay engine on the newest days both have, and the gap is shown.
 
+export const SCORE_ENTRIES = ['Breakout', 'Reversal', 'Pullback resume']; // the score bot's own entries (its trigger kinds)
+export const MAX_TRADE_CHOICES = [2, 3, 4, 5];
+export const MAX_WITH = 2; // combinations that may trade alongside the score bot in a test
 export const SHARE_SETUPS = ['Opening range breakout', 'Gap and go', 'VWAP pullback', 'Level retest', 'News gap', 'Trend score'];
 export const MONTH_CHOICES = [1, 3, 6, 12];
 export const SHARE_SLIPPAGE_PCT = 0.05; // shares: each fill 0.05% worse (the shares study and Lab); options: 0.5% (FILL_SLIPPAGE, as Replay test)
@@ -104,7 +107,9 @@ export function cutDown(/** @type {any} */ spec, /** @type {any} */ docs) {
     o.enabled = true;
     o.patternEntries = false;
     o.scoreEntries = spec.what === 'score';
-    o.combos = normalizeCombos(o.combos ?? []).map((c) => ({ ...c, on: spec.what === 'combo' && c.id === spec.combo }));
+    const withIds = spec.what === 'score' ? spec.with ?? [] : [spec.combo];
+    o.combos = normalizeCombos(o.combos ?? []).map((c) => ({ ...c, on: withIds.includes(c.id) }));
+    if (spec.maxTrades) o.maxTrades = spec.maxTrades;
   } else {
     const a = (d.autosettings ??= {});
     a.enabled = true;
@@ -227,6 +232,9 @@ export class YearTest {
         options: normalizeCombos(/** @type {any} */ (opt)?.combos ?? []).filter((c) => !c.index || c.index === INDEX).map((c) => ({ id: c.id, name: c.name })),
       },
       setups: SHARE_SETUPS,
+      scoreEntries: SCORE_ENTRIES,
+      maxTradeChoices: MAX_TRADE_CHOICES,
+      maxWith: MAX_WITH,
       monthChoices: MONTH_CHOICES,
       tunedFrom,
     };
@@ -235,7 +243,12 @@ export class YearTest {
   /** Starts a run in the background: a fixed copy of the settings now, the months to play, one file. */
   async start(/** @type {string} */ userId, /** @type {any} */ body) {
     if (this.job) throw conflict('A year test is already running. Stop it first.');
-    const spec = { side: body.side === 'options' ? 'options' : 'shares', what: body.what === 'combo' ? 'combo' : 'score', entry: body.entry || 'all', combo: body.combo || null, months: MONTH_CHOICES.includes(Number(body.months)) ? Number(body.months) : 6 };
+    const spec = { side: body.side === 'options' ? 'options' : 'shares', what: body.what === 'combo' ? 'combo' : 'score', entry: body.entry || 'all', combo: body.combo || null, months: MONTH_CHOICES.includes(Number(body.months)) ? Number(body.months) : 6, maxTrades: MAX_TRADE_CHOICES.includes(Number(body.maxTrades)) ? Number(body.maxTrades) : null, with: [] };
+    if (spec.side === 'options' && spec.what === 'score') {
+      spec.with = [...new Set(Array.isArray(body.with) ? body.with.map(String) : [])].slice(0, MAX_WITH);
+      if (spec.entry !== 'all' && !SCORE_ENTRIES.includes(spec.entry)) throw badRequest('Unknown score entry');
+    }
+    if (spec.side === 'shares') spec.maxTrades = null;
     const [o, a, t] = await Promise.all([OptionSettings.findOne({ user: userId }).lean(), AutoSettings.findOne({ user: userId }).lean(), TradeDefaults.findOne({ user: userId }).lean()]);
     const docs = { optionsettings: o, autosettings: a, tradedefaults: t };
     if (spec.what === 'combo') {
@@ -243,6 +256,11 @@ export class YearTest {
       const c = list.find((x) => x.id === spec.combo);
       if (!c) throw badRequest('Pick one of your combinations.');
       spec.comboName = c.name;
+    }
+    if (spec.with.length) {
+      const list = normalizeCombos(o?.combos ?? []);
+      spec.withNames = spec.with.map((id) => list.find((x) => x.id === id)?.name).filter(Boolean);
+      if (spec.withNames.length !== spec.with.length) throw badRequest('Pick your own combinations to trade with the score bot.');
     }
     if (spec.side === 'shares' && spec.what === 'score' && spec.entry !== 'all' && !SHARE_SETUPS.includes(spec.entry)) throw badRequest('Unknown entry');
     const niftyDays = await this.source.days('nifty');
@@ -258,7 +276,7 @@ export class YearTest {
     if (spec.side === 'options') {
       const params = await this.lab.optionParams(userId, INDEX);
       const settings = settingsOf(cut.optionsettings, t);
-      Object.assign(params, { scoreEntries: spec.what === 'score', scoreMin: o?.minScore ?? 70, comboMinScore: o?.comboMinScore ?? 0, patternMinScore: o?.patternMinScore ?? 0, slippage: FILL_SLIPPAGE, combos: settings.combos });
+      Object.assign(params, { scoreEntries: spec.what === 'score', scoreMin: o?.minScore ?? 70, comboMinScore: o?.comboMinScore ?? 0, patternMinScore: o?.patternMinScore ?? 0, slippage: FILL_SLIPPAGE, combos: settings.combos, scoreTags: spec.what === 'score' && spec.entry !== 'all' ? [spec.entry] : null });
       engine = { params, settings, budget: o?.budget ?? 60000 };
     } else if (spec.what === 'combo') {
       engine = { params: { ...(await this.lab.shareParams(userId)), slippagePct: SHARE_SLIPPAGE_PCT } };
@@ -266,7 +284,7 @@ export class YearTest {
       const sp = await this.lab.shareParams(userId);
       engine = { settings: shareSettingsOf(cut.autosettings), auto: EJSON.parse(EJSON.stringify(cut.autosettings)), money: { riskAmount: sp.riskAmount, steps: sp.steps, exitMin: sp.exitMin, maxAmount: sp.maxAmount } };
     }
-    const label = `${spec.side === 'shares' ? 'Shares' : 'Options'}: ${spec.what === 'combo' ? spec.comboName : spec.side === 'shares' && spec.entry !== 'all' ? `scanner, ${spec.entry} only` : spec.side === 'shares' ? 'scanner, all your switched-on setups' : 'score bot (score entries only)'}`;
+    const label = `${spec.side === 'shares' ? 'Shares' : 'Options'}: ${spec.what === 'combo' ? spec.comboName : spec.side === 'shares' && spec.entry !== 'all' ? `scanner, ${spec.entry} only` : spec.side === 'shares' ? 'scanner, all your switched-on setups' : `score bot${spec.entry !== 'all' ? `, ${spec.entry} only` : ''}${spec.withNames?.length ? ` + ${spec.withNames.join(' + ')}` : ''}`}${spec.maxTrades ? `, max ${spec.maxTrades} trades a day` : ''}`;
     const run = { spec, label, state: 'running', startedAt: this.now().toISOString(), finishedAt: null, error: '', docs, cut, engine, months: months.map((m) => ({ month: m, days: days.filter((d) => monthOf(d) === m), done: false, trades: [], seconds: 0 })), check: null };
     await this.#save(userId, run);
     this.#go(String(userId), run);
@@ -400,6 +418,7 @@ export class YearTest {
     const ladder = this.ladder;
     if (!ladder?.runners?.length) return { rows: [], verdict: { trusted: null, text: 'Full Replay is not available on this server, so the fast mode was not checked.' } };
     if (ladder.job || ladder.runners.some((/** @type {any} */ r) => r.busy)) return { rows: [], verdict: { trusted: null, text: 'A Replay test was running, so the check was skipped. Tap Check again later.' } };
+    if (run.spec.side === 'options' && run.spec.what === 'score' && run.spec.entry !== 'all') return { rows: [], verdict: { trusted: null, text: 'Full Replay cannot play one score entry alone, so this run was not checked. Check a run with all score entries.' } };
     const saved = new Set((await testDays()).map((d) => d.day));
     const niftyDays = await this.source.days('nifty');
     const shareDays = run.spec.side === 'shares' ? new Set(await this.source.days('shares', NIFTY50[0].symbol)) : null;

@@ -10,6 +10,8 @@ const startSchema = z.object({
   entry: z.string().max(40).default('all'),
   combo: z.string().max(80).nullable().default(null),
   months: z.coerce.number().int().default(6),
+  maxTrades: z.coerce.number().int().nullable().default(null),
+  with: z.array(z.string().max(80)).max(2).default([]),
 });
 
 export function yearTestRoutes({ yearTest }) {

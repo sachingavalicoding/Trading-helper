@@ -86,6 +86,8 @@ export function YearTest() {
   const [entry, setEntry] = useState('all');
   const [combo, setCombo] = useState('');
   const [months, setMonths] = useState(6);
+  const [maxTrades, setMaxTrades] = useState(0);
+  const [withIds, setWithIds] = useState([]);
   const [busy, setBusy] = useState(false);
   const run = data?.run;
   const active = run?.state === 'running' || run?.state === 'checking';
@@ -122,13 +124,38 @@ export function YearTest() {
       </div>
       <div className="text-xs text-muted">Year files: {have.days ? `${have.days} days, ${dayText(have.from)} to ${dayText(have.to)}` : 'none yet. Download or import them in Research > Saved data.'}</div>
       <div className="space-y-2">
-        <Segmented className="w-full" size="sm" value={side} onChange={(v) => { setSide(v); setCombo(''); }} options={[{ value: 'shares', label: 'Shares' }, { value: 'options', label: 'Options (estimated)' }]} />
+        <Segmented className="w-full" size="sm" value={side} onChange={(v) => { setSide(v); setCombo(''); setEntry('all'); setWithIds([]); }} options={[{ value: 'shares', label: 'Shares' }, { value: 'options', label: 'Options (estimated)' }]} />
         <Segmented className="w-full" size="sm" value={what} onChange={setWhat} options={[{ value: 'score', label: side === 'shares' ? 'Scanner / score bot' : 'Score bot' }, { value: 'combo', label: 'One combination' }]} />
         {what === 'score' && side === 'shares' && (
           <select className="input w-full" value={entry} onChange={(e) => setEntry(e.target.value)}>
             <option value="all">All your switched-on setups</option>
             {data.setups.map((s) => <option key={s} value={s}>{s} only</option>)}
           </select>
+        )}
+        {what === 'score' && side === 'options' && (
+          <>
+            <select className="input w-full" value={entry} onChange={(e) => setEntry(e.target.value)}>
+              <option value="all">All score entries (result shown per entry)</option>
+              {data.scoreEntries.map((s) => <option key={s} value={s}>{s} only</option>)}
+            </select>
+            {combos.length > 0 && (
+              <div className="rounded-lg border border-line p-2 text-xs">
+                <div className="mb-1 text-muted">Also trade up to {data.maxWith} combinations with it (optional)</div>
+                {combos.map((c) => (
+                  <label key={c.id} className="flex items-center gap-2 py-0.5">
+                    <input type="checkbox" checked={withIds.includes(c.id)} disabled={!withIds.includes(c.id) && withIds.length >= data.maxWith} onChange={(e) => setWithIds((l) => (e.target.checked ? [...l, c.id] : l.filter((x) => x !== c.id)))} />
+                    <span className="truncate">{c.name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+        {side === 'options' && (
+          <div>
+            <div className="mb-1 text-xs text-muted">Most trades a day (test only, your setting is not changed)</div>
+            <Segmented className="w-full" size="sm" value={maxTrades} onChange={setMaxTrades} options={[{ value: 0, label: 'Yours' }, ...data.maxTradeChoices.map((n) => ({ value: n, label: String(n) }))]} />
+          </div>
         )}
         {what === 'combo' && (
           <select className="input w-full" value={combo} onChange={(e) => setCombo(e.target.value)}>
@@ -137,7 +164,7 @@ export function YearTest() {
           </select>
         )}
         <Segmented className="w-full" size="sm" value={months} onChange={setMonths} options={data.monthChoices.map((m) => ({ value: m, label: `${m} mo` }))} />
-        <button type="button" className="btn btn-primary w-full" disabled={busy || active || !have.days || (what === 'combo' && !combo)} onClick={() => call('start', { side, what, entry, combo: combo || null, months })}>
+        <button type="button" className="btn btn-primary w-full" disabled={busy || active || !have.days || (what === 'combo' && !combo)} onClick={() => call('start', { side, what, entry, combo: combo || null, months, maxTrades: side === 'options' && maxTrades ? maxTrades : null, with: side === 'options' && what === 'score' ? withIds : [] })}>
           Start the year test
         </button>
       </div>
