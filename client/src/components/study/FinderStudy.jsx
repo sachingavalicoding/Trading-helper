@@ -1,3 +1,4 @@
+import { StudySource } from './StudySource.jsx';
 import { useState } from 'react';
 import { ClipboardCopy, Play, Search, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
@@ -197,7 +198,9 @@ export function FinderStudy() {
         </div>
         {datesBad && <p className="text-xs text-down">Pick a first and a last day, the first not after the last.</p>}
         {running && <p className="text-xs text-muted">{state.status.step}. The finder takes a few minutes.</p>}
+        <StudySource kind={kind} />
         {state?.status?.state === 'failed' && <p className="text-xs text-down">{state.status.error}</p>}
+        {state?.result?.dataSource && <p className="text-xs text-warn">{state.result.dataSource.text}</p>}
         {error && <p className="text-xs text-down">{error}</p>}
       </Card>
 

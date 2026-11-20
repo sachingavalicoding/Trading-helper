@@ -8,7 +8,9 @@ import { breakEvenOf, trailOf } from './simulate.js';
 import { loadRules, TradeDefaults } from '../models/TradeDefaults.js';
 import { NIFTY50 } from '../market/instruments.js';
 import { INDEXES, DEFAULT_INDEX, lotSizeOf } from '../options/symbols.js';
-import { conflict } from '../utils/errors.js';
+import { conflict, badRequest } from '../utils/errors.js';
+import { aggregateCandles } from '../market/providers/BaseProvider.js';
+import { addDays } from '../market/days.js';
 import { logger } from '../utils/logger.js';
 import { runOptionsStudy, runLadderStudy, runMovedStudy } from './optionsStudy.js';
 import { chaseOf } from '../options/chase.js';
@@ -17,13 +19,17 @@ import { entryModes } from '../options/optionTrader.js';
 import { runSharesStudy } from './sharesStudy.js';
 import { PriceBook, firstStudyDay } from './priceBook.js';
 
-const WARMUP_DAYS = 6; // calendar days read before the study starts, so the indicators have context on its first day
+const WARMUP_DAYS = 6;
+export const YEAR_SHARE_DAYS = 65; // shares on the year files: the scanner replay is slow, so at most about 3 months
+export const YEAR_TRADING_DAYS = 248; // trading days in a year, about
+const YEAR_MAX_BARS = 3000; // a long share replay gives the scanner the last 3,000 one-minute bars (about 8 days) at each step, not everything before // calendar days read before the study starts, so the indicators have context on its first day
 
 /** Runs a study in the background and keeps the latest result per user and kind ('options' or 'shares'). Read-only: it places no orders. */
 export class StudyService {
-  constructor({ market, config }) {
+  constructor({ market, config, years = null }) {
     this.market = market;
     this.config = config;
+    this.years = years; // the year files (yeartest/yearTest.js YearSource): Study can read them in place of the saved candles
     this.jobs = new Map(); // `${userId}|${kind}` -> { state: 'running' | 'failed', step, startedAt, error }
   }
 
@@ -37,17 +43,38 @@ export class StudyService {
   }
 
   /** Starts a run and returns at once; poll status(). Only one run per user and kind at a time. */
-  start(userId, kind, { realPrices = true, live = true, maxTrades, days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch, pairParts, winFind = false, winMinWin, winMinTrades } = {}) {
+  start(userId, kind, opts = {}) {
     if (this.status(userId, kind).state === 'running') throw conflict('A study is already running');
+    if (opts.source === 'year' && !this.years) throw badRequest('Year files are not available on this server');
+    if (opts.source === 'year' && (kind === 'ladder' || kind === 'moved')) throw badRequest('This study needs the real option prices, which only the saved data has. Pick Saved data.');
     const job = { state: 'running', step: 'Starting', startedAt: Date.now() };
     this.jobs.set(`${userId}|${kind}`, job);
-    const finder = { pairDepth, pairShow, pairGoal, pairResearch, pairParts, winFind, winMinWin, winMinTrades };
-    const run = kind === 'ladder' ? this.#runLadder(userId, job, { index, days: days ?? 30 }) : kind === 'moved' ? this.#runMoved(userId, job, { index, days: days ?? 30 }) : kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin, pairFind, pairFirst, comboFind, ...finder }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind, research, index, pairFind, pairFirst, comboFind, from, to, realPrices, live, maxTrades, ...finder });
-    run.catch((e) => {
-      logger.warn(`${kind} study failed: ${e.message}`);
-      Object.assign(job, { state: 'failed', error: e.message });
-    });
+    const run = opts.source === 'year' ? this.#yearPrep(job, kind, opts.years).then((days) => this.#begin(userId, kind, job, { ...opts, days, from: undefined, to: undefined, realPrices: false })) : this.#begin(userId, kind, job, opts);
+    run
+      .catch((e) => {
+        logger.warn(`${kind} study failed: ${e.message}`);
+        Object.assign(job, { state: 'failed', error: e.message });
+      })
+      .finally(() => opts.source === 'year' && this.years.close()); // the year files are big: not kept in memory after the run
     return job;
+  }
+
+  /** Year files: checks they are there and fixes the last day and the number of days of the run. */
+  async #yearPrep(job, kind, years = 1) {
+    job.step = 'Reading the year files';
+    const nifty = await this.years.days('nifty');
+    const shares = kind === 'shares' ? new Set(await this.years.days('shares', NIFTY50[0].symbol)) : null;
+    const usable = shares ? nifty.filter((d) => shares.has(d)) : nifty;
+    if (usable.length < 20) throw new Error(`Data not found: no ${kind === 'shares' ? 'Nifty and 50-share' : 'Nifty'} year files. Download or import them in Research > Saved data, then run again.`);
+    const want = kind === 'shares' ? YEAR_SHARE_DAYS : Math.round((years === 2 ? 2 : 1) * YEAR_TRADING_DAYS);
+    const days = Math.min(want, usable.length - 5);
+    job.year = { to: usable.at(-1), from: usable.at(-days), days, asked: kind === 'shares' ? null : years === 2 ? 2 : 1, short: days < want - 5 };
+    return days;
+  }
+
+  #begin(userId, kind, job, { realPrices = true, live = true, maxTrades, days, iv = 0.14, exit = 'lock', target = 1000, fixedLots = 0, exitMin, autoFind = false, research = false, index = DEFAULT_INDEX, pairFind = false, pairFirst = null, comboFind = false, from, to, pairDepth, pairShow, pairGoal, pairResearch, pairParts, winFind = false, winMinWin, winMinTrades } = {}) {
+    const finder = { pairDepth, pairShow, pairGoal, pairResearch, pairParts, winFind, winMinWin, winMinTrades };
+    return kind === 'ladder' ? this.#runLadder(userId, job, { index, days: days ?? 30 }) : kind === 'moved' ? this.#runMoved(userId, job, { index, days: days ?? 30 }) : kind === 'shares' ? this.#runShares(userId, job, { days: days ?? 8, target: exit === 'target' ? target : 0, exitMin, pairFind, pairFirst, comboFind, ...finder }) : this.#runOptions(userId, job, { days: days ?? 20, iv, target: exit === 'target' ? target : 0, fixedLots, exitMin, autoFind, research, index, pairFind, pairFirst, comboFind, from, to, realPrices, live, maxTrades, ...finder });
   }
 
   /**
@@ -88,21 +115,32 @@ export class StudyService {
 
   async #save(userId, kind, result) {
     const simulated = Boolean(this.market.provider.isSimulated);
+    const year = this.jobs.get(`${userId}|${kind}`)?.year;
+    if (year && result) result.dataSource = { kind: 'year', ...year, text: `Year files, ${year.days} trading days (${year.from} to ${year.to})${year.short ? ', all the files have' : ''}${kind === 'shares' ? '. Shares are kept to about 3 months: the scanner replay is slow' : '. Option prices are ESTIMATED by the model (real ones are saved for about 30 days only)'}.` };
     await StudyRun.findOneAndUpdate({ user: userId, kind }, { result, simulated }, { upsert: true, new: true });
     this.jobs.delete(`${userId}|${kind}`);
   }
 
   /** Candles for a study: from the saved history when there is one, else from the broker. */
-  #range(symbol, unit, days) {
+  #range(symbol, unit, days, job = null) {
+    if (job?.year) return this.#yearRange(symbol, unit, days, job);
     return typeof this.market.getStudyRange === 'function' ? this.market.getStudyRange(symbol, unit, days) : this.market.getRange(symbol, unit, days);
   }
 
+  /** Candles from the year files: `days` calendar days up to the last day of the files. */
+  async #yearRange(symbol, unit, days, job) {
+    const group = symbol === INDEXES.NIFTY.symbol ? 'nifty' : 'shares';
+    const c = await this.years.candles(group, symbol, addDays(job.year.to, -days), job.year.to);
+    if (!c.length) throw new Error(`Data not found for ${symbol} in the year files. Download or import them in Research > Saved data.`);
+    return unit === 1 ? c : aggregateCandles(c, `${unit}m`);
+  }
+
   async #nifty(job, days, index = DEFAULT_INDEX, from = null) {
-    const back = from ? Math.ceil((Date.now() - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1 : Math.ceil((days * 7) / 5); // calendar days back to the first day wanted
+    const back = job.year ? Math.ceil((days * 7) / 5) + 3 : from ? Math.ceil((Date.now() - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1 : Math.ceil((days * 7) / 5); // calendar days back to the first day wanted
     const calendar = back + WARMUP_DAYS;
     const idx = INDEXES[index];
     job.step = `Reading ${idx.short} candles`;
-    const nifty1 = await this.#range(idx.symbol, 1, calendar);
+    const nifty1 = await this.#range(idx.symbol, 1, calendar, job);
     if (nifty1.length < 400) throw new Error(`Not enough ${idx.short} history came back. On Upstox, log in again (the token lasts one day), press Download in Account > Studies > Data, and retry.`);
     return { nifty1, calendar };
   }
@@ -131,7 +169,7 @@ export class StudyService {
     for (const [n, { symbol }] of NIFTY50.entries()) {
       job.step = `Reading the 50 stocks (${n + 1}/50)`;
       try {
-        stocks5[symbol] = await this.#range(symbol, 5, calendar);
+        stocks5[symbol] = await this.#range(symbol, 5, calendar, job);
       } catch {
         failed += 1;
         if (failed >= 5 && !Object.keys(stocks5).length) break; // the broker is refusing: stop asking
@@ -233,7 +271,7 @@ export class StudyService {
     for (const [n, { symbol }] of NIFTY50.entries()) {
       job.step = `Reading the 50 stocks (${n + 1}/50)`;
       try {
-        stocks5[symbol] = await this.#range(symbol, 5, Math.ceil((Date.now() - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1 + WARMUP_DAYS);
+        stocks5[symbol] = await this.#range(symbol, 5, Math.ceil((Date.now() - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1 + WARMUP_DAYS, job);
       } catch {
         failed += 1;
         if (failed >= 5 && !Object.keys(stocks5).length) break;
@@ -300,7 +338,7 @@ export class StudyService {
       for (const [n, { symbol }] of NIFTY50.entries()) {
         job.step = `Reading the 50 stocks (${n + 1}/50)`;
         try {
-          history[symbol] = await this.#range(symbol, 1, calendar);
+          history[symbol] = await this.#range(symbol, 1, calendar, job);
         } catch {
           /* that stock is left out */
         }
@@ -320,14 +358,14 @@ export class StudyService {
     for (const [n, { symbol }] of NIFTY50.entries()) {
       job.step = `Reading the 50 stocks (${n + 1}/50)`;
       try {
-        history[symbol] = await this.#range(symbol, 1, calendar);
+        history[symbol] = await this.#range(symbol, 1, calendar, job);
       } catch {
         failed += 1;
         if (failed >= 5 && !Object.keys(history).length) break;
       }
     }
     const [rules, auto] = await Promise.all([loadRules(userId, 'EQ'), AutoSettings.findOne({ user: userId }).lean()]);
-    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, target, exitMin: exitMin ?? rules.exitMin, maxAmount: auto?.maxTradeAmount ?? 0, settings: auto ?? null, combos: normalizeCombos(auto?.combos), pairFind, pairFirst, comboFind, pairDepth, pairShow, pairGoal, pairParts, learn, finderOnly: pairFind || comboFind || Boolean(learn) }, onProgress: (step) => { job.step = step; } });
+    const result = await runSharesStudy({ nifty1, history, params: { days, riskAmount: rules.stopLoss, steps: rules.steps, target, exitMin: exitMin ?? rules.exitMin, maxAmount: auto?.maxTradeAmount ?? 0, settings: auto ?? null, combos: normalizeCombos(auto?.combos), maxBars: job.year ? YEAR_MAX_BARS : 0, pairFind, pairFirst, comboFind, pairDepth, pairShow, pairGoal, pairParts, learn, finderOnly: pairFind || comboFind || Boolean(learn) }, onProgress: (step) => { job.step = step; } });
     if (learn || job.quiet) return result;
     await this.#save(userId, 'shares', result);
   }
