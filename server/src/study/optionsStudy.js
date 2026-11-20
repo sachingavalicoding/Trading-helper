@@ -190,7 +190,24 @@ export const studyCombos = (combos, index) => (combos || []).filter((c) => combo
 /** The entry hours of this run: Account > Limits, else 09:15 to 15:15. */
 const whenOf = (params) => entryTest({ from: params.entryFrom ?? FIRST_ENTRY_MIN, to: params.entryTo ?? LAST_ENTRY_MIN });
 
-export async function botSignals({ prep, c1, byTime, breadth, fromTime, minScore }) {
+/** Daily bars (one per IST day, oldest first) built from 1-minute candles, as the live read gets them from the broker. */
+export function dailyFrom(c1) {
+  const out = [];
+  for (const b of c1) {
+    const day = DAY(b.time);
+    const last = out.at(-1);
+    if (last && last.day === day) {
+      last.high = Math.max(last.high, b.high);
+      last.low = Math.min(last.low, b.low);
+      last.close = b.close;
+      last.volume += b.volume || 0;
+    } else out.push({ day, time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume || 0 });
+  }
+  return out;
+}
+
+/** `daily` (optional, daily bars oldest first): with it the read also has the last month's view, as live; without it, as before. */
+export async function botSignals({ prep, c1, byTime, breadth, fromTime, minScore, daily = null }) {
   const out = [];
   const scores = new Map(); // bar index -> the live score of each side at that close, whether or not the bot would buy
   let n = 0;
@@ -204,7 +221,7 @@ export async function botSignals({ prep, c1, byTime, breadth, fromTime, minScore
     const slice = c1.slice(Math.max(0, e - 1500), e);
     slice.push({ ...next, high: next.open, low: next.open, close: next.open }); // the forming minute, with nothing of it known yet
     const now = new Date((bar.time + 300) * 1000);
-    const read = readNifty({ c1: slice, daily: null, tick: { ltp: next.open }, breadthUp: breadth ? breadth[i] : null }, { now, enforceWindows: true });
+    const read = readNifty({ c1: slice, daily, tick: { ltp: next.open }, breadthUp: breadth ? breadth[i] : null }, { now, enforceWindows: true });
     if (read.ready) scores.set(i, { CE: read.ce.score, PE: read.pe.score });
     if (read.ready && read.best && read.best.score >= minScore) {
       const day = prep.bars.slice(prep.dayStart[i], i + 1);

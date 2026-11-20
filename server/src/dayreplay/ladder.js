@@ -21,6 +21,23 @@ export const DAY_CHOICES = [3, 5, 10, 15];
 export const SLIPPAGE_CHOICES = [0, 0.25, 0.5, 1]; // % worse than the price seen
 export const DELAY_CHOICES = [0, 2, 5, 10]; // seconds before a market order fills
 export const PARALLEL_CHOICES = [1, 2, 3, 4]; // days played side by side (each a copy of the server: more needs a stronger computer)
+export const MAX_CHECKED = 5; // Replay is slow (minutes a day), so only Learn's best few ideas are played; Learn's own numbers are only estimates
+
+/** What Learn estimated a suggestion adds, in rupees over all its days (learning plus hidden), or 0 when it did not say. */
+export function gainOf(/** @type {any} */ r) {
+  const part = (/** @type {any} */ x) => (Number(x?.new?.net) || 0) - (Number(x?.old?.net) || 0);
+  return Math.round(part(r?.learn) + part(r?.hidden));
+}
+
+/**
+ * Learn's best `max` suggestions, the ones Replay test plays: those that passed Learn's hidden days first, then the biggest estimated gain.
+ * They keep their usual order (whole setup, then combinations, then shares), since a kept whole setup makes the combinations after it moot.
+ */
+export function topCandidates(/** @type {any[]} */ list, max = MAX_CHECKED) {
+  const rank = [...list].sort((a, b) => Number(b.verdict === 'passed') - Number(a.verdict === 'passed') || (b.gain ?? 0) - (a.gain ?? 0));
+  const keep = new Set(rank.slice(0, max).map((c) => c.key));
+  return list.filter((c) => keep.has(c.key));
+}
 /** Which bot a change touches: an options change only needs the options bot replayed, a shares change only the shares bot. */
 const SIDE = { setup: 'options', combo: 'options', shares: 'shares' };
 const NAMES = { optionsettings: OptionSettings.collection.name, autosettings: AutoSettings.collection.name, tradedefaults: TradeDefaults.collection.name };
@@ -115,6 +132,7 @@ export function ladderCandidates(st) {
       name: 'Options: whole setup from Learn',
       changes: last.changes.map((c) => c.label).filter((l) => !/daily loss/i.test(l)),
       verdict: last.verdict,
+      gain: gainOf(last),
       apply(docs) {
         const raw = docs.optionsettings ?? {};
         const others = normalizeCombos(raw.combos ?? []).filter((c) => c.index && c.index !== INDEX);
@@ -137,6 +155,7 @@ export function ladderCandidates(st) {
       name: `Combination: ${r.name}`,
       changes: r.changes.map((c) => c.label),
       verdict: r.verdict,
+      gain: gainOf(r),
       apply(docs) {
         const raw = docs.optionsettings ?? {};
         const list = normalizeCombos(raw.combos ?? []);
@@ -156,6 +175,7 @@ export function ladderCandidates(st) {
       name: 'Shares from Learn',
       changes: sh.changes.map((c) => c.label),
       verdict: sh.verdict,
+      gain: gainOf(sh),
       apply(docs) {
         const a = { ...(docs.autosettings ?? {}) };
         for (const [k, v] of Object.entries(sharePatch(sh.proposal))) setPath(a, k, v);
@@ -205,10 +225,12 @@ export class ReplayLadder {
     const [saved, st, days] = await Promise.all([ReplayTest.findOne({ user: userId }).lean(), LearnerState.findOne({ user: userId, kind: KIND }).lean(), testDays()]);
     // a test cut short by a restart of the app shows as stopped
     const test = saved?.state === 'running' && this.job?.userId !== String(userId) ? { ...saved, state: 'stopped', error: 'The app restarted while the test ran. Start it again.' } : saved;
-    const candidates = ladderCandidates(st).map(({ key, kind, name, changes, verdict }) => ({ key, kind, name, changes, verdict }));
+    const all = ladderCandidates(st);
+    const candidates = topCandidates(all).map(({ key, kind, name, changes, verdict, gain }) => ({ key, kind, name, changes, verdict, gain }));
+    const notChecked = all.length - candidates.length;
     let stale = false;
     if (test?.state === 'done' && test.base) stale = fingerprintDocs(await this.#liveDocs(userId)) !== test.base;
-    return { test: test ?? null, running: this.job?.userId === String(userId), candidates, days, stale, choices: { days: DAY_CHOICES, slippage: SLIPPAGE_CHOICES, delay: DELAY_CHOICES, parallel: PARALLEL_CHOICES.filter((n) => n <= this.runners.length) }, speed: TEST_SPEED };
+    return { test: test ?? null, running: this.job?.userId === String(userId), candidates, notChecked, maxChecked: MAX_CHECKED, days, stale, choices: { days: DAY_CHOICES, slippage: SLIPPAGE_CHOICES, delay: DELAY_CHOICES, parallel: PARALLEL_CHOICES.filter((n) => n <= this.runners.length) }, speed: TEST_SPEED };
   }
 
   async start(userId, { days: count, slippagePct = 0.5, fillDelaySec = 2, parallel = 2 }) {
@@ -216,14 +238,14 @@ export class ReplayLadder {
     if (this.job) throw conflict('A replay test is already running. Stop it first.');
     if (!DAY_CHOICES.includes(count)) throw badRequest(`Pick ${DAY_CHOICES.join(', ')} days`);
     const st = await LearnerState.findOne({ user: userId, kind: KIND }).lean();
-    const cands = ladderCandidates(st);
+    const cands = topCandidates(ladderCandidates(st));
     if (!cands.length) throw badRequest('Learn has no suggested change to test. Run Learn first (Research > Learn).');
     const avail = await testDays();
     if (avail.length < count) throw badRequest(`Only ${avail.length} saved day(s) can be played.`);
     const days = avail.slice(0, count).map((d) => d.day).reverse(); // oldest first
     const hidden = days.slice(-hiddenCount(count));
     const live = await this.#liveDocs(userId);
-    const steps = [{ key: 'now', kind: 'now', name: 'Your settings now', changes: [], verdict: 'waiting', results: [] }, ...cands.map(({ key, kind, id, name, changes }) => ({ key, kind, id, name, changes, verdict: 'waiting', results: [] }))];
+    const steps = [{ key: 'now', kind: 'now', name: 'Your settings now', changes: [], verdict: 'waiting', results: [] }, ...cands.map(({ key, kind, id, name, changes, gain, verdict }) => ({ key, kind, id, name, changes, learnGain: gain ?? 0, learnVerdict: verdict ?? null, verdict: 'waiting', results: [] }))];
     const test = await ReplayTest.findOneAndUpdate(
       { user: userId },
       { $set: { state: 'running', days, hidden, fill: { slippagePct, fillDelaySec, parallel: side }, steps, at: null, base: fingerprintDocs(live), error: '', startedAt: new Date(), finishedAt: null, applied: null } },

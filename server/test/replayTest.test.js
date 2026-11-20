@@ -186,3 +186,21 @@ test('the step-up test keeps a change only when it beats the best so far, and ne
   assert.deepEqual(d.steps[3].results.map((r) => r.options.net), [200, 200, 200], 'its options days come from the best run so far');
   assert.equal(JSON.stringify(live), liveBefore, 'the live settings are untouched');
 });
+
+test('Replay test plays only Learn\'s best 5 ideas: passed ones first, then the biggest estimated gain, in the usual order', async () => {
+  const { topCandidates, gainOf, MAX_CHECKED } = await import('../src/dayreplay/ladder.js');
+  assert.equal(MAX_CHECKED, 5);
+  assert.equal(gainOf({ learn: { old: { net: 100 }, new: { net: 600 } }, hidden: { old: { net: 0 }, new: { net: 250 } } }), 750);
+  assert.equal(gainOf({}), 0);
+  const list = [
+    { key: 'setup', verdict: 'failed', gain: 900 },
+    { key: 'combo:a', verdict: 'passed', gain: 100 },
+    { key: 'combo:b', verdict: 'failed', gain: 800 },
+    { key: 'combo:c', verdict: 'thin', gain: 50 },
+    { key: 'combo:d', verdict: 'passed', gain: 300 },
+    { key: 'combo:e', verdict: 'failed', gain: 700 },
+    { key: 'shares', verdict: 'passed', gain: 10 },
+  ];
+  assert.deepEqual(topCandidates(list).map((c) => c.key), ['setup', 'combo:a', 'combo:b', 'combo:d', 'shares']);
+  assert.equal(topCandidates(list.slice(0, 3)).length, 3, 'fewer than 5 are all played');
+});

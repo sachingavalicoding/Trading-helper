@@ -386,3 +386,42 @@ test('a run the server never finished shows as interrupted, and a failing run le
   assert.equal(after.interrupted, null);
   assert.equal(after.last.verdict, 'error');
 });
+
+// ---------- Learn plays by the live gates (20 Nov: Learn +3,114 vs Replay -1,857 on 19 Nov with the same settings) ----------
+
+test('Learn takes the indicator-score entries and skips combinations under the minimum chart score, as live; fills cost the Replay slippage', async () => {
+  const nifty1 = minutes(16);
+  const days = [...new Set(nifty1.map((b) => dayKey(b.time)))].slice(-12);
+  const book = bookFor(nifty1, { days });
+  const settings = { ...BASE, combos: normalizeCombos([{ name: 'Trend', conds: ['emaFastOverSlow', 'rsiAbove50'] }]) };
+  const plain = await learnContext({ nifty1, book, params: { ...PARAMS, prices: book }, days, budget: 60000 }).evaluate(settings);
+  assert.ok(plain.length > 0);
+  // a score at every 5-minute close, whatever the settings: a combination needs 101 to be kept, so nothing is
+  const scores = new Map();
+  const fake = async () => ({ signals: [], scores: new Proxy(scores, { get: (t, k) => (k === 'get' ? () => ({ CE: 10, PE: 10 }) : Reflect.get(t, k)) }) });
+  const gated = learnContext({ nifty1, book, params: { ...PARAMS, prices: book, comboMinScore: 60 }, days, budget: 60000, botSignalsFn: fake });
+  assert.equal((await gated.evaluate(settings)).length, 0, 'every signal scores 10, under the 60 you asked for');
+  const open = learnContext({ nifty1, book, params: { ...PARAMS, prices: book, comboMinScore: 5 }, days, budget: 60000, botSignalsFn: fake });
+  assert.equal((await open.evaluate(settings)).length, plain.length, 'a score over the minimum keeps every signal');
+  // score entries: a signal of the score bot is traded, and a combination alone does not get it
+  const sig = plain[0];
+  const scoreBot = async () => ({ signals: [{ technique: 'bot', side: sig.side, i: 20, time: sig.entryTime - 60, close: 23000, stop: sig.side === 'CE' ? 22900 : 23100, atr: 20, score: 90 }], scores: new Map() });
+  const withScore = learnContext({ nifty1, book, params: { ...PARAMS, prices: book, scoreEntries: true, scoreMin: 70 }, days, budget: 60000, botSignalsFn: scoreBot });
+  const noPatterns = { ...settings, combos: [], patternEntries: false };
+  const got = await withScore.evaluate(noPatterns);
+  assert.ok(got.every((t) => t.technique === 'score'));
+  assert.equal((await withScore.evaluate({ ...noPatterns, scoreEntries: false })).length, got.length, 'the settings object has no say: the saved score switch does');
+  // fills: slippage lowers the result
+  const slipped = await learnContext({ nifty1, book, params: { ...PARAMS, prices: book, slippage: 0.005 }, days, budget: 60000 }).evaluate(settings);
+  assert.ok(slipped.reduce((s, t) => s + t.net, 0) < plain.reduce((s, t) => s + t.net, 0));
+});
+
+test('judge: one lucky day carrying the hidden profit fails, but only with enough hidden days', () => {
+  const day = (net) => ({ net });
+  const mk = (nets) => steady(nets.map((n, i) => ({ entryTime: i, net: n })), nets.map((_, i) => `d${i}`), (t) => `d${t.entryTime}`);
+  const old = mk([-100, -100, -100, -100]);
+  assert.equal(judge(old, mk([4000, 100, 100, -50])).find((c) => c.key === 'oneDay').ok, false);
+  assert.equal(judge(old, mk([1000, 900, 800, -50])).find((c) => c.key === 'oneDay').ok, true);
+  assert.equal(judge(mk([0, 0, 0]), mk([4000, 100, 100])).find((c) => c.key === 'oneDay').ok, true, 'three hidden days are too few to say');
+  void day;
+});

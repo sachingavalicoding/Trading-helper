@@ -39,6 +39,7 @@ export const SLIPPAGE = 0.003; // 0.3% of the premium lost each way: the spread 
  *                `trail` ({ points, start }) adds a trailing stop: once the index has moved `start` points your way the chart stop sits `points` behind the best price and never moves back (exit reason TRAIL).
  *                `chase` ({ pct, minutes }) skips a buy whose real premium is already more than `pct` percent above its low of the last `minutes` minutes ({ skipped: 'chase' }).
  *                `cut` (rupees, 0 = off; a combination's own exits.cut) sells the trade once it is that much down (exit reason CUT).
+ *                `slippage` (a share of the premium, default SLIPPAGE) is lost on each fill; Learn uses the Replay test's 0.5%.
  *                `target` (rupees per lot, 0 = use the profit lock) and `fixedLots` (0 = size the lots to the loss limit) are for studying other exits.
  *                With a `lossLimit` (the Account stop) the lots are sized like the live trader: as many as keep the loss at the chart stop within
  *                the limit, up to `maxLots`, none when even one lot loses more. A hard stop sits at HARD_STOP_MULT times the limit. Without one, 1 lot.
@@ -47,7 +48,7 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   // a combination's own exits (ladder, trail, break-even) replace the shared ones for its trades; the no-stop test replaces them all
   const merged = signal.exits ? { ...params, ...signal.exits } : params;
   const noStop = params.noStop ?? null; // { at, keep } (at 0 = no lock): no stop loss, no trail, no break-even, only this lock and the floor
-  const { prices: given = null, mixPrices = false, trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN, chase = null, cut = 0 } = noStop ? { ...merged, trail: null, breakEven: 0, cut: 0, steps: noStop.at > 0 ? [{ at: noStop.at, keep: noStop.keep }] : [], target: 0 } : merged;
+  const { prices: given = null, mixPrices = false, trail = null, breakEven = 0, iv = 0.14, lockStart = 1000, lockGap = 250, steps = null, lotSize = DEFAULT_LOT_SIZE, holidays = [], expiryWeekday = DEFAULT_EXPIRY_WEEKDAY, strikeStep = STRIKE_STEP, lossLimit = 0, maxLots = 2, target = 0, fixedLots = 0, exitMin = EXIT_MIN, chase = null, cut = 0, slippage = SLIPPAGE } = noStop ? { ...merged, trail: null, breakEven: 0, cut: 0, steps: noStop.at > 0 ? [{ at: noStop.at, keep: noStop.keep }] : [], target: 0 } : merged;
   const start = byTime.get(signal.time);
   if (start == null) return null;
   const prices = given && (!mixPrices || given.hasDay(istParts(new Date(signal.time * 1000)).dateKey)) ? given : null; // mixPrices: a day with no saved premiums is estimated, not skipped
@@ -78,11 +79,11 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   const chaseMin = chase?.minutes ?? 15;
   const rise = real ? chaseRise(candlesBefore(real, entryBar.time, chaseMin), real.get(entryBar.time).open, { now: entryBar.time, minutes: chaseMin }) : null;
   if (chaseSkip(rise, chase)) return { skipped: 'chase', rise };
-  const paid = premiumAt(entryBar.open, entryBar.time, 'open') * (1 + SLIPPAGE);
+  const paid = premiumAt(entryBar.open, entryBar.time, 'open') * (1 + slippage);
   if (paid < 1) return null;
   let lots = 1;
   if (lossLimit > 0) {
-    const atStop = premiumAt(signal.stop, entryBar.time) * (1 - SLIPPAGE);
+    const atStop = premiumAt(signal.stop, entryBar.time) * (1 - slippage);
     const perLot = Math.max(paid - atStop, 0.05) * lotSize;
     let fits = Math.floor(lossLimit / perLot);
     // as live: the loss at the chart stop plus the round-trip charges must fit the limit
@@ -98,7 +99,7 @@ export function simulateTrade({ c1, byTime, signal, params }) {
   const hardLoss = noStop ? -STOP_OFF_FLOOR * paid * qty : lossLimit > 0 ? -Math.max(HARD_STOP_MULT * lossLimit - roundTrip(qty, paid), lossLimit * 0.5) : -Infinity;
   const hardWhy = noStop ? 'FLOOR' : 'HARD';
   const buyCharges = calculateCharges({ side: 'BUY', qty, price: paid, segment: 'OPT' }).total;
-  const profitAt = (premium) => (premium * (1 - SLIPPAGE) - paid) * qty;
+  const profitAt = (premium) => (premium * (1 - slippage) - paid) * qty;
   const day = istParts(entryAt).dateKey;
 
   let best = 0;
@@ -202,7 +203,7 @@ export function simulateTrade({ c1, byTime, signal, params }) {
     const last = c1.at(-1);
     exit = { time: last.time + 60, spot: last.close, profit: profitAt(premiumAt(last.close, last.time, 'close')), reason: 'EOD' };
   }
-  const sellPremium = (exit.profit / qty + paid) / (1 - SLIPPAGE);
+  const sellPremium = (exit.profit / qty + paid) / (1 - slippage);
   const charges = round2(buyCharges + calculateCharges({ side: 'SELL', qty, price: Math.max(sellPremium, 0.05), segment: 'OPT' }).total);
   if (prices) prices.stats.used += 1;
   return {

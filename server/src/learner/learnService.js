@@ -36,6 +36,7 @@ const TRACK_MAX = 20;
 const WHAT = ['setup', 'combos', 'shares'];
 export const SHARE_DAYS = 15; // the share candles saved are kept short (the shares study allows 15 days)
 const SHARE_SEARCH_MS = 2 * 60_000;
+export const FILL_SLIPPAGE = 0.005; // each option fill 0.5% worse than the price seen: the Replay test's default slippage
 
 /**
  * The settings the learner can change, read from what is saved.
@@ -417,12 +418,23 @@ export class LearnService {
       params.prices = book;
       params.mixPrices = !real;
     }
+    // as live and as Replay: your indicator-score entries, your minimum chart score, and the Replay test's fill (0.5% worse each way)
+    params.scoreEntries = cur.raw?.scoreEntries === true;
+    params.scoreMin = cur.raw?.minScore ?? 70;
+    params.comboMinScore = cur.raw?.comboMinScore ?? 0;
+    params.patternMinScore = cur.raw?.patternMinScore ?? 0;
+    params.slippage = FILL_SLIPPAGE;
     job.step = 'Building the chart';
     const ctx = learnContext({ nifty1, stocks5, book: book.days.length ? book : null, params, days: useDays, budget: cur.budget });
+    if (params.scoreEntries || params.comboMinScore > 0 || params.patternMinScore > 0) {
+      job.step = 'Working out the chart score at each 5-minute close';
+      await ctx.warm();
+    }
     const notes = [];
     if (!real) notes.push(book.days.length ? `Only ${book.days.length} days of real option prices are saved, so the other days use the model's estimated premiums.` : 'No real option prices are saved yet, so every premium is the model\'s estimate and the options checks (PCR, IV, OI, max pain, delta, theta) cannot be tried.');
-    if (cur.raw?.scoreEntries) notes.push('Your indicator-score entries are not replayed here; only combinations and patterns are.');
-    if ((cur.raw?.comboMinScore ?? 0) > 0 || (cur.raw?.patternMinScore ?? 0) > 0) notes.push('The minimum chart score on entries is not replayed here.');
+    if (params.scoreEntries) notes.push(`Your indicator-score entries (score ${params.scoreMin}+) are traded here as live. Each combination on its own is tuned without them.`);
+    if (params.comboMinScore > 0 || params.patternMinScore > 0) notes.push('Your minimum chart score on entries is checked here as live.');
+    notes.push('Every fill is 0.5% worse than the price seen, as in Replay test. These are still estimates: check the best ideas in Replay test before using them.');
     if (this.market?.provider?.isSimulated) notes.push('The sample feed is on: these candles are made up, so the result means nothing for real trading.');
     return { ctx, useDays, real, notes };
   }
@@ -440,7 +452,7 @@ export class LearnService {
       else {
         const now = cur.settings.combos.find((/** @type {any} */ x) => x.id === it.id);
         if (!now) continue;
-        const alone = (/** @type {any} */ parts) => ({ ...cur.settings, patternEntries: false, combos: [{ ...now, ...parts, on: true }] });
+        const alone = (/** @type {any} */ parts) => ({ ...cur.settings, patternEntries: false, scoreEntries: false, combos: [{ ...now, ...parts, on: true }] });
         items.push({ ...it, oldS: alone(it.old), newS: alone(it.neu) });
       }
     }
