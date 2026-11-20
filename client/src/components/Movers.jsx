@@ -6,6 +6,7 @@ import { getTick } from '../lib/tickStore.js';
 import { rankMovers } from '../lib/movers.js';
 import { formatPct, pnlClass } from '../lib/format.js';
 import { Fold } from './ui.jsx';
+import { everyVisible } from '../lib/visible.js';
 
 function List({ title, icon: Icon, tone, rows }) {
   return (
@@ -39,8 +40,7 @@ export function Movers() {
       setRank(ticks.length >= 10 ? rankMovers(ticks, getTick('NIFTY 50')?.changePct ?? 0) : null);
     };
     update();
-    const id = setInterval(update, 3000);
-    return () => clearInterval(id);
+    return everyVisible(update, 3000);
   }, [instruments]);
 
   if (!rank) return null;

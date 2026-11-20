@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
 import { formatPnl, pnlClass } from '../../lib/format.js';
+import { JobStatus, LoadState } from '../JobStatus.jsx';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
 
 // Research > Year test: ONE thing (score bot or one combination, shares or options) over months of the year candle files, fast,
@@ -111,7 +112,7 @@ export function YearTest() {
     }
   }
 
-  if (error && !data) return <Card className="p-3 text-sm text-down">{error.message}</Card>;
+  if (error && !data) return <LoadState error={error} onRetry={reload} what="year test" />;
   if (!data) return <Skeleton className="h-48 w-full" />;
   const combos = data.combos[side] ?? [];
   const have = side === 'shares' ? data.data.shares : data.data.nifty;
@@ -183,13 +184,20 @@ export function YearTest() {
             <Badge tone={active ? 'accent' : run.state === 'done' ? 'up' : run.state === 'failed' ? 'down' : 'warn'}>{run.state}</Badge>
           </div>
           {active && (
-            <div className="space-y-1">
-              <div className="h-1.5 overflow-hidden rounded bg-surface-3"><div className="h-full bg-accent" style={{ width: `${Math.round((done / Math.max(1, run.months.length)) * 100)}%` }} /></div>
-              <div className="text-xs text-muted">{done} of {run.months.length} months · {run.step}. You can close the app: it keeps running on the server.</div>
-              <button type="button" className="btn btn-secondary btn-sm w-full" disabled={busy} onClick={() => call('stop')}>{run.state === 'checking' ? 'Skip the Replay check' : 'Stop'}</button>
-            </div>
+            <JobStatus
+              state="running"
+              title={run.state === 'checking' ? 'Checking against full Replay' : 'Year test'}
+              step={run.step}
+              done={run.state === 'checking' ? undefined : done}
+              total={run.state === 'checking' ? undefined : run.months.length}
+              unit="months"
+              startedAt={run.startedAt}
+              stopText={run.state === 'checking' ? 'Skip the check' : 'Stop'}
+              onStop={busy ? undefined : () => call('stop')}
+              note="You can close the app: it keeps running on the server."
+            />
           )}
-          {run.error && <div className="text-xs text-down">{run.error}</div>}
+          {run.error && <JobStatus state={run.state === 'failed' ? 'failed' : 'skipped'} title={run.state === 'failed' ? 'Year test stopped' : 'Note'} error={run.error} />}
           {!active && run.state !== 'done' && done < run.months.length && <button type="button" className="btn btn-secondary btn-sm w-full" disabled={busy} onClick={() => call('resume')}>Carry on from month {done + 1}</button>}
           {done > 0 && <Result run={run} />}
           {!active && done > 0 && <button type="button" className="btn btn-secondary btn-sm w-full" disabled={busy} onClick={() => call('check')}>Check again against full Replay</button>}

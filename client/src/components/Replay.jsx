@@ -1,18 +1,15 @@
 import { useEffect, useState } from 'react';
 import { CircleHelp, Pause, Play, Rewind, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
-import { api, tokenStore } from '../lib/api.js';
-import { Card } from './ui.jsx';
-import { Switch as AutoSwitch } from './options/OptionsAutoCard.jsx';
+import { api } from '../lib/api.js';
+import { ProgressBar } from './JobStatus.jsx';
 
 // Replay: run the whole app on a recorded past day. The replay is a second copy of the server on its own port with its own paper
 // account, so nothing here touches the real paper history. This file has the banner shown inside a replay and the Account card that starts one.
 
-const TOOLS_KEY = 'npt_replay_tools';
-const SPEEDS = [1, 2, 5, 10, 25, 50, 100, 200];
-const SAFE_MAX = 50; // 100x and 200x open after a speed check found the same trades
-const clock = (ms) => new Date(ms).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false });
-const dayText = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+export const TOOLS_KEY = 'npt_replay_tools';
+export const clock = (ms) => new Date(ms).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false });
+export const dayText = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
 export const replayToolsOn = () => {
   try {
@@ -29,7 +26,14 @@ export function useReplayStatus() {
     let alive = true;
     let timer;
     let prev = null;
-    const load = () =>
+    let inReplay = false;
+    const load = () => {
+      // a phone with the app in the background: do not ask, look again soon (and do not count the gap in the real speed)
+      if (document.hidden && inReplay) {
+        prev = null;
+        timer = setTimeout(load, 3000);
+        return;
+      }
       api('/replay-day/status')
         .then((d) => {
           if (!alive) return;
@@ -37,10 +41,15 @@ export function useReplayStatus() {
           const at = Date.now();
           if (d.mode === 'replay' && prev && !d.paused && at > prev.at) d.realSpeed = Math.round((d.virtualNow - prev.virtualNow) / (at - prev.at));
           prev = { at, virtualNow: d.virtualNow };
+          inReplay = d.mode === 'replay';
           setS(d);
           if (d.mode === 'replay') timer = setTimeout(load, 1500); // the clock only moves in a replay
         })
-        .catch(() => {});
+        .catch(() => {
+          // a dropped answer must not freeze the banner: inside a replay keep asking
+          if (alive && inReplay) timer = setTimeout(load, 3000);
+        });
+    };
     load();
     return () => {
       alive = false;
@@ -53,7 +62,7 @@ export function useReplayStatus() {
 const DOT = { bad: 'bg-down', warn: 'bg-warn', ok: 'bg-up' };
 
 /** A list of plain-words findings: a coloured dot and one sentence each. */
-function Findings({ items }) {
+export function Findings({ items }) {
   return (
     <ul className="space-y-1.5">
       {items.map((it, i) => (
@@ -93,7 +102,37 @@ function WhyPanel() {
   );
 }
 
-/** Shown on every screen of a replay: it says so loudly, shows the virtual time, and holds pause and speed. */
+/** How far the replayed day is: share of 09:15-15:30 played, and real time left at the speed it really runs. */
+export function dayProgress(s) {
+  if (!s?.startMs || !s?.endMs || s.endMs <= s.startMs) return null;
+  const pct = Math.min(100, Math.max(0, ((s.virtualNow - s.startMs) / (s.endMs - s.startMs)) * 100));
+  const leftVirtual = Math.max(0, (s.endMs - s.virtualNow) / 1000); // market seconds still to play
+  const pace = s.realSpeed > 0 ? s.realSpeed : s.speed || 1;
+  return { pct, leftVirtual, leftReal: leftVirtual / pace };
+}
+
+const hm = (sec) => {
+  const m = Math.round(sec / 60);
+  return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min` : `${m} min`;
+};
+
+/** A speed button. 100x and 200x carry a small warning while no speed check has passed (they may give other trades than 50x). */
+export function SpeedButton({ x, on, unchecked, disabled, onClick, className = '' }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`btn btn-sm relative shrink-0 ${on ? 'btn-primary' : 'btn-secondary'} ${className}`}
+      title={unchecked ? 'Not checked yet: run "Check 200x" in the live app (More > Replay) to see it gives the same trades as 50x' : undefined}
+    >
+      {x}x
+      {unchecked && <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full border border-bg bg-warn" aria-label="not checked" />}
+    </button>
+  );
+}
+
+/** Shown on every screen of a replay: it says so loudly, shows the virtual time and how much of the day is done, and holds pause and speed. */
 export function ReplayBanner() {
   const s = useReplayStatus();
   const [resetting, setResetting] = useState(false);
@@ -127,240 +166,58 @@ export function ReplayBanner() {
   }
   const control = (body) => api('/replay-day/control', { method: 'POST', body }).catch((e) => toast.error(e.message));
   const live = `${window.location.protocol}//${window.location.hostname}:${s.livePort}/`;
+  const prog = dayProgress(s);
+  const unchecked = s.unchecked ?? [];
+  const fastPicked = unchecked.includes(s.speed);
   return (
-    <div className="sticky top-0 z-50 border-b-2 border-warn bg-warn/15 px-3 py-2 text-xs backdrop-blur" role="status">
-      <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-3 gap-y-1.5">
-        <span className="rounded-md bg-warn px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-black">Replay mode</span>
-        <span className="font-semibold">{dayText(s.day)} · <span className="num">{clock(s.virtualNow)}</span> IST{s.finished ? ' · day finished' : ''}</span>
-        {!s.finished && !s.paused && s.realSpeed > 0 && <span className="num text-muted" title="How fast the day really moves. Lower than the chosen speed when the computer is busy: nothing is skipped, it just runs slower.">real {s.realSpeed}x</span>}
-        <span className="text-muted">Test paper account, not your real trades.</span>
-        <div className="ml-auto flex items-center gap-1">
-          <button type="button" className="btn btn-secondary btn-sm" disabled={s.finished} onClick={() => control({ paused: !s.paused })} aria-label={s.paused ? 'Resume' : 'Pause'}>
+    <div className="sticky top-0 z-50 border-b-2 border-warn bg-[color-mix(in_srgb,var(--warn)_14%,var(--bg))] px-3 py-2 text-xs" role="status">
+      <div className="mx-auto max-w-5xl space-y-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="rounded-md bg-warn px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-black">Replay</span>
+          <span className="font-semibold">
+            {dayText(s.day)} · <span className="num">{clock(s.virtualNow)}</span> IST
+          </span>
+          {s.finished ? <span className="font-semibold text-up">Day finished</span> : s.paused ? <span className="font-semibold text-warn">Paused</span> : null}
+          {!s.finished && !s.paused && s.realSpeed > 0 && (
+            <span className="num text-muted" title="How fast the day really moves. Lower than the chosen speed when the computer is busy: nothing is skipped, it just runs slower.">
+              real {s.realSpeed}x
+            </span>
+          )}
+        </div>
+        {prog && (
+          <div>
+            <ProgressBar pct={prog.pct} barClass={s.finished ? 'bg-up' : 'bg-warn'} />
+            <div className="num mt-1 flex justify-between gap-2 text-[11px] text-muted">
+              <span>{Math.floor(prog.pct)}% of the day played (09:15 to 15:30)</span>
+              {!s.finished && <span>{s.paused ? `${hm(prog.leftVirtual)} of market left` : `about ${hm(prog.leftReal)} left`}</span>}
+            </div>
+          </div>
+        )}
+        {/* pause and every speed in one row that always fits the screen width (never widens the page on a phone) */}
+        <div className="grid grid-cols-[auto_repeat(8,minmax(0,1fr))] gap-1 pt-1">
+          <button type="button" className="btn btn-secondary btn-sm !px-2" disabled={s.finished} onClick={() => control({ paused: !s.paused })} aria-label={s.paused ? 'Resume' : 'Pause'}>
             {s.paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
           </button>
           {s.speeds.map((x) => (
-            <button key={x} type="button" disabled={s.finished} onClick={() => control({ speed: x })} className={`btn btn-sm ${s.speed === x ? 'btn-primary' : 'btn-secondary'}`}>
-              {x}x
-            </button>
+            <SpeedButton key={x} x={x} on={s.speed === x} unchecked={unchecked.includes(x)} disabled={s.finished} onClick={() => control({ speed: x })} className="!px-0 text-[11px]" />
           ))}
+        </div>
+        {fastPicked && <p className="text-[11px] text-warn">{s.speed}x is not checked yet: trades may differ from 50x. Run "Check 200x" in the live app (More &gt; Replay) to be sure.</p>}
+        <div className="flex flex-wrap gap-1">
           <button type="button" className={`btn btn-sm ${why ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setWhy(!why)} title="Why has it not bought anything?">
             <CircleHelp className="h-3.5 w-3.5" /> Why no trades?
           </button>
           <button type="button" className="btn btn-secondary btn-sm" disabled={resetting} onClick={reset} title="Start this day again from 09:15 with an empty test account">
-            <RotateCcw className="h-3.5 w-3.5" /> {resetting ? 'Resetting…' : 'Reset'}
+            <RotateCcw className={`h-3.5 w-3.5 ${resetting ? 'animate-spin' : ''}`} /> {resetting ? 'Restarting the day…' : 'Reset'}
           </button>
           {s.livePort ? (
-            <a href={live} className="btn btn-secondary btn-sm ml-1">
-              <Rewind className="h-3.5 w-3.5" /> Live
+            <a href={live} className="btn btn-secondary btn-sm ml-auto">
+              <Rewind className="h-3.5 w-3.5" /> Back to live
             </a>
           ) : null}
         </div>
       </div>
       {why && <WhyPanel />}
-    </div>
-  );
-}
-
-/** Account card: choose a recorded day and a speed, start the replay, open it. */
-export function ReplayCard() {
-  const [tools, setTools] = useState(replayToolsOn());
-  const [days, setDays] = useState(null);
-  const [day, setDay] = useState('');
-  const [speed, setSpeed] = useState(10);
-  const [run, setRun] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [inReplay, setInReplay] = useState(false);
-  const [check, setCheck] = useState(null);
-  const [seconds, setSeconds] = useState(false);
-  const [allowed, setAllowed] = useState(SPEEDS.filter((x) => x <= SAFE_MAX));
-  const [speedCheck, setSpeedCheck] = useState(null);
-
-  useEffect(() => {
-    if (!tools) return undefined;
-    let alive = true;
-    api('/replay-day/status').then((d) => alive && (setInReplay(d.mode === 'replay'), setRun(d.run ?? null), d.speeds && setAllowed(d.speeds), setSpeedCheck(d.speedCheck ?? null))).catch(() => {});
-    api('/replay-day/days').then((d) => alive && (setDays(d.days), setDay((cur) => cur || d.days[0]?.day || ''))).catch(() => alive && setDays([]));
-    return () => {
-      alive = false;
-    };
-  }, [tools]);
-
-  // what the chosen day lacks
-  useEffect(() => {
-    if (!tools || inReplay || !day) return undefined;
-    let alive = true;
-    setCheck(null);
-    api(`/replay-day/check?day=${day}`).then((d) => alive && setCheck(d.items)).catch(() => alive && setCheck([]));
-    return () => {
-      alive = false;
-    };
-  }, [tools, inReplay, day]);
-
-  // while it starts, ask until it is ready
-  useEffect(() => {
-    if (run?.state !== 'starting') return undefined;
-    const t = setInterval(() => api('/replay-day/status').then((d) => setRun(d.run)).catch(() => {}), 1500);
-    return () => clearInterval(t);
-  }, [run?.state]);
-
-  // while the speed check plays, ask every few seconds
-  useEffect(() => {
-    if (speedCheck?.state !== 'running') return undefined;
-    const t = setInterval(
-      () =>
-        api('/replay-day/status')
-          .then((d) => (setSpeedCheck(d.speedCheck ?? null), d.speeds && setAllowed(d.speeds)))
-          .catch(() => {}),
-      5000,
-    );
-    return () => clearInterval(t);
-  }, [speedCheck?.state]);
-
-  async function checkSpeed(stopIt = false) {
-    try {
-      setSpeedCheck(await api(stopIt ? '/replay-day/speed-check/stop' : '/replay-day/speed-check', { method: 'POST', body: stopIt ? {} : { day } }));
-    } catch (e) {
-      toast.error(e.message);
-    }
-  }
-
-  const toggle = () => {
-    const next = !tools;
-    setTools(next);
-    try {
-      localStorage.setItem(TOOLS_KEY, next ? 'on' : 'off');
-    } catch {
-      /* storage unavailable */
-    }
-  };
-
-  async function start() {
-    setBusy(true);
-    try {
-      setRun((await api('/replay-day/start', { method: 'POST', body: { day, speed, seconds: Boolean(seconds && chosen?.seconds) } })).run);
-    } catch (e) {
-      toast.error(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function stop() {
-    setBusy(true);
-    try {
-      setRun((await api('/replay-day/stop', { method: 'POST' })).run);
-    } catch (e) {
-      toast.error(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  const chosen = days?.find((d) => d.day === day);
-  const open = () => {
-    // the replay is another address, so the login is passed along once in the link
-    window.location.href = `${window.location.protocol}//${window.location.hostname}:${run.port}/#t=${encodeURIComponent(tokenStore.get() || '')}`;
-  };
-
-  return (
-    <Card className="p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold">Replay a past day</div>
-          <div className="text-xs text-muted">Test with the market closed: the app runs a full saved day on its 1-minute candles.</div>
-        </div>
-        <AutoSwitch on={tools} label="Replay tools" onClick={toggle} />
-      </div>
-      {tools && inReplay && <p className="mt-3 text-xs text-muted">This is a replay. Use Live in the yellow bar to go back to the live app and start another.</p>}
-      {tools && !inReplay && (
-        <div className="mt-3 space-y-3">
-          {days == null ? (
-            <p className="text-xs text-muted">Loading the saved days…</p>
-          ) : days.length === 0 ? (
-            <p className="text-xs text-muted">No saved day yet. Candles and option prices are saved each evening after the market closes.</p>
-          ) : (
-            <>
-              <label className="block text-xs text-muted">
-                Day
-                <select className="field mt-1 !py-2" value={day} onChange={(e) => setDay(e.target.value)} disabled={run?.state === 'starting' || run?.state === 'ready'}>
-                  {days.map((d) => (
-                    <option key={d.day} value={d.day}>{dayText(d.day)} ({d.day}){d.seconds ? ' · 1-sec too' : ''}</option>
-                  ))}
-                </select>
-              </label>
-              {chosen?.seconds && (
-                <div className="flex items-center justify-between gap-3 rounded-xl border border-line p-3">
-                  <div className="text-xs">
-                    <div className="font-semibold">Use 1-second data</div>
-                    <div className="text-muted">This day also has the 1-second record of the Nifty and the streamed options. Off: 1-minute candles, the same as every other day.</div>
-                  </div>
-                  <AutoSwitch on={seconds} label="Use 1-second data" onClick={() => setSeconds(!seconds)} />
-                </div>
-              )}
-              <div className="rounded-xl border border-line p-3">
-                <div className="mb-2 text-xs font-semibold">Replay data check for this day</div>
-                {check == null ? <p className="text-xs text-muted">Checking what is saved…</p> : <Findings items={check} />}
-              </div>
-              <div>
-                <div className="mb-1 text-xs text-muted">Speed</div>
-                <div className="grid grid-cols-4 gap-1">
-                  {SPEEDS.map((x) => (
-                    <button key={x} type="button" disabled={!allowed.includes(x)} onClick={() => setSpeed(x)} className={`btn btn-sm ${speed === x ? 'btn-primary' : 'btn-secondary'}`} title={allowed.includes(x) ? undefined : 'Run the speed check first'}>{x}x</button>
-                  ))}
-                </div>
-                <div className="mt-1 text-[11px] text-muted">The market day is 6¼ hours: 10x takes about 38 minutes, 50x about 8, 200x about 2 if the computer keeps up. Nothing is skipped at any speed: every second plays in order, a busy computer just runs slower. You can change the speed during the replay.</div>
-              </div>
-              <SpeedCheckBox c={speedCheck} day={day} onStart={() => checkSpeed(false)} onStop={() => checkSpeed(true)} />
-              {run?.state === 'starting' && <p className="text-xs text-muted">Getting the day ready… this takes up to a minute.</p>}
-              {run?.state === 'failed' && <p className="text-xs text-down">{run.error}</p>}
-              <div className="flex gap-2">
-                {run?.state === 'ready' ? (
-                  <button type="button" className="btn btn-primary flex-1" onClick={open}>Open replay of {dayText(run.day)}</button>
-                ) : (
-                  <button type="button" className="btn btn-primary flex-1" disabled={busy || !day || run?.state === 'starting'} onClick={start}>Start replay</button>
-                )}
-                {(run?.state === 'ready' || run?.state === 'starting') && <button type="button" className="btn btn-secondary" disabled={busy} onClick={stop}>Stop</button>}
-              </div>
-              <p className="text-[11px] leading-snug text-muted">Replay trades live in a separate test account and are wiped each time you start a replay. Your real paper history is never touched. On 1-minute candles each minute plays as open, low/high, close, so a stop is reached before a target inside a minute (the careful guess).</p>
-            </>
-          )}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-const mins = (sec) => (sec >= 90 ? `${Math.round(sec / 60)} min` : `${sec} s`);
-
-/** The speed check: one day at 200x and at 50x with the settings now, every trade compared. 100x and 200x open only when they match. */
-function SpeedCheckBox({ c, day, onStart, onStop }) {
-  const state = c?.state ?? 'idle';
-  return (
-    <div className="rounded-xl border border-line p-3 text-xs">
-      <div className="flex items-center justify-between gap-2">
-        <div className="font-semibold">Speed check for 100x / 200x</div>
-        {state === 'running' ? (
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onStop}>Stop</button>
-        ) : (
-          <button type="button" className="btn btn-secondary btn-sm" disabled={!day} onClick={onStart}>Check 200x on {day ? dayText(day) : 'this day'}</button>
-        )}
-      </div>
-      {state === 'idle' && <p className="mt-1 text-muted">Plays the chosen day at 200x and at 50x with your settings now (1-minute candles) and compares every trade: time, side, price, exit and P&amp;L. 100x and 200x open only if they match. Takes about 10 minutes.</p>}
-      {state === 'running' && <p className="mt-1">Running: {c.step}…</p>}
-      {state === 'failed' && <p className="mt-1 text-down">The check failed: {c.error}</p>}
-      {state === 'done' && c.same && (
-        <p className="mt-1 text-up">
-          Same trades at 200x as at 50x on {dayText(c.day)} ({c.runs?.[0]?.trades ?? 0} trade(s)). 100x and 200x are open. 50x took {mins(c.runs?.[0]?.seconds ?? 0)}, 200x took {mins(c.runs?.[1]?.seconds ?? 0)}: {mins(Math.max(c.savedSeconds ?? 0, 0))} saved per day.
-        </p>
-      )}
-      {state === 'done' && !c.same && (
-        <div className="mt-1 text-down">
-          <p className="font-semibold">Trades differ at this speed, use a lower speed (50x or slower).</p>
-          <ul className="mt-1 list-disc pl-4">
-            {(c.diffs ?? []).map((d, i) => (
-              <li key={i}>{d}</li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 }

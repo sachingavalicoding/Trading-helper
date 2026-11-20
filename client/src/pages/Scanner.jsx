@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Bell, BellOff, ChevronDown, Radar, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMarket } from '../context/MarketContext.jsx';
+import { JobStatus } from '../components/JobStatus.jsx';
 import { useApi } from '../lib/useApi.js';
 import { useTick } from '../lib/tickStore.js';
 import { formatPrice, formatPct, formatINR, formatTime, pnlClass } from '../lib/format.js';
@@ -16,6 +17,7 @@ import { useOrderBlock } from '../lib/orderGate.js';
 import { alertsOn, alertsSupported, setAlerts } from '../lib/alerts.js';
 import { NewsLine, NewsCard } from '../components/NewsCard.jsx';
 import { Badge, Card, EmptyState, Fold, Segmented, Skeleton } from '../components/ui.jsx';
+import { everyVisible } from '../lib/visible.js';
 
 const REFRESH_MS = 10_000;
 const SCORE_OPTIONS = [
@@ -251,8 +253,7 @@ export default function Scanner() {
   const { data, loading, error, reload } = useApi(`/scanner?risk=${risk}&maxAmount=${maxAmount}`, [risk, maxAmount]);
 
   useEffect(() => {
-    const id = setInterval(reload, REFRESH_MS);
-    return () => clearInterval(id);
+    return everyVisible(reload, REFRESH_MS);
   }, [reload]);
 
   // Arriving from an alert: open the order sheet for that idea straight away.
@@ -378,9 +379,7 @@ export default function Scanner() {
       )}
 
       {data?.warming && (
-        <Card className="p-3 text-sm text-muted">
-          Loading price history: {data.loaded} of {data.total} stocks. Ideas appear once it finishes.
-        </Card>
+        <JobStatus state="loading" title="price history" done={data.loaded} total={data.total} unit="stocks" note="Ideas appear once it finishes." />
       )}
 
       {data && !data.warming && (

@@ -8,10 +8,12 @@ import { testDays } from './ladder.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_ENTRY = path.resolve(here, '../index.js');
 export const SPEEDS = [1, 2, 5, 10, 25, 50, 100, 200];
-export const SAFE_MAX_SPEED = 50; // faster only after a speed check found the same trades (dayreplay/speedCheck.js)
+export const SAFE_MAX_SPEED = 50; // 100x/200x show a "not checked" warning until a speed check found the same trades (dayreplay/speedCheck.js)
 
-/** The speeds that may be picked: up to 50x, and 100x/200x once `fastOk`. */
-export const allowedSpeeds = (fastOk) => SPEEDS.filter((s) => s <= SAFE_MAX_SPEED || fastOk);
+/** Every speed may be picked. 100x/200x stay marked unchecked in the app until a speed check passed (`uncheckedSpeeds`). */
+export const allowedSpeeds = () => SPEEDS;
+/** The speeds the app warns about: faster than 50x while no speed check has passed. */
+export const uncheckedSpeeds = (fastOk) => (fastOk ? [] : SPEEDS.filter((s) => s > SAFE_MAX_SPEED));
 
 /**
  * Runs a replay as a second copy of this server on another port, with its own database and virtual clock, so the live server and its
@@ -57,7 +59,6 @@ export class ReplayManager {
 
   async start({ day, speed = 1, seconds = false }) {
     if (!SPEEDS.includes(speed)) throw Object.assign(new Error(`Speed must be one of ${SPEEDS.join(', ')}`), { status: 400, code: 'BAD_SPEED' });
-    if (!allowedSpeeds(this.fastOk).includes(speed)) throw Object.assign(new Error(`${speed}x needs a passed speed check first (Replay > Check 200x). Use ${SAFE_MAX_SPEED}x or slower.`), { status: 400, code: 'SPEED_NOT_CHECKED' });
     const known = (await this.days()).find((d) => d.day === day);
     if (!known) throw Object.assign(new Error(`Nothing was saved for ${day}`), { status: 400, code: 'NO_DAY' });
     if (!known.minutes && !seconds) seconds = true; // only the seconds were saved for that day

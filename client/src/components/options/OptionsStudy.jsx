@@ -9,6 +9,7 @@ import { useStudy } from '../../lib/useStudy.js';
 import { EXIT_WORD, exitText, hourRows, istStamp, sizingText, studyText, verdict } from '../../lib/study.js';
 import { breakEvenText, stopRuleText, trailText } from '../../lib/stops.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
+import { JobStatus } from '../JobStatus.jsx';
 import { IndicatorRanking } from '../study/IndicatorRanking.jsx';
 import { AutoFound } from '../study/AutoFound.jsx';
 import { PairFinder, PairFinderControl } from '../study/PairFinder.jsx';
@@ -288,11 +289,11 @@ export function OptionsStudy() {
           </button>
         </div>
         {finderOn && <p className="rounded-lg bg-surface-2 p-2 text-[11px] leading-snug text-muted">A finder is on, so only the finder runs, not the normal study (the other two switches above are off for this run). It takes a few minutes. Turn the finders off to run the normal study.</p>}
-        {running && <p className="text-xs text-muted">{state.status.step}. {finderOn ? 'The finder takes a few minutes.' : 'This takes a minute or two.'}</p>}
+        {running && <JobStatus state="running" title="Study" step={state.status.step} startedAt={state.status.startedAt} note={`${finderOn ? 'The finder takes a few minutes.' : 'This takes a minute or two.'} You can leave this page.`} />}
         <StudySource kind={'options'} />
-        {state?.status?.state === 'failed' && <p className="text-xs text-down">{state.status.error}</p>}
+        {state?.status?.state === 'failed' && <JobStatus state="failed" title="Study stopped" error={state.status.error} />}
         {state?.result?.dataSource && <p className="text-xs text-warn">{state.result.dataSource.text}</p>}
-        {error && <p className="text-xs text-down">{error}</p>}
+        {error && <JobStatus state="failed" title="Could not load" error={error} />}
       </Card>
 
       {!state && !error && <Skeleton className="h-40 w-full" />}

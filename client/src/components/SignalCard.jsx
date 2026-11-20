@@ -3,6 +3,7 @@ import { RefreshCw, ChevronDown, Check, X, Minus } from 'lucide-react';
 import { useApi } from '../lib/useApi.js';
 import { formatPrice } from '../lib/format.js';
 import { Card, Skeleton, Badge } from './ui.jsx';
+import { everyVisible } from '../lib/visible.js';
 
 const REFRESH_MS = 60_000;
 
@@ -37,8 +38,7 @@ export function SignalCard({ symbol, onUsePlan }) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    const id = setInterval(reload, REFRESH_MS);
-    return () => clearInterval(id);
+    return everyVisible(reload, REFRESH_MS);
   }, [reload]);
 
   if (loading && !s) return <Skeleton className="h-36" />;

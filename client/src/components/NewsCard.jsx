@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { ExternalLink, RefreshCw } from 'lucide-react';
 import { useApi } from '../lib/useApi.js';
 import { Card, Skeleton, Badge } from './ui.jsx';
+import { everyVisible } from '../lib/visible.js';
 
 const REFRESH_MS = 5 * 60_000;
 const LABEL = { BULLISH: { text: 'Good news', tone: 'up' }, BEARISH: { text: 'Bad news', tone: 'down' } };
@@ -36,8 +37,7 @@ export function NewsCard({ symbol = 'MARKET', title = 'News', limit = 6 }) {
   const { data, loading, error, reload } = useApi(`/news?symbol=${encodeURIComponent(symbol)}`, [symbol]);
 
   useEffect(() => {
-    const id = setInterval(reload, REFRESH_MS);
-    return () => clearInterval(id);
+    return everyVisible(reload, REFRESH_MS);
   }, [reload]);
 
   if (loading && !data) return <Skeleton className="h-28" />;

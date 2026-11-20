@@ -147,8 +147,6 @@ test('the manager refuses an unknown speed', async () => {
   await assert.rejects(() => m.start({ day: '2026-01-01', speed: 1 }), /Nothing was saved/);
   await assert.rejects(() => m.start({ day: DAY, speed: 1, seconds: true }), /no 1-second record/);
   assert.deepEqual(SPEEDS, [1, 2, 5, 10, 25, 50, 100, 200]);
-  await assert.rejects(() => m.start({ day: DAY, speed: 200 }), /needs a passed speed check/);
-  await assert.rejects(() => m.start({ day: DAY, speed: 100 }), /needs a passed speed check/);
 });
 
 test('a busy job holds the clock, and a late step counts at most maxStepMs', () => {
@@ -276,10 +274,11 @@ test('"why no trades" lists the blockers and the bot skip reasons', () => {
   assert.match(text, /skipped 2×: no live premium/);
 });
 
-test('100x and 200x open only after a passed speed check', async () => {
-  const { allowedSpeeds } = await import('../src/dayreplay/manager.js');
-  assert.deepEqual(allowedSpeeds(false), [1, 2, 5, 10, 25, 50]);
-  assert.deepEqual(allowedSpeeds(true), [1, 2, 5, 10, 25, 50, 100, 200]);
+test('every speed can be picked; 100x and 200x are marked unchecked until a speed check passed', async () => {
+  const { allowedSpeeds, uncheckedSpeeds } = await import('../src/dayreplay/manager.js');
+  assert.deepEqual(allowedSpeeds(), [1, 2, 5, 10, 25, 50, 100, 200]);
+  assert.deepEqual(uncheckedSpeeds(false), [100, 200]);
+  assert.deepEqual(uncheckedSpeeds(true), []);
   const m = new ReplayManager({ config: { port: 5000 }, spawnFn: () => assert.fail('no spawn') });
   m.speedCheck = { fastOk: true };
   assert.equal(m.fastOk, true);

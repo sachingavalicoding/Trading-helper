@@ -6,6 +6,7 @@ import { useTick } from '../lib/tickStore.js';
 import { formatPct, pnlClass } from '../lib/format.js';
 import { timeAgo } from '../components/NewsCard.jsx';
 import { Badge, Card, EmptyState, Segmented, Skeleton } from '../components/ui.jsx';
+import { everyVisible } from '../lib/visible.js';
 
 const REFRESH_MS = 5 * 60_000;
 const TAG = { BULLISH: { text: 'Good news', tone: 'up' }, BEARISH: { text: 'Bad news', tone: 'down' }, NEUTRAL: { text: 'Neutral', tone: 'muted' } };
@@ -62,8 +63,7 @@ export default function News() {
   const [stock, setStock] = useState('');
 
   useEffect(() => {
-    const id = setInterval(reload, REFRESH_MS);
-    return () => clearInterval(id);
+    return everyVisible(reload, REFRESH_MS);
   }, [reload]);
 
   const items = data?.items || [];

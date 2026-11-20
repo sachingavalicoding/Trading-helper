@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { api, downloadFile, uploadFile } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
 import { dayText, failedText, sizeText } from '../../lib/history.js';
+import { JobStatus, LoadState } from '../JobStatus.jsx';
 import { Badge, Card, Skeleton } from '../ui.jsx';
 
 const TONE = { running: 'accent', done: 'up', partial: 'warn', failed: 'down' };
@@ -40,9 +41,8 @@ export function YearFiles() {
     }
   }
 
-  if (error && !data) return null;
+  if (error && !data) return <LoadState error={error} onRetry={reload} what="year files" />;
   if (!data) return <Skeleton className="h-32" />;
-  const pct = job?.total ? Math.min(100, Math.round((job.done / job.total) * 100)) : 0;
 
   return (
     <Card className="space-y-2 p-3">
@@ -53,15 +53,8 @@ export function YearFiles() {
       </div>
       <p className="text-[11px] leading-snug text-muted">{data.note}</p>
       {data.simulated && <p className="text-[11px] text-warn">The sample feed has no real history. Log in to Upstox first.</p>}
-      {running && (
-        <>
-          <div className="h-1.5 overflow-hidden rounded-full bg-line" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-            <div className="h-full bg-accent transition-all" style={{ width: `${pct}%` }} />
-          </div>
-          <p className="num text-[11px] text-muted">{job.done} of {job.total}, now {job.step}</p>
-        </>
-      )}
-      {job?.error && <p className="text-[11px] text-down">{job.error}</p>}
+      {running && <JobStatus state="running" title="Downloading year files" step={job.step} done={job.done} total={job.total} startedAt={job.startedAt} note="It keeps going on the server: you can leave this page." />}
+      {job?.error && <JobStatus state="failed" title="Download stopped" error={job.error} />}
       {job?.failed?.length > 0 && <p className="text-[11px] leading-snug text-warn">Could not read {job.failed.length}: {failedText(job.failed)}. Press the button again to continue; what is saved is kept.</p>}
       <button type="button" className="btn btn-primary w-full" disabled={busy || running || data.simulated} onClick={() => run(() => api('/year-data/download', { method: 'POST', body: { months: 12 } }), 'Downloading the last 12 months')}>
         <Download size={16} aria-hidden />
@@ -139,7 +132,7 @@ export function OptionMail() {
     }
   }
 
-  if (error && !data) return null;
+  if (error && !data) return <LoadState error={error} onRetry={reload} what="option data" />;
   if (!data) return <Skeleton className="h-32" />;
   const email = to ?? data.recipient;
 
@@ -152,8 +145,8 @@ export function OptionMail() {
       </div>
       <p className="text-[11px] leading-snug text-muted">The real option contract data saved each evening is kept 30 days in the database. On the first of each month the month just ended is made into a compressed file and emailed, so it stays for study. A big month goes as several mails, each under the mail size limit.</p>
       {!data.mailReady && <p className="text-[11px] leading-snug text-warn">Email is not set up on the server yet (SMTP_USER and SMTP_PASS). Files are still made and can be downloaded below.</p>}
-      {job?.error && <p className="text-[11px] text-down">{job.error}</p>}
-      {running && <p className="num text-[11px] text-muted">{job.month}: {job.step}</p>}
+      {job?.error && <JobStatus state="failed" title="The file was not made" error={job.error} />}
+      {running && <JobStatus state="running" title={`Making ${job.month}`} step={job.step} startedAt={job.startedAt} />}
       <label className="block text-[11px] text-muted" htmlFor="mail-to">Send to</label>
       <div className="flex gap-2">
         <input id="mail-to" type="email" inputMode="email" className="field min-w-0 flex-1" value={email} onChange={(e) => setTo(e.target.value)} />

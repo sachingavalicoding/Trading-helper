@@ -10,6 +10,7 @@ import { shortExpiry } from '../../lib/options.js';
 import { indexOf } from '../../lib/indexes.js';
 import { Card, Skeleton } from '../ui.jsx';
 import { OrderBook } from './OrderBook.jsx';
+import { everyVisible } from '../../lib/visible.js';
 
 const SIDE = {
   CE: { title: 'Call (CE)', hint: 'pays if it rises', icon: TrendingUp, tone: 'up' },
@@ -132,8 +133,7 @@ export function OptionsSignal({ index = 'NIFTY', onBought }) {
   const blocked = useOrderBlock();
 
   useEffect(() => {
-    const t = setInterval(reload, 15000);
-    return () => clearInterval(t);
+    return everyVisible(reload, 15000);
   }, [reload]);
 
   async function buy(type, contract, preview) {

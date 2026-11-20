@@ -6,7 +6,7 @@ import { logger } from '../utils/logger.js';
 import { settingsFileOf, testDays } from './ladder.js';
 
 // The speed check: plays one saved day twice with the same (current) settings, once at 50x and once at a fast speed (200x), and compares
-// every trade. Fast speeds are only offered once a check found the same trades, so a faster replay can never quietly show other trades.
+// every trade. Until a check passes, 100x and 200x are shown with a "not checked" warning, so a faster replay never quietly shows other trades.
 
 export const SAFE_SPEED = 50;
 export const FAST_SPEEDS = [100, 200];

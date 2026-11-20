@@ -29,7 +29,7 @@ export function useStudy(kind) {
     if (!running) return undefined;
     timer.current = setTimeout(load, 2500);
     return () => clearTimeout(timer.current);
-  }, [running, state, load]);
+  }, [running, state, error, load]); // error: a failed look while running asks again instead of freezing
 
   const run = useCallback(
     async (days, extra = {}) => {

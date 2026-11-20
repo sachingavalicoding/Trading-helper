@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { api } from '../lib/api.js';
 import { formatPnl, pnlClass } from '../lib/format.js';
 import { Card } from './ui.jsx';
+import { JobStatus, LoadState } from './JobStatus.jsx';
 
 // Replay test, step by step: plays past days with your settings now, then each change Learn suggested on top of the best so far.
 // A change is kept only if it earns more over all the days AND on the newest days. Replay plays only Learn's best few ideas (it takes minutes a day); Learn's own numbers are estimates. Each run has its own copy of the settings; your live
@@ -121,10 +122,14 @@ export function ReplayTestCard() {
   );
 }
 
+/** Day runs finished so far: every played day of every step, a skipped step counting as all its days. */
+export const dayRunsDone = (t) => (t?.steps ?? []).reduce((n, s) => n + (s.verdict === 'skipped' ? t.days.length : Math.min(s.results?.length ?? 0, t.days.length)), 0);
+
 /** One side's test: its choices, its steps, its Apply and Undo. */
 function SideTest({ side, pick, setPick }) {
   const [d, setD] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [tryN, setTryN] = useState(0);
   const { days, slip, delay, parallel } = pick;
   const name = SIDE_NAME[side].toLowerCase();
 
@@ -138,13 +143,17 @@ function SideTest({ side, pick, setPick }) {
           setD(x);
           if (x.running || x.otherRunning) timer = setTimeout(load, 5000);
         })
-        .catch(() => alive && setD((cur) => cur ?? { error: true }));
+        .catch((e) => {
+          if (!alive) return;
+          setD((cur) => cur ?? { error: e.message || 'No answer from the server' });
+          timer = setTimeout(load, 5000); // keep asking: a dropped answer must not freeze the progress
+        });
     load();
     return () => {
       alive = false;
       clearTimeout(timer);
     };
-  }, [side, d?.running, d?.otherRunning]);
+  }, [side, d?.running, d?.otherRunning, tryN]);
 
   async function act(path, body = {}) {
     setBusy(true);
@@ -159,8 +168,7 @@ function SideTest({ side, pick, setPick }) {
     }
   }
 
-  if (!d) return <p className="mt-3 text-xs text-muted">Loading…</p>;
-  if (d.error) return <p className="mt-3 text-xs text-down">Could not load the {name} test.</p>;
+  if (!d || d.error) return <LoadState loading={!d} error={d?.error} onRetry={() => (setD(null), setTryN((n) => n + 1))} what={`${name} test`} />;
   const t = d.test;
   const base = t?.steps?.[0]?.summary;
   const kept = t?.steps?.filter((s) => s.verdict === 'kept') ?? [];
@@ -216,11 +224,22 @@ function SideTest({ side, pick, setPick }) {
             <span className="text-muted">
               {t.days?.length} days, {dayText(t.days[0])} to {dayText(t.days.at(-1))} · slippage {t.fill?.slippagePct}% · delay {t.fill?.fillDelaySec}s{t.fill?.parallel ? ` · ${t.fill.parallel} at once` : ''}
             </span>
-            {d.running && <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => act('stop')}>Stop</button>}
           </div>
-          {d.running && t.at && <p className="text-xs text-warn">Now playing {dayText(t.at.day)} for step {t.at.step + 1}…</p>}
-          {t.state === 'failed' && <p className="text-xs text-down">{t.error}</p>}
-          {t.state === 'stopped' && <p className="text-xs text-muted">{t.error || 'Stopped.'}</p>}
+          {d.running && (
+            <JobStatus
+              state="running"
+              title={`${SIDE_NAME[side]} replay test`}
+              step={t.at ? `Now playing ${dayText(t.at.day)} for step ${t.at.step + 1} of ${t.steps.length}` : 'Starting'}
+              done={dayRunsDone(t)}
+              total={t.steps.length * t.days.length}
+              unit="day runs"
+              startedAt={t.startedAt}
+              onStop={busy ? undefined : () => act('stop')}
+              note="It keeps running on the server: you can leave this page."
+            />
+          )}
+          {t.state === 'failed' && <JobStatus state="failed" title={`${SIDE_NAME[side]} replay test`} error={t.error} />}
+          {t.state === 'stopped' && <JobStatus state="skipped" title="Stopped" error={t.error || 'Stopped before the end.'} />}
           {t.state === 'done' && base && best && (
             <div className="rounded-xl border border-line p-3 text-sm">
               {kept.length ? (
