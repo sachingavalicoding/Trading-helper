@@ -56,6 +56,11 @@ export const env = {
   // One-second record of Nifty and the streaming option contracts (the newest 3 days are kept). Turn off with TICK_RECORD=false.
   tickRecord: replayDay ? false : bool(process.env.TICK_RECORD, true),
 
+  // Year files of candles, monthly option data files and temporary imports are kept under this folder (never in the database).
+  archiveDir: process.env.ARCHIVE_DIR || path.resolve(here, '../../data'),
+  // Mail for the monthly option data (a Gmail app password works). Without SMTP_USER and SMTP_PASS nothing is sent; the files can still be downloaded.
+  mail: { host: process.env.SMTP_HOST || 'smtp.gmail.com', port: num(process.env.SMTP_PORT, 465), user: process.env.SMTP_USER || '', pass: process.env.SMTP_PASS || '', from: process.env.SMTP_FROM || '' },
+
   startingBalance: num(process.env.STARTING_BALANCE, 100000),
   misLeverage: num(process.env.MIS_LEVERAGE, 5),
   maxOrderQty: num(process.env.MAX_ORDER_QTY, 100000),

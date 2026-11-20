@@ -5,6 +5,7 @@ import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
 import { failedText, jobPercent, liveText, savedText, SYNC_LABEL } from '../../lib/history.js';
 import { Badge, Card, Skeleton } from '../ui.jsx';
+import { YearFiles, OptionMail } from './YearData.jsx';
 
 const JOB_TONE = { running: 'accent', done: 'up', partial: 'warn', failed: 'down' };
 const JOB_WORD = { running: 'Downloading', done: 'Finished', partial: 'Finished, some failed', failed: 'Failed' };
@@ -113,6 +114,9 @@ export function HistoryData() {
       </Card>
 
       <OptionPrices />
+
+      <YearFiles />
+      <OptionMail />
 
       {job && job.state !== 'idle' && (
         <Card className="space-y-2 p-3">
