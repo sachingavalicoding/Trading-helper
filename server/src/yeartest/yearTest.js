@@ -32,6 +32,10 @@ export const SHARE_SETUPS = ['Opening range breakout', 'Gap and go', 'VWAP pullb
 export const MONTH_CHOICES = [1, 3, 6, 12];
 export const SHARE_SLIPPAGE_PCT = 0.05; // shares: each fill 0.05% worse (the shares study and Lab); options: 0.5% (FILL_SLIPPAGE, as Replay test)
 export const CHECK_DAYS = 2;
+// The share scanner replayed on candles cannot see the news, the sector, the last month's daily view or the order book, which the live
+// score has. Over 204 live ideas (2-20 Nov 2026) those parts gave about 6 points on average (news 2.1, last month 2.0, sector 1.7, book 0.3),
+// so a live score of 80 shows as about 74 in the replay. The test lowers your minimum score by this much (switchable, shown on the result).
+export const SCORE_ALLOWANCE = 6;
 export const CHECK_MS = 15 * 60_000; // the Replay check gives up after this long (a slow or busy computer), and says so
 const SHARE_BLOCK = 5; // the share scanner replay slows down with the length of the candles it is given, so it is fed 5 days at a time
 const WARM_SHARES = 7; // calendar days before a block, for the scanner's indicators
@@ -250,6 +254,7 @@ export class YearTest {
       if (spec.entry !== 'all' && !SCORE_ENTRIES.includes(spec.entry)) throw badRequest('Unknown score entry');
     }
     if (spec.side === 'shares') spec.maxTrades = null;
+    spec.allowance = spec.side === 'shares' && spec.what === 'score' && body.allowance !== false ? SCORE_ALLOWANCE : 0;
     const [o, a, t] = await Promise.all([OptionSettings.findOne({ user: userId }).lean(), AutoSettings.findOne({ user: userId }).lean(), TradeDefaults.findOne({ user: userId }).lean()]);
     const docs = { optionsettings: o, autosettings: a, tradedefaults: t };
     if (spec.what === 'combo') {
@@ -283,9 +288,10 @@ export class YearTest {
       engine = { params: { ...(await this.lab.shareParams(userId)), slippagePct: SHARE_SLIPPAGE_PCT } };
     } else {
       const sp = await this.lab.shareParams(userId);
-      engine = { settings: shareSettingsOf(cut.autosettings), auto: EJSON.parse(EJSON.stringify(cut.autosettings)), money: { riskAmount: sp.riskAmount, steps: sp.steps, exitMin: sp.exitMin, maxAmount: sp.maxAmount } };
+      const ss = shareSettingsOf(cut.autosettings);
+      engine = { settings: { ...ss, minScore: ss.minScore - spec.allowance }, auto: EJSON.parse(EJSON.stringify(cut.autosettings)), money: { riskAmount: sp.riskAmount, steps: sp.steps, exitMin: sp.exitMin, maxAmount: sp.maxAmount } };
     }
-    const label = `${spec.side === 'shares' ? 'Shares' : 'Options'}: ${spec.what === 'combo' ? spec.comboName : spec.side === 'shares' && spec.entry !== 'all' ? `scanner, ${spec.entry} only` : spec.side === 'shares' ? 'scanner, all your switched-on setups' : `score bot${spec.entry !== 'all' ? `, ${spec.entry} only` : ''}${spec.withNames?.length ? ` + ${spec.withNames.join(' + ')}` : ''}`}${spec.maxTrades ? `, max ${spec.maxTrades} trades a day` : ''}`;
+    const label = `${spec.side === 'shares' ? 'Shares' : 'Options'}: ${spec.what === 'combo' ? spec.comboName : spec.side === 'shares' && spec.entry !== 'all' ? `scanner, ${spec.entry} only` : spec.side === 'shares' ? 'scanner, all your switched-on setups' : `score bot${spec.entry !== 'all' ? `, ${spec.entry} only` : ''}${spec.withNames?.length ? ` + ${spec.withNames.join(' + ')}` : ''}`}${spec.maxTrades ? `, max ${spec.maxTrades} trades a day` : ''}${spec.allowance ? ` (min score ${shareSettingsOf(a).minScore} live = ${shareSettingsOf(a).minScore - spec.allowance} in the replay)` : ''}`;
     const run = { spec, label, state: 'running', startedAt: this.now().toISOString(), finishedAt: null, error: '', docs, cut, engine, months: months.map((m) => ({ month: m, days: days.filter((d) => monthOf(d) === m), done: false, trades: [], seconds: 0 })), check: null };
     await this.#save(userId, run);
     this.#go(String(userId), run);

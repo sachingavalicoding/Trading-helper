@@ -88,6 +88,7 @@ export function YearTest() {
   const [months, setMonths] = useState(6);
   const [maxTrades, setMaxTrades] = useState(0);
   const [withIds, setWithIds] = useState([]);
+  const [allowance, setAllowance] = useState(true);
   const [busy, setBusy] = useState(false);
   const run = data?.run;
   const active = run?.state === 'running' || run?.state === 'checking';
@@ -132,6 +133,12 @@ export function YearTest() {
             {data.setups.map((s) => <option key={s} value={s}>{s} only</option>)}
           </select>
         )}
+        {what === 'score' && side === 'shares' && (
+          <label className="flex items-start gap-2 text-xs">
+            <input type="checkbox" className="mt-0.5" checked={allowance} onChange={(e) => setAllowance(e.target.checked)} />
+            <span>Match live scores: lower the minimum score by 6 in the test (the replay cannot see news, sector, last month and the order book, worth about 6 points live)</span>
+          </label>
+        )}
         {what === 'score' && side === 'options' && (
           <>
             <select className="input w-full" value={entry} onChange={(e) => setEntry(e.target.value)}>
@@ -164,7 +171,7 @@ export function YearTest() {
           </select>
         )}
         <Segmented className="w-full" size="sm" value={months} onChange={setMonths} options={data.monthChoices.map((m) => ({ value: m, label: `${m} mo` }))} />
-        <button type="button" className="btn btn-primary w-full" disabled={busy || active || !have.days || (what === 'combo' && !combo)} onClick={() => call('start', { side, what, entry, combo: combo || null, months, maxTrades: side === 'options' && maxTrades ? maxTrades : null, with: side === 'options' && what === 'score' ? withIds : [] })}>
+        <button type="button" className="btn btn-primary w-full" disabled={busy || active || !have.days || (what === 'combo' && !combo)} onClick={() => call('start', { side, what, entry, combo: combo || null, months, maxTrades: side === 'options' && maxTrades ? maxTrades : null, with: side === 'options' && what === 'score' ? withIds : [], allowance })}>
           Start the year test
         </button>
       </div>
