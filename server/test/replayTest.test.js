@@ -5,7 +5,7 @@ import { candlePath, ReplayProvider } from '../src/dayreplay/ReplayProvider.js';
 import { ReplayClock } from '../src/dayreplay/clock.js';
 import { worsePrice } from '../src/services/orderEngine.js';
 import { dayResult } from '../src/dayreplay/result.js';
-import { beats, clone, hiddenCount, ladderCandidates, ReplayLadder, settingsFileOf, summarize } from '../src/dayreplay/ladder.js';
+import { beats, clone, fingerprintDocs, hiddenCount, ladderCandidates, ReplayLadder, settingsFileOf, summarize } from '../src/dayreplay/ladder.js';
 import { AutoSettings, CandleDay, LearnerState, OptionCandleDay, OptionSettings, ReplayTest, TradeDefaults } from '../src/models/index.js';
 import { TickChunk } from '../src/models/TickChunk.js';
 import { testUriFor } from '../src/dayreplay/seed.js';
@@ -170,20 +170,37 @@ test('the step-up test keeps a change only when it beats the best so far, and ne
     },
   });
   const ladder = new ReplayLadder({ runners: [makeRunner(), makeRunner()] });
-  await ladder.start(userId, { days: 3, slippagePct: 0.5, fillDelaySec: 2, parallel: 2 });
+  t.mock.method(ReplayTest, 'syncIndexes', async () => {});
+
+  // options on their own: only the options bot plays, only options changes are tried
+  await ladder.start(userId, { side: 'options', days: 3, slippagePct: 0.5, fillDelaySec: 2, parallel: 2 });
+  assert.equal((await ladder.view(userId, 'shares')).otherRunning, 'options', 'the shares card knows the options test is running');
+  await assert.rejects(ladder.start(userId, { side: 'shares', days: 3 }), /options replay test is already running/);
   while (ladder.job) await new Promise((r) => setTimeout(r, 5));
-  const d = saved.doc;
+  let d = saved.doc;
   assert.equal(d.state, 'done');
+  assert.equal(d.side, 'options');
   assert.deepEqual(d.days, ['2026-11-04', '2026-11-05', '2026-11-06']);
   assert.deepEqual(d.hidden, ['2026-11-06']);
-  assert.deepEqual(d.steps.map((s) => s.verdict), ['base', 'kept', 'skipped', 'kept'], 'the combination is skipped once the whole setup is kept');
-  assert.equal(d.steps[3].summary.net, 750);
-  assert.equal(runs.length, 9, 'three runs of three days');
+  assert.deepEqual(d.steps.map((s) => s.key), ['now', 'setup', 'combo:c1'], 'no shares change in the options test');
+  assert.deepEqual(d.steps.map((s) => s.verdict), ['base', 'kept', 'skipped'], 'the combination is skipped once the whole setup is kept');
+  assert.equal(d.steps[1].summary.net, 600);
+  assert.equal(runs.length, 6, 'two runs of three days');
+  assert.ok(runs.every((r) => r.options && !r.shares), 'the shares bot is off in every options run');
   assert.ok(runs.every((r) => r.slippagePct === 0.5 && r.fillDelaySec === 2));
   assert.equal(most, 2, 'two days play side by side');
-  assert.deepEqual(runs.filter((r) => !r.shares).length, 3, 'the options change replays only the options bot');
-  assert.deepEqual(runs.filter((r) => !r.options).length, 3, 'the shares change replays only the shares bot');
-  assert.deepEqual(d.steps[3].results.map((r) => r.options.net), [200, 200, 200], 'its options days come from the best run so far');
+
+  // shares on their own: options are off and the options money does not count
+  runs.length = 0;
+  await ladder.start(userId, { side: 'shares', days: 3, slippagePct: 0, fillDelaySec: 0, parallel: 1 });
+  while (ladder.job) await new Promise((r) => setTimeout(r, 5));
+  d = saved.doc;
+  assert.equal(d.side, 'shares');
+  assert.deepEqual(d.steps.map((s) => s.key), ['now', 'shares']);
+  assert.deepEqual(d.steps.map((s) => s.verdict), ['base', 'kept']);
+  assert.equal(d.steps[0].summary.net, 0);
+  assert.equal(d.steps[1].summary.net, 150);
+  assert.ok(runs.every((r) => r.shares && !r.options), 'the options bot is off in every shares run');
   assert.equal(JSON.stringify(live), liveBefore, 'the live settings are untouched');
 });
 
@@ -203,4 +220,55 @@ test('Replay test plays only Learn\'s best 5 ideas: passed ones first, then the 
   ];
   assert.deepEqual(topCandidates(list).map((c) => c.key), ['setup', 'combo:a', 'combo:b', 'combo:d', 'shares']);
   assert.equal(topCandidates(list.slice(0, 3)).length, 3, 'fewer than 5 are all played');
+});
+
+test('each side checks only its own settings: a shares change leaves an options result open to Apply', () => {
+  const a = liveDocs();
+  const b = clone(a);
+  b.autosettings.entryTo = 690;
+  b.tradedefaults.shares = { stopLoss: 150 };
+  assert.equal(fingerprintDocs(a, 'options'), fingerprintDocs(b, 'options'));
+  assert.notEqual(fingerprintDocs(a, 'shares'), fingerprintDocs(b, 'shares'));
+  const c = clone(a);
+  c.tradedefaults.options.stopLoss = 1000;
+  assert.notEqual(fingerprintDocs(a, 'options'), fingerprintDocs(c, 'options'));
+  assert.equal(fingerprintDocs(a, 'shares'), fingerprintDocs(c, 'shares'));
+});
+
+test('Apply and Undo of one side go through Learn for that side only', async (t) => {
+  const calls = [];
+  const learn = {
+    apply: async () => calls.push('apply setup'),
+    applyCombo: async (_u, id) => calls.push(`apply combo ${id}`),
+    applyShares: async () => calls.push('apply shares'),
+    undo: async () => calls.push('undo setup'),
+    undoCombo: async (_u, id) => calls.push(`undo combo ${id}`),
+    undoShares: async () => calls.push('undo shares'),
+  };
+  const live = liveDocs();
+  const doc = { _id: 7, side: 'shares', state: 'done', base: fingerprintDocs(live, 'shares'), applied: null, steps: [{ key: 'now', kind: 'now', verdict: 'base' }, { key: 'shares', kind: 'shares', name: 'Shares from Learn', verdict: 'kept' }] };
+  t.mock.method(ReplayTest, 'findOne', (q) => ({ lean: async () => (q.side === 'shares' ? doc : null) }));
+  t.mock.method(ReplayTest, 'updateOne', async (_q, u) => {
+    for (const [k, v] of Object.entries(u.$set)) if (k === 'applied.undone') doc.applied.undone = v; else doc[k] = v;
+  });
+  t.mock.method(OptionSettings, 'findOne', () => ({ lean: async () => live.optionsettings }));
+  t.mock.method(OptionSettings, 'updateOne', async () => {});
+  t.mock.method(AutoSettings, 'findOne', () => ({ lean: async () => live.autosettings }));
+  t.mock.method(TradeDefaults, 'findOne', () => ({ lean: async () => live.tradedefaults }));
+  t.mock.method(LearnerState, 'findOne', () => ({ lean: async () => learnState }));
+  t.mock.method(CandleDay, 'distinct', async () => []);
+  t.mock.method(OptionCandleDay, 'distinct', async () => []);
+  t.mock.method(TickChunk, 'distinct', async () => []);
+  const ladder = new ReplayLadder({ runners: [{ stop() {} }], learn });
+  await assert.rejects(ladder.apply(userId, 'options'), /Finish the options replay test first/);
+  live.optionsettings = { ...live.optionsettings, maxTrades: 9 }; // an options change does not close the shares Apply
+  await ladder.apply(userId, 'shares');
+  assert.deepEqual(calls, ['apply shares']);
+  assert.equal(doc.applied.steps[0].kind, 'shares');
+  await assert.rejects(ladder.apply(userId, 'shares'), /Already applied/);
+  const v = await ladder.undo(userId, 'shares');
+  assert.deepEqual(calls, ['apply shares', 'undo shares']);
+  assert.ok(doc.applied.undone);
+  assert.equal(v.side, 'shares');
+  await assert.rejects(ladder.undo(userId, 'shares'), /Nothing to undo/);
 });

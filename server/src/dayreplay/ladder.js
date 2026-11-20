@@ -16,6 +16,8 @@ import { TEST_SPEED } from './testRunner.js';
 // newest days (the hidden days, a third of them), so a change that only fits the older days is dropped. Each run uses its own copy of the
 // settings, never the live ones. Nothing is applied by itself: Apply puts the kept changes in place, only when at least one was kept and
 // your settings are still the ones it tested. The daily loss limit is never changed by a test or by Apply.
+// Options and shares are tested apart: each side has its own test, result, Apply and Undo, plays only its own bot, and tries only the
+// changes that touch it, so a shares improvement can go in without touching options, and the other way round.
 
 export const DAY_CHOICES = [3, 5, 10, 15];
 export const SLIPPAGE_CHOICES = [0, 0.25, 0.5, 1]; // % worse than the price seen
@@ -39,7 +41,8 @@ export function topCandidates(/** @type {any[]} */ list, max = MAX_CHECKED) {
   return list.filter((c) => keep.has(c.key));
 }
 /** Which bot a change touches: an options change only needs the options bot replayed, a shares change only the shares bot. */
-const SIDE = { setup: 'options', combo: 'options', shares: 'shares' };
+export const SIDE = { setup: 'options', combo: 'options', shares: 'shares' };
+export const SIDES = ['options', 'shares'];
 const NAMES = { optionsettings: OptionSettings.collection.name, autosettings: AutoSettings.collection.name, tradedefaults: TradeDefaults.collection.name };
 const EJSON = mongoose.mongo.BSON.EJSON;
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -69,24 +72,16 @@ export function summarize(results, hidden = []) {
 
 const none = { trades: 0, wins: 0, net: 0, charges: 0 };
 
-/**
- * One day of a change that touched only one bot: that bot's part from the new run, the other bot's part from the best run so far (the
- * other bot's settings are the same, so it would trade the same). The two bots only meet through the paper money they share.
- */
-export function mergeSide(best, run, side) {
-  const options = (side === 'options' ? run.options : best.options) ?? none;
-  const shares = (side === 'shares' ? run.shares : best.shares) ?? none;
-  return {
-    day: best.day,
-    trades: options.trades + shares.trades,
-    wins: options.wins + shares.wins,
-    net: r2(options.net + shares.net),
-    charges: r2((options.charges ?? 0) + (shares.charges ?? 0)),
-    options,
-    shares,
-    stillOpen: run.stillOpen ?? 0,
-    reused: side === 'options' ? 'shares' : 'options',
-  };
+/** One day of a one-side run, counted for that side only (the other bot was switched off, so it had nothing anyway). */
+export function sidePart(r, side) {
+  const part = r[side] ?? none;
+  return { day: r.day, trades: part.trades, wins: part.wins, net: r2(part.net), charges: r2(part.charges ?? 0), [side]: part, stillOpen: r.stillOpen ?? 0 };
+}
+
+/** The settings one side's test plays with and is checked against: options = options settings and options stops; shares = share settings and share stops. */
+export function sideDocs(docs, side) {
+  if (side === 'shares') return { autosettings: docs.autosettings ?? null, tradedefaults: docs.tradedefaults?.shares ?? null };
+  return { optionsettings: docs.optionsettings ?? null, tradedefaults: docs.tradedefaults?.options ?? null };
 }
 
 /** A copy of the settings with the other bot switched off, so a run plays only the bot the change touches. */
@@ -115,7 +110,7 @@ const setPath = (doc, key, value) => {
 export const clone = (docs) => EJSON.parse(EJSON.stringify(docs));
 
 /** A short fingerprint of a user's settings documents, to tell whether they changed after a test. */
-export const fingerprintDocs = (docs) => createHash('sha1').update(EJSON.stringify(docs)).digest('hex').slice(0, 16);
+export const fingerprintDocs = (docs, side = null) => createHash('sha1').update(EJSON.stringify(side ? sideDocs(docs, side) : docs)).digest('hex').slice(0, 16);
 
 /**
  * The changes Learn suggested that a test can try, in the order they are tried: the whole options setup, then each combination, then
@@ -208,12 +203,22 @@ export async function testDays(now = new Date()) {
     .map((day) => ({ day, seconds: tickSet.has(day) }));
 }
 
-/** Runs the step-up tests, one at a time, through a TestRunner, and keeps the state in ReplayTest. */
+const sideName = (side) => (side === 'shares' ? 'shares' : 'options');
+const pickSide = (side) => (side === 'shares' ? 'shares' : 'options');
+
+/** Runs the step-up tests, one at a time (options or shares), through TestRunners, and keeps each side's state in ReplayTest. */
 export class ReplayLadder {
   constructor({ runner = null, runners = null, learn = null }) {
     this.runners = runners ?? [runner];
     this.learn = learn;
-    this.job = null; // { userId, stop }
+    this.job = null; // { userId, side, stopped }
+    this.indexed = null;
+  }
+
+  /** Once: the old one-test-per-user index gives way to one test per user and side. */
+  #indexes() {
+    this.indexed ??= ReplayTest.syncIndexes().catch((err) => logger.warn(`Replay test indexes: ${err.message}`));
+    return this.indexed;
   }
 
   async #liveDocs(userId) {
@@ -221,42 +226,58 @@ export class ReplayLadder {
     return { optionsettings: o, autosettings: a, tradedefaults: t };
   }
 
-  async view(userId) {
-    const [saved, st, days] = await Promise.all([ReplayTest.findOne({ user: userId }).lean(), LearnerState.findOne({ user: userId, kind: KIND }).lean(), testDays()]);
+  async view(userId, sideIn = 'options') {
+    const side = pickSide(sideIn);
+    const [saved, st, days] = await Promise.all([ReplayTest.findOne({ user: userId, side }).lean(), LearnerState.findOne({ user: userId, kind: KIND }).lean(), testDays()]);
+    const mine = this.job?.userId === String(userId);
+    const running = mine && this.job.side === side;
     // a test cut short by a restart of the app shows as stopped
-    const test = saved?.state === 'running' && this.job?.userId !== String(userId) ? { ...saved, state: 'stopped', error: 'The app restarted while the test ran. Start it again.' } : saved;
-    const all = ladderCandidates(st);
+    const test = saved?.state === 'running' && !running ? { ...saved, state: 'stopped', error: 'The app restarted while the test ran. Start it again.' } : saved;
+    const all = ladderCandidates(st).filter((c) => SIDE[c.kind] === side);
     const candidates = topCandidates(all).map(({ key, kind, name, changes, verdict, gain }) => ({ key, kind, name, changes, verdict, gain }));
-    const notChecked = all.length - candidates.length;
     let stale = false;
-    if (test?.state === 'done' && test.base) stale = fingerprintDocs(await this.#liveDocs(userId)) !== test.base;
-    return { test: test ?? null, running: this.job?.userId === String(userId), candidates, notChecked, maxChecked: MAX_CHECKED, days, stale, choices: { days: DAY_CHOICES, slippage: SLIPPAGE_CHOICES, delay: DELAY_CHOICES, parallel: PARALLEL_CHOICES.filter((n) => n <= this.runners.length) }, speed: TEST_SPEED };
+    if (test?.state === 'done' && test.base) stale = fingerprintDocs(await this.#liveDocs(userId), side) !== test.base;
+    return {
+      side,
+      test: test ?? null,
+      running,
+      otherRunning: mine && this.job.side !== side ? this.job.side : null,
+      candidates,
+      notChecked: all.length - candidates.length,
+      maxChecked: MAX_CHECKED,
+      days,
+      stale,
+      choices: { days: DAY_CHOICES, slippage: SLIPPAGE_CHOICES, delay: DELAY_CHOICES, parallel: PARALLEL_CHOICES.filter((n) => n <= this.runners.length) },
+      speed: TEST_SPEED,
+    };
   }
 
-  async start(userId, { days: count, slippagePct = 0.5, fillDelaySec = 2, parallel = 2 }) {
-    const side = Math.max(1, Math.min(parallel, this.runners.length));
-    if (this.job) throw conflict('A replay test is already running. Stop it first.');
+  async start(userId, { side: sideIn = 'options', days: count, slippagePct = 0.5, fillDelaySec = 2, parallel = 2 }) {
+    const side = pickSide(sideIn);
+    const together = Math.max(1, Math.min(parallel, this.runners.length));
+    if (this.job) throw conflict(`A ${sideName(this.job.side)} replay test is already running. Stop it first.`);
     if (!DAY_CHOICES.includes(count)) throw badRequest(`Pick ${DAY_CHOICES.join(', ')} days`);
     const st = await LearnerState.findOne({ user: userId, kind: KIND }).lean();
-    const cands = topCandidates(ladderCandidates(st));
-    if (!cands.length) throw badRequest('Learn has no suggested change to test. Run Learn first (Research > Learn).');
+    const cands = topCandidates(ladderCandidates(st).filter((c) => SIDE[c.kind] === side));
+    if (!cands.length) throw badRequest(`Learn has no suggested ${sideName(side)} change to test. Run Learn first (Research > Learn).`);
     const avail = await testDays();
     if (avail.length < count) throw badRequest(`Only ${avail.length} saved day(s) can be played.`);
+    await this.#indexes();
     const days = avail.slice(0, count).map((d) => d.day).reverse(); // oldest first
     const hidden = days.slice(-hiddenCount(count));
     const live = await this.#liveDocs(userId);
-    const steps = [{ key: 'now', kind: 'now', name: 'Your settings now', changes: [], verdict: 'waiting', results: [] }, ...cands.map(({ key, kind, id, name, changes, gain, verdict }) => ({ key, kind, id, name, changes, learnGain: gain ?? 0, learnVerdict: verdict ?? null, verdict: 'waiting', results: [] }))];
+    const steps = [{ key: 'now', kind: 'now', name: `Your ${sideName(side)} settings now`, changes: [], verdict: 'waiting', results: [] }, ...cands.map(({ key, kind, id, name, changes, gain, verdict }) => ({ key, kind, id, name, changes, learnGain: gain ?? 0, learnVerdict: verdict ?? null, verdict: 'waiting', results: [] }))];
     const test = await ReplayTest.findOneAndUpdate(
-      { user: userId },
-      { $set: { state: 'running', days, hidden, fill: { slippagePct, fillDelaySec, parallel: side }, steps, at: null, base: fingerprintDocs(live), error: '', startedAt: new Date(), finishedAt: null, applied: null } },
+      { user: userId, side },
+      { $set: { side, state: 'running', days, hidden, fill: { slippagePct, fillDelaySec, parallel: together }, steps, at: null, base: fingerprintDocs(live, side), error: '', startedAt: new Date(), finishedAt: null, applied: null } },
       { upsert: true, new: true },
     );
-    const job = { userId: String(userId), stopped: false };
+    const job = { userId: String(userId), side, stopped: false };
     this.job = job;
-    this.#run(job, test._id, live, cands, { days, hidden, slippagePct, fillDelaySec, parallel: side }).finally(() => {
+    this.#run(job, test._id, live, cands, { side, days, hidden, slippagePct, fillDelaySec, parallel: together }).finally(() => {
       if (this.job === job) this.job = null;
     });
-    return this.view(userId);
+    return this.view(userId, side);
   }
 
   async #save(id, set) {
@@ -264,12 +285,12 @@ export class ReplayLadder {
   }
 
   /**
-   * Plays every day with one set of settings, `o.parallel` days at a time (each runner its own copy of the server and database; the days
-   * do not depend on each other, so the result is the same as one by one). Saves the days as they finish. With `side`, only that bot plays
-   * and the other bot's part of each day comes from `bestResults`.
+   * Plays every day with one set of settings, only the bot of `o.side` (the other is switched off), `o.parallel` days at a time (each runner
+   * its own copy of the server and database; the days do not depend on each other, so the result is the same as one by one). Saves the
+   * days as they finish, counted for that side only.
    */
-  async #playAll(job, id, stepIndex, docs, o, side = null, bestResults = null) {
-    const settings = settingsFileOf(side ? onlySide(docs, side) : docs);
+  async #playAll(job, id, stepIndex, docs, o) {
+    const settings = settingsFileOf(onlySide(docs, o.side));
     const results = new Array(o.days.length).fill(null);
     let next = 0;
     let failed = null;
@@ -280,7 +301,7 @@ export class ReplayLadder {
         const day = o.days[i];
         try {
           const r = await runner.runDay({ day, settings, slippagePct: o.slippagePct, fillDelaySec: o.fillDelaySec });
-          results[i] = side ? mergeSide(bestResults[i], r, side) : r;
+          results[i] = sidePart(r, o.side);
           await this.#save(id, { at: { step: stepIndex, day: o.days[Math.min(next, o.days.length - 1)] }, [`steps.${stepIndex}.results`]: results.filter(Boolean) });
         } catch (err) {
           failed ??= err;
@@ -299,7 +320,7 @@ export class ReplayLadder {
       let bestResults = await this.#playAll(job, id, 0, best, o);
       if (!bestResults) return;
       let bestSum = summarize(bestResults, o.hidden);
-      await this.#save(id, { 'steps.0.verdict': 'base', 'steps.0.summary': bestSum, 'steps.0.why': 'What your settings earn now. Each change below must beat the best so far.' });
+      await this.#save(id, { 'steps.0.verdict': 'base', 'steps.0.summary': bestSum, 'steps.0.why': `What your ${sideName(o.side)} settings earn now. Each change below must beat the best so far.` });
       let setupKept = false;
       for (let i = 0; i < cands.length; i += 1) {
         const c = cands[i];
@@ -313,8 +334,7 @@ export class ReplayLadder {
           await this.#save(id, { [`steps.${at}.verdict`]: 'skipped', [`steps.${at}.why`]: 'Skipped: that combination is no longer saved.' });
           continue;
         }
-        // a change to one bot replays only that bot; the other bot's days are the best run's
-        const results = await this.#playAll(job, id, at, docs, o, SIDE[c.kind] ?? null, bestResults);
+        const results = await this.#playAll(job, id, at, docs, o);
         if (!results) return;
         const sum = summarize(results, o.hidden);
         const b = beats(sum, bestSum);
@@ -329,45 +349,71 @@ export class ReplayLadder {
       await this.#save(id, { state: 'done', at: null, finishedAt: new Date() });
     } catch (err) {
       if (job.stopped || err.stopped) return;
-      logger.warn(`Replay test failed: ${err.message}`);
+      logger.warn(`Replay test (${o.side}) failed: ${err.message}`);
       await this.#save(id, { state: 'failed', error: err.message, at: null, finishedAt: new Date() }).catch(() => {});
     } finally {
       if (job.stopped) await this.#save(id, { state: 'stopped', at: null, finishedAt: new Date() }).catch(() => {});
     }
   }
 
-  async stop(userId) {
-    if (this.job?.userId === String(userId)) {
+  async stop(userId, sideIn = 'options') {
+    const side = pickSide(sideIn);
+    if (this.job?.userId === String(userId) && this.job.side === side) {
       this.job.stopped = true;
       for (const r of this.runners) r.stop();
     }
-    return this.view(userId);
+    return this.view(userId, side);
   }
 
   /**
-   * Puts the kept changes in place, through Learn's own Apply (so Learn's track record follows them). Only after a finished test that kept
-   * at least one change, and only while the settings are still the ones it tested. The daily loss limit is put back as it was.
+   * Puts this side's kept changes in place, through Learn's own Apply (so Learn's track record follows them). Only after a finished test
+   * that kept at least one change, and only while this side's settings are still the ones it tested (the other side may have changed).
+   * The daily loss limit is put back as it was.
    */
-  async apply(userId) {
+  async apply(userId, sideIn = 'options') {
+    const side = pickSide(sideIn);
     if (!this.learn) throw badRequest('Apply is not available here.');
-    const test = await ReplayTest.findOne({ user: userId });
-    if (!test || test.state !== 'done') throw badRequest('Finish a replay test first.');
-    if (test.applied) throw conflict('Already applied.');
-    const kept = test.steps.filter((s) => s.verdict === 'kept');
+    const test = await ReplayTest.findOne({ user: userId, side }).lean();
+    if (!test || test.state !== 'done') throw badRequest(`Finish the ${sideName(side)} replay test first.`);
+    if (test.applied && !test.applied.undone) throw conflict('Already applied.');
+    if (test.applied?.undone) throw conflict('This was applied and undone. Run the test again to apply it.');
+    const kept = test.steps.filter((s) => s.verdict === 'kept' && SIDE[s.kind] === side);
     if (!kept.length) throw conflict('No change beat your settings on the newest days, so there is nothing to apply.');
     const live = await this.#liveDocs(userId);
-    if (fingerprintDocs(live) !== test.base) throw conflict('Your settings changed after this test. Run the test again.');
+    if (fingerprintDocs(live, side) !== test.base) throw conflict(`Your ${sideName(side)} settings changed after this test. Run the test again.`);
     const dailyLossPct = live.optionsettings?.dailyLossPct;
     const done = [];
     for (const s of kept) {
       if (s.kind === 'setup') await this.learn.apply(userId, { force: true });
       else if (s.kind === 'combo') await this.learn.applyCombo(userId, s.id, { force: true });
       else if (s.kind === 'shares') await this.learn.applyShares(userId, { force: true });
-      done.push(s.name);
+      done.push({ kind: s.kind, id: s.id ?? null, name: s.name });
     }
     if (dailyLossPct != null) await OptionSettings.updateOne({ user: userId }, { $set: { dailyLossPct } });
-    test.applied = { at: new Date(), steps: done };
-    await test.save();
-    return this.view(userId);
+    await ReplayTest.updateOne({ _id: test._id }, { $set: { applied: { at: new Date(), steps: done } } });
+    return this.view(userId, side);
+  }
+
+  /** Puts this side back as it was before its Apply, through Learn's own Undo, newest change first. The other side is not touched. */
+  async undo(userId, sideIn = 'options') {
+    const side = pickSide(sideIn);
+    if (!this.learn) throw badRequest('Undo is not available here.');
+    const test = await ReplayTest.findOne({ user: userId, side }).lean();
+    if (!test?.applied || test.applied.undone) throw badRequest('Nothing to undo.');
+    const live = await this.#liveDocs(userId);
+    const dailyLossPct = live.optionsettings?.dailyLossPct;
+    const missed = [];
+    for (const s of [...(test.applied.steps ?? [])].reverse()) {
+      try {
+        if (s.kind === 'setup') await this.learn.undo(userId);
+        else if (s.kind === 'combo') await this.learn.undoCombo(userId, s.id);
+        else if (s.kind === 'shares') await this.learn.undoShares(userId);
+      } catch (err) {
+        missed.push(`${s.name ?? s}: ${err.message}`); // already undone in Learn, for one
+      }
+    }
+    if (dailyLossPct != null) await OptionSettings.updateOne({ user: userId }, { $set: { dailyLossPct } });
+    await ReplayTest.updateOne({ _id: test._id }, { $set: { 'applied.undone': { at: new Date(), missed } } });
+    return this.view(userId, side);
   }
 }

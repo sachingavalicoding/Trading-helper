@@ -7,6 +7,8 @@ import { Card } from './ui.jsx';
 // Replay test, step by step: plays past days with your settings now, then each change Learn suggested on top of the best so far.
 // A change is kept only if it earns more over all the days AND on the newest days. Replay plays only Learn's best few ideas (it takes minutes a day); Learn's own numbers are estimates. Each run has its own copy of the settings; your live
 // settings change only when you press Apply, and Apply opens only when something was kept.
+// Options and shares are tested apart (one switch at the top): each has its own test settings, result, Apply and Undo, so a shares
+// improvement goes in without touching options, and the other way round.
 
 const dayText = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 const VERDICT = {
@@ -71,7 +73,6 @@ function StepRow({ s, i, hidden, base, total }) {
         </div>
       )}
       {s.why && <p className="mt-1.5 text-xs leading-snug">{s.why}</p>}
-      {s.results?.[0]?.reused && <p className="mt-1 text-[11px] text-muted">Only the {s.results[0].reused === 'shares' ? 'options' : 'shares'} bot was replayed for this change; the {s.results[0].reused} days are the best run's (they would trade the same).</p>}
       {s.verdict === 'running' && <p className="mt-1.5 text-xs text-muted">{s.results?.length ?? 0} of {total} days done</p>}
       {s.results?.length > 0 && (
         <button type="button" className="mt-1.5 text-xs text-accent" onClick={() => setOpen(!open)}>{open ? 'Hide days' : 'Each day'}</button>
@@ -93,24 +94,49 @@ function StepRow({ s, i, hidden, base, total }) {
   );
 }
 
-/** Account card: test Learn's changes by replaying past days, step by step, and apply only what won. */
+const SIDE_NAME = { options: 'Options', shares: 'Shares' };
+const START_CHOICE = { days: 5, slip: 0.5, delay: 2, parallel: 2 };
+
+/** Account card: test Learn's changes by replaying past days, step by step, and apply only what won. Options and shares apart. */
 export function ReplayTestCard() {
+  const [side, setSide] = useState(() => localStorage.getItem('replayTestSide') === 'shares' ? 'shares' : 'options');
+  const [pick, setPick] = useState({ options: START_CHOICE, shares: START_CHOICE }); // each side keeps its own test settings
+  const pickSide = (s) => {
+    setSide(s);
+    localStorage.setItem('replayTestSide', s);
+  };
+  return (
+    <Card className="p-4">
+      <div className="text-sm font-semibold">Replay test: step up your settings</div>
+      <div className="text-xs text-muted">Plays past days with your settings now, then tries each change Learn suggested, one at a time. A change is kept only if it earns more over all the days and on the newest days. Options and shares are tested apart, each with its own Apply and Undo.</div>
+      <div role="tablist" aria-label="Which bot to test" className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-surface-2 p-1">
+        {['options', 'shares'].map((s) => (
+          <button key={s} type="button" role="tab" aria-selected={side === s} onClick={() => pickSide(s)} className={`rounded-lg py-1.5 text-sm font-semibold ${side === s ? 'bg-surface text-fg card-shadow' : 'text-muted'}`}>
+            {SIDE_NAME[s]}
+          </button>
+        ))}
+      </div>
+      <SideTest key={side} side={side} pick={pick[side]} setPick={(p) => setPick((cur) => ({ ...cur, [side]: { ...cur[side], ...p } }))} />
+    </Card>
+  );
+}
+
+/** One side's test: its choices, its steps, its Apply and Undo. */
+function SideTest({ side, pick, setPick }) {
   const [d, setD] = useState(null);
-  const [days, setDays] = useState(5);
-  const [slip, setSlip] = useState(0.5);
-  const [delay, setDelay] = useState(2);
-  const [parallel, setParallel] = useState(2);
   const [busy, setBusy] = useState(false);
+  const { days, slip, delay, parallel } = pick;
+  const name = SIDE_NAME[side].toLowerCase();
 
   useEffect(() => {
     let alive = true;
     let timer;
     const load = () =>
-      api('/replay-day/test')
+      api(`/replay-day/test?side=${side}`)
         .then((x) => {
           if (!alive) return;
           setD(x);
-          if (x.running) timer = setTimeout(load, 5000);
+          if (x.running || x.otherRunning) timer = setTimeout(load, 5000);
         })
         .catch(() => alive && setD((cur) => cur ?? { error: true }));
     load();
@@ -118,21 +144,23 @@ export function ReplayTestCard() {
       alive = false;
       clearTimeout(timer);
     };
-  }, [d?.running]);
+  }, [side, d?.running, d?.otherRunning]);
 
-  async function act(path, body) {
+  async function act(path, body = {}) {
     setBusy(true);
     try {
-      setD(await api(`/replay-day/test/${path}`, { method: 'POST', body }));
+      setD(await api(`/replay-day/test/${path}`, { method: 'POST', body: { side, ...body } }));
+      return true;
     } catch (e) {
       toast.error(e.message);
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
-  if (!d) return null;
-  if (d.error) return null;
+  if (!d) return <p className="mt-3 text-xs text-muted">Loading…</p>;
+  if (d.error) return <p className="mt-3 text-xs text-down">Could not load the {name} test.</p>;
   const t = d.test;
   const base = t?.steps?.[0]?.summary;
   const kept = t?.steps?.filter((s) => s.verdict === 'kept') ?? [];
@@ -141,37 +169,41 @@ export function ReplayTestCard() {
   const together = Math.min(parallel, d.choices?.parallel?.at(-1) ?? 1);
   const minutes = Math.max(5, Math.round((Math.ceil(runs / together) * 2.5) / 5) * 5);
   const canApply = t?.state === 'done' && kept.length > 0 && !t.applied && !d.stale;
+  const canUndo = t?.applied && !t.applied.undone;
 
   async function apply() {
-    if (!window.confirm(`Put these ${kept.length} change(s) in place in your live paper settings?\n\n${kept.map((s) => `• ${s.name}`).join('\n')}\n\nYour daily loss limit stays as it is.`)) return;
-    await act('apply');
-    toast.success('Applied. Undo is in Research > Learn.');
+    if (!window.confirm(`Put these ${kept.length} ${name} change(s) in place in your live paper settings?\n\n${kept.map((s) => `• ${s.name}`).join('\n')}\n\nYour ${side === 'options' ? 'shares' : 'options'} settings and daily loss limit stay as they are.`)) return;
+    if (await act('apply')) toast.success(`${SIDE_NAME[side]} applied. Undo is right here.`);
+  }
+
+  async function undo() {
+    if (!window.confirm(`Put your ${name} settings back as they were before this Apply?`)) return;
+    if (await act('undo')) toast.success(`${SIDE_NAME[side]} put back.`);
   }
 
   return (
-    <Card className="p-4">
-      <div className="text-sm font-semibold">Replay test: step up your settings</div>
-      <div className="text-xs text-muted">Plays past days with your settings now, then tries each change Learn suggested, one at a time. A change is kept only if it earns more over all the days and on the newest days. Your live settings are not touched until you press Apply.</div>
+    <>
+      {!d.running && d.otherRunning && <p className="mt-3 text-xs text-warn">The {d.otherRunning} test is running. Start this one when it is done, or stop it there.</p>}
 
       {!d.running && (
         <div className="mt-3 space-y-3">
           {d.candidates.length === 0 ? (
-            <p className="text-xs text-muted">Learn has no suggested change to test yet. Run Learn first (Research &gt; Learn), then come back.</p>
+            <p className="text-xs text-muted">Learn has no suggested {name} change to test yet. Run Learn first (Research &gt; Learn), then come back.</p>
           ) : (
             <>
               <div className="text-xs">
-                <span className="text-muted">Changes to try (Learn's best {d.candidates.length}{d.notChecked > 0 ? `, ${d.notChecked} weaker not played` : ''}): </span>
+                <span className="text-muted">{SIDE_NAME[side]} changes to try (Learn's best {d.candidates.length}{d.notChecked > 0 ? `, ${d.notChecked} weaker not played` : ''}): </span>
                 {d.candidates.map((c) => c.name).join(' · ')}
               </div>
-              <Choice label="Days (newest saved days)" options={d.choices.days} value={days} onChange={setDays} fmt={(x) => `${x} days`} />
-              <Choice label="Slippage (fill worse than the price seen)" options={d.choices.slippage} value={slip} onChange={setSlip} fmt={(x) => `${x}%`} />
-              <Choice label="Fill delay (market orders)" options={d.choices.delay} value={delay} onChange={setDelay} fmt={(x) => `${x}s`} />
-              <Choice label="Days at once (same result, faster; 3-4 needs a strong computer, use 1 on a phone)" options={d.choices.parallel} value={together} onChange={setParallel} fmt={(x) => `${x}`} />
+              <Choice label="Days (newest saved days)" options={d.choices.days} value={days} onChange={(x) => setPick({ days: x })} fmt={(x) => `${x} days`} />
+              <Choice label="Slippage (fill worse than the price seen)" options={d.choices.slippage} value={slip} onChange={(x) => setPick({ slip: x })} fmt={(x) => `${x}%`} />
+              <Choice label="Fill delay (market orders)" options={d.choices.delay} value={delay} onChange={(x) => setPick({ delay: x })} fmt={(x) => `${x}s`} />
+              <Choice label="Days at once (same result, faster; 3-4 needs a strong computer, use 1 on a phone)" options={d.choices.parallel} value={together} onChange={(x) => setPick({ parallel: x })} fmt={(x) => `${x}`} />
               <p className="text-[11px] leading-snug text-muted">
-                {runs} day runs, {together} at a time (about {minutes} minutes on a laptop, often less: a change to one bot replays only that bot). The app stays usable. All days play on 1-minute candles, the same way for every day. The newest {Math.max(1, Math.round(days / 3))} day(s) are the check a change must pass.
+                {runs} day runs, {together} at a time (about {minutes} minutes on a laptop). Only the {name} bot plays; the other is off in the test. The app stays usable. All days play on 1-minute candles, the same way for every day. The newest {Math.max(1, Math.round(days / 3))} day(s) are the check a change must pass.
               </p>
-              <button type="button" className="btn btn-primary w-full" disabled={busy || d.days.length < days} onClick={() => act('start', { days, slippagePct: slip, fillDelaySec: delay, parallel: together })}>
-                {d.days.length < days ? `Only ${d.days.length} days saved` : 'Start replay test'}
+              <button type="button" className="btn btn-primary w-full" disabled={busy || d.days.length < days || Boolean(d.otherRunning)} onClick={() => act('start', { days, slippagePct: slip, fillDelaySec: delay, parallel: together })}>
+                {d.days.length < days ? `Only ${d.days.length} days saved` : `Start ${name} test`}
               </button>
             </>
           )}
@@ -194,11 +226,11 @@ export function ReplayTestCard() {
               {kept.length ? (
                 <>
                   <span className="font-semibold">Best found: </span>
-                  <span className={pnlClass(best.net)}>{formatPnl(best.net)}</span> vs <span className={pnlClass(base.net)}>{formatPnl(base.net)}</span> now over {t.days.length} days.
+                  <span className={pnlClass(best.net)}>{formatPnl(best.net)}</span> vs <span className={pnlClass(base.net)}>{formatPnl(base.net)}</span> now from {name} over {t.days.length} days.
                   <div className="mt-0.5 text-xs text-muted">Past days, not a promise. Paper trade it for a few days before trusting it.</div>
                 </>
               ) : (
-                <>No change beat your settings on the newest days. Keep what you have.</>
+                <>No {name} change beat your settings on the newest days. Keep what you have.</>
               )}
             </div>
           )}
@@ -209,16 +241,23 @@ export function ReplayTestCard() {
           </ol>
           {t.state === 'done' && kept.length > 0 && (
             <>
-              {t.applied ? (
+              {t.applied?.undone ? (
+                <p className="text-xs text-muted">Applied, then undone {new Date(t.applied.undone.at).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' })}. Your {name} settings are back as before.</p>
+              ) : t.applied ? (
                 <p className="text-xs text-up">Applied {new Date(t.applied.at).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' })}.</p>
               ) : d.stale ? (
-                <p className="text-xs text-warn">Your settings changed after this test, so Apply is closed. Run the test again.</p>
+                <p className="text-xs text-warn">Your {name} settings changed after this test, so Apply is closed. Run the test again.</p>
               ) : null}
-              <button type="button" className="btn btn-primary w-full" disabled={busy || !canApply} onClick={apply}>Apply the {kept.length} kept change{kept.length === 1 ? '' : 's'}</button>
+              {t.applied?.undone?.missed?.length > 0 && <p className="text-xs text-warn">Not undone: {t.applied.undone.missed.join('; ')}</p>}
+              {canUndo ? (
+                <button type="button" className="btn btn-secondary w-full" disabled={busy} onClick={undo}>Undo {name} apply</button>
+              ) : (
+                <button type="button" className="btn btn-primary w-full" disabled={busy || !canApply} onClick={apply}>Apply the {kept.length} kept {name} change{kept.length === 1 ? '' : 's'}</button>
+              )}
             </>
           )}
         </div>
       )}
-    </Card>
+    </>
   );
 }

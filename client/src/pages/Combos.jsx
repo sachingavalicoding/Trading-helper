@@ -9,6 +9,7 @@ import { Badge, Card, Fold, Segmented, Skeleton } from '../components/ui.jsx';
 import { ComboBuilder } from '../components/study/ComboBuilder.jsx';
 import { ComboEntrySwitch, OptionsTriggers, Switch, buyingOn } from '../components/options/OptionsAutoCard.jsx';
 import { ShareSetups, TREND_SCORE } from '../components/study/ReportsStudies.jsx';
+import { BotExits } from '../components/options/BotExits.jsx';
 
 // the results of one combination load only when it is opened
 const OptionsLab = lazy(() => import('./Lab.jsx').then((m) => ({ default: m.OptionsLab })));
@@ -72,6 +73,7 @@ function ComboDetail({ seg, combo, saved, reload, onBack }) {
         </div>
         <Switch on={combo.on} disabled={busy} label={`Use ${combo.name}`} onClick={toggle} />
       </Card>
+      {seg === 'options' && <BotExits combo={combo} reload={reload} />}
       <Suspense fallback={<Skeleton className="h-64 w-full" />}>
         {seg === 'shares' ? <SharesLab fixedBase={`combo:${combo.id}`} onSaved={reload} /> : <OptionsLab fixedBase={`combo:${combo.id}`} onSaved={reload} />}
       </Suspense>
