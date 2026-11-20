@@ -79,6 +79,20 @@ export async function downloadFile(path, fallbackName) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+/** Sends a file's bytes as the request body (not JSON), so a big file is streamed from the phone and not read into memory. */
+export async function uploadFile(path, file) {
+  const token = tokenStore.get();
+  let res;
+  try {
+    res = await fetch(`${BASE}/api${path}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: file });
+  } catch {
+    throw new ApiError(0, 'NETWORK', 'Cannot reach the server. Check your connection.');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, data?.error?.code || 'ERROR', data?.error?.message || `Upload failed (${res.status})`);
+  return data;
+}
+
 // A replay runs at another address, so the login arrives once in the link (#t=...). Take it and clear it from the address bar.
 try {
   const m = /^#t=(.+)$/.exec(window.location.hash);

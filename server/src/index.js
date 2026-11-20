@@ -12,6 +12,10 @@ import { OptionTrader } from './options/optionTrader.js';
 import { NewsService } from './news/service.js';
 import { HistorySync } from './market/historySync.js';
 import { OptionHistorySync } from './market/optionHistory.js';
+import path from 'node:path';
+import { YearFiles, YearDownload, TempImports } from './archive/yearFiles.js';
+import { OptionArchive } from './archive/optionArchive.js';
+import { Mailer } from './archive/mailer.js';
 import { TickRecorder } from './ticks/tickRecorder.js';
 import { attachSocket } from './socket/index.js';
 import { prepareReplay } from './dayreplay/boot.js';
@@ -66,9 +70,20 @@ async function main() {
 
   const history = new HistorySync({ market });
   const optionHistory = new OptionHistorySync({ market });
+  const yearFiles = new YearFiles({ dir: path.join(env.archiveDir, 'years') });
+  const mailer = new Mailer(env.mail);
+  const archive = {
+    yearFiles,
+    yearDownload: new YearDownload({ market, files: yearFiles }),
+    imports: new TempImports({ dir: path.join(env.archiveDir, 'temp') }),
+    optionArchive: new OptionArchive({ dir: path.join(env.archiveDir, 'options'), mailer }),
+    mailer,
+  };
   if (!replay) {
     history.schedule();
     optionHistory.schedule();
+    archive.imports.schedule();
+    archive.optionArchive.schedule();
   }
   const ticks = new TickRecorder({ market, config: env });
   ticks.start();
@@ -84,7 +99,7 @@ async function main() {
     dayReplay.ladder = new ReplayLadder({ runners: [0, 1, 2, 3].map((slot) => new TestRunner({ config: env, slot })), learn });
     process.on('exit', () => dayReplay.ladder.runners.forEach((r) => r.child?.kill()));
   }
-  const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history, optionHistory, ticks, dayReplay, study, learner, lab, learn });
+  const app = createApp({ market, engine, config: env, tracker, scanner, news, autoTrader, optionTrader, history, optionHistory, archive, ticks, dayReplay, study, learner, lab, learn });
   const server = http.createServer(app);
   const io = attachSocket(server, { market, engine, config: env, scanner });
 
@@ -104,6 +119,8 @@ async function main() {
     optionTrader.stop();
     history.stop();
     optionHistory.stop();
+    archive.imports.stop();
+    archive.optionArchive.stop();
     learner.stop();
     learn.stop();
     await ticks.stop();
