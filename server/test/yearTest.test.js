@@ -75,3 +75,11 @@ test('playDays: a share combination over synthetic year files gives trades on th
   assert.ok(trades.every((t) => days.slice(5).includes(t.day)));
   assert.ok(trades.every((t) => Number.isFinite(t.net)));
 });
+
+test('cutDown: score bot with up to 2 combinations and a test-only trades-a-day cap', () => {
+  const docs = { optionsettings: { maxTrades: 8, combos: [{ id: 'a', name: 'A', conds: ['emaStack'], need: 1, window: 1 }, { id: 'b', name: 'B', conds: ['emaStack'], need: 1, window: 1 }, { id: 'c', name: 'C', conds: ['emaStack'], need: 1, window: 1 }] }, autosettings: {}, tradedefaults: null };
+  const o = cutDown({ side: 'options', what: 'score', with: ['a', 'c'], maxTrades: 5 }, docs);
+  assert.deepEqual(o.optionsettings.combos.map((c) => c.on), [true, false, true]);
+  assert.equal(o.optionsettings.maxTrades, 5);
+  assert.equal(docs.optionsettings.maxTrades, 8);
+});

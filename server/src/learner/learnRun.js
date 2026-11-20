@@ -108,7 +108,7 @@ export function learnContext({ nifty1, stocks5 = null, book = null, params, days
       const key = JSON.stringify(['score', s.entryFrom, s.entryTo]);
       if (!cache.has(key)) {
         const when = windowOf(s);
-        cache.set(key, (await botOf()).signals.filter((x) => inDays(x) && (when ? when(x.time - 300) : true)).map((x) => ({ ...x, technique: 'score' })));
+        cache.set(key, (await botOf()).signals.filter((x) => inDays(x) && (when ? when(x.time - 300) : true) && (!params.scoreTags?.length || params.scoreTags.includes(x.tag))).map((x) => ({ ...x, technique: 'score' })));
       }
       out.push(.../** @type {any[]} */ (cache.get(key)));
     }
