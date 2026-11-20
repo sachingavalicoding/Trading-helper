@@ -32,6 +32,7 @@ export const SHARE_SETUPS = ['Opening range breakout', 'Gap and go', 'VWAP pullb
 export const MONTH_CHOICES = [1, 3, 6, 12];
 export const SHARE_SLIPPAGE_PCT = 0.05; // shares: each fill 0.05% worse (the shares study and Lab); options: 0.5% (FILL_SLIPPAGE, as Replay test)
 export const CHECK_DAYS = 2;
+export const CHECK_MS = 15 * 60_000; // the Replay check gives up after this long (a slow or busy computer), and says so
 const SHARE_BLOCK = 5; // the share scanner replay slows down with the length of the candles it is given, so it is fed 5 days at a time
 const WARM_SHARES = 7; // calendar days before a block, for the scanner's indicators
 const WARM_OPTIONS = 40; // calendar days before a month: the score reads the last month's daily bars
@@ -293,8 +294,13 @@ export class YearTest {
 
   async stop(/** @type {string} */ userId) {
     if (this.job?.userId === String(userId)) this.job.stopped = true;
+    if (this.job?.userId === String(userId)) /** @type {any} */ (this.job).runners?.forEach((/** @type {any} */ r) => r.stop());
     const run = await this.#load(userId);
-    if (run && run.state === 'running') {
+    if (run && run.state === 'checking') {
+      run.state = 'done';
+      run.check = { rows: [], verdict: { trusted: null, text: 'The Replay check was stopped. Tap Check again to run it.' } };
+      await this.#save(userId, run);
+    } else if (run && run.state === 'running') {
       run.state = 'stopped';
       await this.#save(userId, run);
     }
@@ -360,8 +366,9 @@ export class YearTest {
       logger.info(`Year test ${m.month}: ${m.trades.length} trades, ${m.seconds} s`);
     }
     run.state = 'checking';
+    run.finishedAt = this.now().toISOString(); // the year result is complete here; only the Replay check is left
     await this.#save(job.userId, run);
-    job.step = 'Checking the fast mode against the full Replay';
+    job.step = `The result is complete. Checking it against the full Replay on ${CHECK_DAYS} days (up to ${Math.round((this.checkMs ?? CHECK_MS) / 60000)} min)`;
     run.check = await this.#crossCheck(job, run).catch((e) => ({ rows: [], verdict: { trusted: null, text: `The check could not run: ${e.message}` } }));
     if (job.stopped) return;
     Object.assign(run, { state: 'done', finishedAt: this.now().toISOString() });
@@ -427,8 +434,19 @@ export class YearTest {
     const settings = settingsFileOf(run.cut);
     const slippagePct = run.spec.side === 'options' ? FILL_SLIPPAGE * 100 : SHARE_SLIPPAGE_PCT;
     ladder.borrowed = true;
+    const used = days.map((_, i) => ladder.runners[i % ladder.runners.length]);
+    job.runners = used;
+    let timer = null;
+    let late = false;
+    const limit = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        late = true;
+        used.forEach((r) => r.stop());
+        resolve(null);
+      }, this.checkMs ?? CHECK_MS);
+    });
     try {
-      const rows = await Promise.all(
+      const all = Promise.all(
         days.map(async (day, i) => {
           if (job.stopped) return { day };
           const runner = ladder.runners[i % ladder.runners.length];
@@ -439,10 +457,19 @@ export class YearTest {
           return { day, fast, full: full.error ? null : { trades: full.trades, net: r2(full.net) }, error: full.error ?? null };
         }),
       );
+      const rows = await Promise.race([all, limit]);
+      if (late || !rows) return { at: this.now().toISOString(), rows: [], verdict: { trusted: null, text: `The full Replay of ${days.length} day(s) took more than ${Math.round((this.checkMs ?? CHECK_MS) / 60000)} minutes (the computer is slow or busy), so it was stopped and the fast mode was not checked. The year result itself is complete. Tap Check again when the computer is free.` } };
       return { at: this.now().toISOString(), rows, verdict: checkVerdict(rows) };
     } finally {
+      clearTimeout(timer);
+      job.runners = null;
       ladder.borrowed = false;
     }
+  }
+
+  /** For tests: the check of a run, as it runs at the end. */
+  check2(/** @type {any} */ job, /** @type {any} */ run) {
+    return this.#crossCheck(job, run);
   }
 
   /** The check alone, again, on a finished run. */

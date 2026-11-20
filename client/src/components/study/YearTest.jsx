@@ -179,7 +179,7 @@ export function YearTest() {
             <div className="space-y-1">
               <div className="h-1.5 overflow-hidden rounded bg-surface-3"><div className="h-full bg-accent" style={{ width: `${Math.round((done / Math.max(1, run.months.length)) * 100)}%` }} /></div>
               <div className="text-xs text-muted">{done} of {run.months.length} months · {run.step}. You can close the app: it keeps running on the server.</div>
-              <button type="button" className="btn btn-secondary btn-sm w-full" disabled={busy} onClick={() => call('stop')}>Stop</button>
+              <button type="button" className="btn btn-secondary btn-sm w-full" disabled={busy} onClick={() => call('stop')}>{run.state === 'checking' ? 'Skip the Replay check' : 'Stop'}</button>
             </div>
           )}
           {run.error && <div className="text-xs text-down">{run.error}</div>}

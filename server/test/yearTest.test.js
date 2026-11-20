@@ -83,3 +83,23 @@ test('cutDown: score bot with up to 2 combinations and a test-only trades-a-day 
   assert.equal(o.optionsettings.maxTrades, 5);
   assert.equal(docs.optionsettings.maxTrades, 8);
 });
+
+test('the Replay check gives up after its time limit and stops the Replay copies', async () => {
+  const { CandleDay, OptionCandleDay } = await import('../src/models/index.js');
+  const { TickChunk } = await import('../src/models/TickChunk.js');
+  const days = ['2026-11-18', '2026-11-19'];
+  CandleDay.distinct = async () => days;
+  OptionCandleDay.distinct = async () => days;
+  TickChunk.distinct = async () => [];
+  const stops = [];
+  const runner = { busy: false, runDay: () => new Promise(() => {}), stop() { stops.push(1); } };
+  const ladder = { runners: [runner, runner], job: null };
+  const yt = new YearTest({ dir: '/tmp/yt-test', yearFiles: { list: async () => [] }, imports: { list: async () => [] }, lab: null, ladder });
+  yt.checkMs = 50;
+  yt.source.days = async () => days;
+  yt.playDays = async () => [];
+  const c = await yt.check2({ userId: 'x', stopped: false }, { spec: { side: 'options', what: 'score', entry: 'all' }, cut: {} });
+  assert.match(c.verdict.text, /was stopped/);
+  assert.equal(stops.length, 2);
+  assert.equal(ladder.borrowed, false);
+});
