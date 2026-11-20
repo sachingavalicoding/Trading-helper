@@ -9,6 +9,7 @@ import { istStamp } from '../../lib/study.js';
 import { bandWords, chaseWords, rungLines, sameSteps } from '../../lib/ladderTest.js';
 import { loadIndex, saveIndex } from '../../lib/indexes.js';
 import { Badge, Card, Fold, Segmented, Skeleton } from '../ui.jsx';
+import { JobStatus } from '../JobStatus.jsx';
 
 const EXIT = { LOCK: 'ladder', STOP: 'stop', HARD: 'hard stop', EOD: 'close time', TRAIL: 'trail', BREAKEVEN: 'break-even' };
 
@@ -126,10 +127,11 @@ export function LadderTester() {
           Takes the entries your auto trader would have taken (your patterns and the combinations switched on, with your stop, lots and daily limits) on the real option prices saved for the last 30 days, and sells each trade again with about 30 profit ladders. A ladder is <b className="text-fg">picked on the older two thirds of the days</b> and then <b className="text-fg">checked on the newest third</b>, which it never saw, so a ladder that only fits the past is not recommended. Nothing changes until you tap Use.
         </p>
         <button type="button" className="btn btn-primary w-full" disabled={running} onClick={() => run(30, { index })}>
-          <Play className="h-4 w-4" /> {running ? state?.status?.step || 'Running…' : 'Test ladders on the saved prices'}
+          <Play className="h-4 w-4" /> {running ? 'Running…' : 'Test ladders on the saved prices'}
         </button>
-        {state?.status?.state === 'failed' && <p className="text-xs text-down">{state.status.error}</p>}
-        {error && <p className="text-xs text-down">{error}</p>}
+        {running && <JobStatus state="running" title="Ladder test" step={state?.status?.step} startedAt={state?.status?.startedAt} note="About a minute. You can leave this page." />}
+        {state?.status?.state === 'failed' && <JobStatus state="failed" title="Ladder test stopped" error={state.status.error} />}
+        {error && <JobStatus state="failed" title="Could not load" error={error} />}
       </Card>
 
       {!state && <Skeleton className="h-40 w-full" />}

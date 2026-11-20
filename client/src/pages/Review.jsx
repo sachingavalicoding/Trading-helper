@@ -1,6 +1,7 @@
 import { Children, cloneElement, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Lightbulb } from 'lucide-react';
+import { LoadState } from '../components/JobStatus.jsx';
 import { useApi } from '../lib/useApi.js';
 import { formatPnl, formatPrice, pnlClass } from '../lib/format.js';
 import { VERDICT, pctText, shiftDay, takeaways } from '../lib/review.js';
@@ -46,9 +47,9 @@ const callOf = (row) =>
     : { text: `${SIDE_TEXT[row.ideas[0].side]} idea`, sub: row.ideas[0].setup, result: row.ideas[0].result };
 
 function StocksTab({ day, onPick }) {
-  const { data, loading, error } = useApi(`/review/day?day=${day}`, []);
+  const { data, loading, error, reload } = useApi(`/review/day?day=${day}`, []);
   if (loading && !data) return <Skeleton className="h-72 w-full" />;
-  if (error && !data) return <EmptyState title="Could not load this day">{error.message}</EmptyState>;
+  if (error && !data) return <LoadState error={error} onRetry={reload} what="day" />;
   const { summary, stocks } = data;
   return (
     <div className="space-y-3">
@@ -152,10 +153,10 @@ function DayStory({ story }) {
 }
 
 function OptionsTab({ day }) {
-  const { data, loading, error } = useApi(`/review/day?day=${day}`, []);
+  const { data, loading, error, reload } = useApi(`/review/day?day=${day}`, []);
   const { data: chart } = useApi(`/review/stock/NIFTY%2050?day=${day}`, []);
   if (loading && !data) return <Skeleton className="h-72 w-full" />;
-  if (error && !data) return <EmptyState title="Could not load this day">{error.message}</EmptyState>;
+  if (error && !data) return <LoadState error={error} onRetry={reload} what="day" />;
   const { nifty, options } = data;
   if (!nifty) return <EmptyState title="No Nifty 50 data for this day">It may be a holiday, or older than the broker history.</EmptyState>;
   const m = nifty.move;
@@ -314,7 +315,7 @@ function PatternsTab({ day }) {
   const [watch, setWatch] = useState(loadWatch);
   const checks = checksOf(watch).join(',');
   const [model, setModel] = useState(false); // true: the model's estimated premiums even when real ones are saved for the day
-  const { data, loading, error } = useApi(`/review/patterns?day=${day}&index=${index}${checks ? `&checks=${encodeURIComponent(checks)}` : ''}${model ? '&real=0' : ''}`, []);
+  const { data, loading, error, reload } = useApi(`/review/patterns?day=${day}&index=${index}${checks ? `&checks=${encodeURIComponent(checks)}` : ''}${model ? '&real=0' : ''}`, []);
   const [showChecks, setShowChecks] = useState(false);
   const [selected, setSelected] = useState(null);
   useEffect(() => setSelected(null), [day]);
@@ -329,7 +330,7 @@ function PatternsTab({ day }) {
   const totals = useMemo(() => dayTotals(chosen), [chosen]);
   const indexPicker = null;
   if ((loading && !data) || (data && data.index && data.index !== index)) return <div className="space-y-3">{indexPicker}<Skeleton className="h-72 w-full" /></div>;
-  if (error && !data) return <EmptyState title="Could not load this day">{error.message}</EmptyState>;
+  if (error && !data) return <LoadState error={error} onRetry={reload} what="day" />;
   if (!data.candles.length) {
     return (
       <div className="space-y-3">
@@ -522,10 +523,10 @@ const rText = (r) => (r == null ? '—' : `${r > 0 ? '+' : ''}${r}R`);
 
 function TechniquesTab() {
   const [days, setDays] = useState(30);
-  const { data, loading, error } = useApi(`/review/techniques?days=${days}`, []);
+  const { data, loading, error, reload } = useApi(`/review/techniques?days=${days}`, []);
   const lines = useMemo(() => takeaways(data), [data]);
   if (loading && !data) return <Skeleton className="h-72 w-full" />;
-  if (error && !data) return <EmptyState title="Could not load the report">{error.message}</EmptyState>;
+  if (error && !data) return <LoadState error={error} onRetry={reload} what="report" />;
   const { scanner, trades, news } = data;
   return (
     <div className="space-y-4">

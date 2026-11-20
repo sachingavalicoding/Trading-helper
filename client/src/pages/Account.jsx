@@ -11,7 +11,7 @@ import { useStartingBalance } from '../lib/useStartingBalance.js';
 import { formatINR, formatPnl, pnlClass } from '../lib/format.js';
 import { Card, Skeleton, Disclaimer, useFold } from '../components/ui.jsx';
 import { GuideTile } from '../components/AccountExports.jsx';
-import { ReplayCard } from '../components/Replay.jsx';
+import { ReplayCard } from '../components/ReplayCard.jsx';
 import { ReplayTestCard } from '../components/ReplayTest.jsx';
 
 function Row({ label, value, className = '' }) {

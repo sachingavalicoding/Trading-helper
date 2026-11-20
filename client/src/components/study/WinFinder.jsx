@@ -3,6 +3,7 @@ import { Play, Target } from 'lucide-react';
 import { useStudy } from '../../lib/useStudy.js';
 import { loadIndex } from '../../lib/indexes.js';
 import { Card, Segmented } from '../ui.jsx';
+import { JobStatus } from '../JobStatus.jsx';
 import { AutoFound } from './AutoFound.jsx';
 
 /** The sentence over the list: what was asked, how many tries, and why a short window proves little. */
@@ -48,9 +49,9 @@ export function WinFinder() {
             <Play className="h-3.5 w-3.5" /> {running ? 'Running…' : 'Find winners'}
           </button>
         </div>
-        {running && <p className="text-xs text-muted">{state.status.step}. It takes a minute or two.</p>}
-        {state?.status?.state === 'failed' && <p className="text-xs text-down">{state.status.error}</p>}
-        {error && <p className="text-xs text-down">{error}</p>}
+        {running && <JobStatus state="running" title="Win-rate finder" step={state.status.step} startedAt={state.status.startedAt} note="It takes a minute or two. You can leave this page." />}
+        {state?.status?.state === 'failed' && <JobStatus state="failed" title="Win-rate finder stopped" error={state.status.error} />}
+        {error && <JobStatus state="failed" title="Could not load" error={error} />}
       </Card>
       {w && <AutoFound af={w} title={`Combinations at ${w.minWin ?? minWin}% or better`} intro={w.skipped ? null : winIntro(w)} empty={`Nothing in these ${w.days} days won ${w.minWin}% of ${w.minTrades} or more trades and made money. Try a lower win rate or fewer trades, or more days.`} />}
     </div>

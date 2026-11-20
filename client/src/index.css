@@ -89,6 +89,7 @@ body {
   color: var(--text);
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
+  overflow-x: clip; /* one too-wide row must never shrink the whole page on a phone (clip, not hidden, keeps sticky bars working) */
 }
 
 body {
@@ -245,6 +246,26 @@ input[type='number']::-webkit-inner-spin-button,
 input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input[type='number'] { -moz-appearance: textfield; }
 
+/* Work in progress with no known amount: a stripe slides across the bar. */
+@keyframes progress-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(300%); }
+}
+.progress-indeterminate { animation: progress-slide 1.2s ease-in-out infinite; will-change: transform; }
+
+/* New content and pages ease in (opacity and a few pixels only: cheap on a phone). */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.fade-in { animation: fade-in 0.2s ease-out both; }
+/* Pages: opacity only, so bottom sheets (position: fixed) inside a page are never moved by the animation. */
+@keyframes page-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.page-in { animation: page-in 0.18s ease-out; }
+
 @media (prefers-reduced-motion: reduce) {
-  .flash-up, .flash-down, .sheet-in, .skeleton::after { animation: none; }
+  .flash-up, .flash-down, .sheet-in, .skeleton::after, .fade-in, .page-in, .progress-indeterminate { animation: none; }
 }

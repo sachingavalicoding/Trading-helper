@@ -22,13 +22,9 @@ const FIELDS = [
 
 const STUDY_WINNERS = ['breakout', 'engulfing']; // 30-day study: over 20 trades each and a win rate above the roughly 61% break-even (inside bar and EMA cross made money on only 6 and 7 trades)
 
-export function Switch({ on, onClick, disabled, label }) {
-  return (
-    <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={onClick} className={`relative h-6 w-10 shrink-0 rounded-full transition-colors disabled:opacity-50 ${on ? 'bg-accent' : 'bg-surface-3'}`}>
-      <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${on ? 'translate-x-4' : ''}`} />
-    </button>
-  );
-}
+import { Switch } from '../ui.jsx';
+
+export { Switch }; // kept here too: many screens import it from this file
 
 function useSave(reload) {
   const [busy, setBusy] = useState(false);

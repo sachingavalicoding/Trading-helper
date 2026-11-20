@@ -5,6 +5,7 @@ import { api } from '../../lib/api.js';
 import { formatPnl, pnlClass } from '../../lib/format.js';
 import { istStamp } from '../../lib/study.js';
 import { Switch } from '../options/OptionsAutoCard.jsx';
+import { JobStatus } from '../JobStatus.jsx';
 import { Badge, Card, Fold, Segmented, Skeleton } from '../ui.jsx';
 
 const KINDS = [
@@ -115,8 +116,9 @@ export function Learner() {
           </div>
 
           <button type="button" className="btn btn-secondary w-full" disabled={running || busy} onClick={() => act('/run')}>
-            <Play className="h-4 w-4" /> {running ? view.status.step || 'Learning…' : 'Learn now (a few minutes)'}
+            <Play className="h-4 w-4" /> {running ? 'Learning…' : 'Learn now (a few minutes)'}
           </button>
+          {running && <JobStatus state="running" title="Auto-learner" step={view.status.step || 'Starting'} startedAt={view.status.startedAt} note="You can leave this page: it keeps running on the server." />}
 
           {view.simulated && <p className="text-[11px] text-warn">The app is on the practice feed: its history is random, so results mean nothing and auto never changes anything here.</p>}
           {view.traderOff && <p className="text-[11px] text-warn">{kind === 'shares' ? 'Auto shares is off (Market > Scanner), so a pick will not trade until you turn it on.' : 'The options auto trader or combination entries are off in Account, so a pick will not trade until you turn them on.'}</p>}

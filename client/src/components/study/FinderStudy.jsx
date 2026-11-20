@@ -11,6 +11,7 @@ import { skipsText, winnerOf } from '../../lib/pairs.js';
 import { useApi } from '../../lib/useApi.js';
 import { useStudy } from '../../lib/useStudy.js';
 import { Card, Fold, Segmented, Skeleton } from '../ui.jsx';
+import { JobStatus } from '../JobStatus.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
 import { RealPricesSwitch } from './RealPricesSwitch.jsx';
 import { AutoFound } from './AutoFound.jsx';
@@ -197,11 +198,11 @@ export function FinderStudy() {
           </button>
         </div>
         {datesBad && <p className="text-xs text-down">Pick a first and a last day, the first not after the last.</p>}
-        {running && <p className="text-xs text-muted">{state.status.step}. The finder takes a few minutes.</p>}
+        {running && <JobStatus state="running" title="Finder" step={state.status.step} startedAt={state.status.startedAt} note="The finder takes a few minutes. You can leave this page." />}
         <StudySource kind={kind} />
-        {state?.status?.state === 'failed' && <p className="text-xs text-down">{state.status.error}</p>}
+        {state?.status?.state === 'failed' && <JobStatus state="failed" title="Finder stopped" error={state.status.error} />}
         {state?.result?.dataSource && <p className="text-xs text-warn">{state.result.dataSource.text}</p>}
-        {error && <p className="text-xs text-down">{error}</p>}
+        {error && <JobStatus state="failed" title="Could not load" error={error} />}
       </Card>
 
       {!state && !error && <Skeleton className="h-40 w-full" />}

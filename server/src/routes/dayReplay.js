@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
-import { SPEEDS, allowedSpeeds } from '../dayreplay/manager.js';
+import { SPEEDS, allowedSpeeds, uncheckedSpeeds } from '../dayreplay/manager.js';
 import { validate } from '../middleware/validate.js';
 import { checkItems, gatherCheckFacts, gatherWhyFacts, whyItems } from '../dayreplay/diagnose.js';
 import { istParts } from '../market/marketHours.js';
@@ -45,8 +45,8 @@ export function dayReplayRoutes({ config, clock, manager, ladder = null, market,
   }
 
   r.get('/status', (_req, res) => {
-    if (config.replay) return res.json({ mode: 'replay', bootId: BOOT_ID, day: config.replay.day, livePort: config.replay.livePort, speeds: allowedSpeeds(config.replay.fast), ...clock.info() });
-    res.json({ mode: 'live', speeds: allowedSpeeds(manager.fastOk), allSpeeds: SPEEDS, run: manager.status(), speedCheck: manager.speedCheck?.view() ?? null });
+    if (config.replay) return res.json({ mode: 'replay', bootId: BOOT_ID, day: config.replay.day, livePort: config.replay.livePort, speeds: allowedSpeeds(), unchecked: uncheckedSpeeds(config.replay.fast), ...clock.info() });
+    res.json({ mode: 'live', speeds: allowedSpeeds(), unchecked: uncheckedSpeeds(manager.fastOk), allSpeeds: SPEEDS, run: manager.status(), speedCheck: manager.speedCheck?.view() ?? null });
   });
 
   // What the chosen day lacks, before starting it.
@@ -72,7 +72,7 @@ export function dayReplayRoutes({ config, clock, manager, ladder = null, market,
 
   r.get('/days', async (_req, res, next) => {
     try {
-      res.json({ days: manager ? await manager.days() : [], speeds: allowedSpeeds(manager?.fastOk) });
+      res.json({ days: manager ? await manager.days() : [], speeds: allowedSpeeds(), unchecked: uncheckedSpeeds(manager?.fastOk) });
     } catch (err) {
       next(err);
     }
@@ -88,7 +88,7 @@ export function dayReplayRoutes({ config, clock, manager, ladder = null, market,
     }
   });
 
-  // Speed check: the chosen day at 200x and at 50x with your settings now, every trade compared; 100x and 200x open only when they match.
+  // Speed check: the chosen day at 200x and at 50x with your settings now, every trade compared; until one passes, 100x and 200x are marked "not checked" in the app.
   const dayBody = z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
   r.get('/speed-check', (_req, res) => {
     if (!manager?.speedCheck) return res.status(400).json({ error: { code: 'IN_REPLAY', message: 'Run the speed check from the live app.' } });
@@ -123,7 +123,6 @@ export function dayReplayRoutes({ config, clock, manager, ladder = null, market,
   r.post('/control',validate(controlBody), (req, res) => {
     if (!clock) return res.status(400).json({ error: { code: 'NOT_REPLAY', message: 'Only a replay has a clock to control.' } });
     const { speed, paused } = req.body;
-    if (speed && !allowedSpeeds(config.replay?.fast).includes(speed)) return res.status(400).json({ error: { code: 'SPEED_NOT_CHECKED', message: `${speed}x needs a passed speed check first (live app > Replay > Check 200x).` } });
     if (speed) clock.setSpeed(speed);
     if (paused === true) clock.pause();
     if (paused === false) clock.resume();

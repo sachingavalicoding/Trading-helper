@@ -6,6 +6,7 @@ import { useTick } from '../../lib/tickStore.js';
 import { formatPct, formatPrice, pnlClass } from '../../lib/format.js';
 import { Card, Flash } from '../ui.jsx';
 import { indexOf } from '../../lib/indexes.js';
+import { everyVisible } from '../../lib/visible.js';
 
 const SHOWN_KEY = 'npt_nifty_chart';
 const readShown = () => {
@@ -27,8 +28,7 @@ export function NiftyChart({ index = 'NIFTY' }) {
   const { data, reload } = useApi(`/options/read?index=${index}`, [index]);
 
   useEffect(() => {
-    const t = setInterval(reload, 30000);
-    return () => clearInterval(t);
+    return everyVisible(reload, 30000);
   }, [reload]);
 
   const lines = useMemo(() => {

@@ -3,8 +3,9 @@ import { Database, Download, LineChart } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { useApi } from '../../lib/useApi.js';
-import { failedText, jobPercent, liveText, savedText, SYNC_LABEL } from '../../lib/history.js';
+import { failedText, liveText, savedText, SYNC_LABEL } from '../../lib/history.js';
 import { Badge, Card, Skeleton } from '../ui.jsx';
+import { JobStatus, LoadState } from '../JobStatus.jsx';
 import { YearFiles, OptionMail } from './YearData.jsx';
 
 const JOB_TONE = { running: 'accent', done: 'up', partial: 'warn', failed: 'down' };
@@ -37,7 +38,7 @@ function OptionPrices() {
     }
   }
 
-  if (error && !data) return null;
+  if (error && !data) return <LoadState error={error} onRetry={reload} what="option prices" />;
   if (!data) return <Skeleton className="h-32" />;
   const s = data.saved || {};
   return (
@@ -52,8 +53,8 @@ function OptionPrices() {
       </p>
       <p className="text-[11px] leading-snug text-muted">Review, the studies and the Finder use these real premiums when they have them for a day. A day with none shows "estimated by the model". Premiums are saved automatically after 15:40 on a weekday, only while the app is running and logged in to Upstox. If you missed a day, the buttons below fetch what Upstox still has.</p>
       {data.simulated && <p className="text-[11px] text-warn">The sample feed has no real option prices. Log in to Upstox first.</p>}
-      {running && <p className="num text-[11px] text-muted">{job.done} of {job.total} contracts{job.step ? `, now ${job.step}` : ''}</p>}
-      {job?.error && <p className="text-[11px] text-down">{job.error}</p>}
+      {running && <JobStatus state="running" title="Reading option prices" step={job.step} done={job.done} total={job.total} unit="contracts" startedAt={job.startedAt} />}
+      {job?.error && <JobStatus state="failed" title="Stopped" error={job.error} />}
       <div className="grid grid-cols-2 gap-2">
         <button type="button" className="btn" disabled={busy || running || data.simulated} onClick={() => call('sync', 'Saving today\'s prices')}>
           Save today now
@@ -92,7 +93,7 @@ export function HistoryData() {
     }
   }
 
-  if (error && !data) return <p className="text-xs text-down">{error.message || 'Could not load the saved data'}</p>;
+  if (error && !data) return <LoadState error={error} onRetry={reload} what="saved data" />;
   if (!data) return <Skeleton className="h-32" />;
 
   return (
@@ -124,15 +125,8 @@ export function HistoryData() {
             <h3 className="text-sm font-semibold">Last download</h3>
             <Badge tone={JOB_TONE[job.state] || 'muted'}>{JOB_WORD[job.state] || job.state}</Badge>
           </div>
-          {running && (
-            <>
-              <div className="h-1.5 overflow-hidden rounded-full bg-line" role="progressbar" aria-valuenow={jobPercent(job)} aria-valuemin={0} aria-valuemax={100}>
-                <div className="h-full bg-accent transition-all" style={{ width: `${jobPercent(job)}%` }} />
-              </div>
-              <p className="num text-[11px] text-muted">{job.done} of {job.total} symbols{job.step ? `, now ${job.step}` : ''}</p>
-            </>
-          )}
-          {job.error && <p className="text-[11px] text-down">{job.error}</p>}
+          {running && <JobStatus state="running" title="Downloading candles" step={job.step} done={job.done} total={job.total} unit="symbols" startedAt={job.startedAt} />}
+          {job.error && <JobStatus state="failed" title="Download stopped" error={job.error} />}
           {job.failed?.length > 0 && (
             <p className="text-[11px] leading-snug text-warn">
               Could not finish {job.failed.length} of {job.total}: {failedText(job.failed)}. Press the button again to retry; what is saved is kept.

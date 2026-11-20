@@ -1,9 +1,10 @@
+import { Suspense } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { LineChart, Briefcase, Menu, Sun, Moon, CandlestickChart, Blocks } from 'lucide-react';
 import { IndexStrip } from './IndexStrip.jsx';
 import { MarketStatus } from './MarketStatus.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
-import { Disclaimer } from './ui.jsx';
+import { Disclaimer, Skeleton } from './ui.jsx';
 import { ReplayBanner } from './Replay.jsx';
 
 // Five tabs. Each tab owns a group of addresses, so the tab stays lit on its sub-pages (for example Trades on P&L and Orders).
@@ -97,7 +98,12 @@ export function Layout() {
 
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-3 pb-28 md:pb-10">
           <SubTabs tab={current} pathname={pathname} />
-          <Outlet />
+          {/* a page still downloading shows a placeholder here only: the header and the tab bar stay put */}
+          <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+            <div key={pathname} className="page-in">
+              <Outlet />
+            </div>
+          </Suspense>
         </main>
 
         {/* Mobile bottom tab bar */}

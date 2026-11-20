@@ -3,9 +3,10 @@ import { Brain, Check, Play, Undo2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api.js';
 import { istStamp } from '../../lib/study.js';
-import { LEARN_DAYS, loadErrorText, runningText, applyState, compareRows, diffWord, groupChanges, splitLine, verdictBox, windowTitle, trackLine } from '../../lib/learn.js';
+import { LEARN_DAYS, loadErrorText, applyState, compareRows, diffWord, groupChanges, splitLine, verdictBox, windowTitle, trackLine } from '../../lib/learn.js';
 import { Badge, Card, Fold, Segmented, Sheet, Skeleton } from '../ui.jsx';
 import { Switch } from '../options/OptionsAutoCard.jsx';
+import { JobStatus } from '../JobStatus.jsx';
 import { ComboLearn } from './ComboLearn.jsx';
 import { SharesLearn } from './SharesLearn.jsx';
 
@@ -97,7 +98,7 @@ export function LearnLab() {
     if (!running) return undefined;
     timer.current = setTimeout(load, 2000);
     return () => clearTimeout(timer.current);
-  }, [running, view, load]);
+  }, [running, view, loadError, load]); // loadError: a failed look while running asks again
 
   async function act(path, body, done) {
     setBusy(true);
@@ -131,17 +132,12 @@ export function LearnLab() {
           <span className="text-[11px] leading-snug text-muted"><b className="text-fg">Learn every evening</b> (after 17:00 on trading days: each combination, the whole setup and shares). It only suggests; nothing is applied without your tap.</span>
           <Switch on={Boolean(view?.evening)} label="Learn every evening" disabled={busy || !view} onClick={() => act('/evening', { on: !view?.evening }, view?.evening ? 'Evening learning off.' : 'Evening learning on.')} />
         </div>
-        {running && <p className="text-[11px] leading-snug text-accent" role="status">{runningText(view.status)}</p>}
+        {running && <JobStatus state="running" title="Learning" step={view.status.step || 'Starting'} seconds={view.status.seconds} note="It takes a few minutes (it stops trying new changes after 3). You can leave this page and come back." />}
         {view?.interrupted && !running && <p className="text-[11px] leading-snug text-warn">{view.interrupted}</p>}
         {view?.simulated && <p className="text-[11px] text-warn">The app is on the practice feed: its candles are made up, so a result here means nothing for real trading.</p>}
       </Card>
 
-      {loadError && (
-        <Card className="space-y-2 border-down p-3">
-          <p className="text-xs text-down">{loadError}</p>
-          <button type="button" className="btn btn-secondary btn-sm w-full" onClick={load}>Try again</button>
-        </Card>
-      )}
+      {loadError && <JobStatus state="failed" title="Could not load Learn" error={loadError} onRetry={load} />}
       {!view && !loadError && <Skeleton className="h-48 w-full" />}
       {mode === 'combos' && <ComboLearn view={view} days={days} busy={busy} running={running} act={act} />}
       {mode === 'combos' && <TrackRecord track={view?.track?.filter((t) => t.kind !== 'shares')} />}

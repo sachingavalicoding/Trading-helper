@@ -9,6 +9,7 @@ import { istStamp } from '../../lib/study.js';
 import { FAMILY_LABEL, BAND_CHOICES, movedBandWords, isApplied, skippedWords, measureLine } from '../../lib/movedTest.js';
 import { loadIndex, saveIndex } from '../../lib/indexes.js';
 import { Badge, Card, Fold, Segmented, Skeleton } from '../ui.jsx';
+import { JobStatus } from '../JobStatus.jsx';
 
 const EXIT = { LOCK: 'ladder', STOP: 'stop', HARD: 'hard stop', EOD: 'close time', TRAIL: 'trail', BREAKEVEN: 'break-even' };
 
@@ -88,10 +89,11 @@ export function MovedTester() {
           Do late entries lose? This takes the entries your auto trader would have taken on the real option prices saved for the last 30 days, and replays them again with a limit on how far the market had <b className="text-fg">already run before the buy</b>: the index from its 30 or 60-minute low, since the open, from the day average, its RSI, the option premium from its own low, and a last time for a new trade. Each limit is <b className="text-fg">picked on the older two thirds of the days</b> and only recommended if it also did better on the <b className="text-fg">newest third</b>, which it never saw. Nothing changes until you tap Use.
         </p>
         <button type="button" className="btn btn-primary w-full" disabled={running} onClick={() => run(30, { index })}>
-          <Play className="h-4 w-4" /> {running ? state?.status?.step || 'Running…' : 'Test on the saved prices'}
+          <Play className="h-4 w-4" /> {running ? 'Running…' : 'Test on the saved prices'}
         </button>
-        {state?.status?.state === 'failed' && <p className="text-xs text-down">{state.status.error}</p>}
-        {error && <p className="text-xs text-down">{error}</p>}
+        {running && <JobStatus state="running" title="Already-moved test" step={state?.status?.step} startedAt={state?.status?.startedAt} note="About a minute. You can leave this page." />}
+        {state?.status?.state === 'failed' && <JobStatus state="failed" title="Already-moved test stopped" error={state.status.error} />}
+        {error && <JobStatus state="failed" title="Could not load" error={error} />}
         {s && (
           <p className="text-[11px] text-muted">
             Now: {s.movedText ?? 'no already-moved check'}

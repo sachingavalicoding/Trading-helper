@@ -7,6 +7,7 @@ import { formatPnl, formatPrice, pnlClass } from '../../lib/format.js';
 import { FEW_TRADES, istStamp, sharesExitText, sharesText } from '../../lib/study.js';
 import { useStudy } from '../../lib/useStudy.js';
 import { Badge, Card, Segmented, Skeleton } from '../ui.jsx';
+import { JobStatus } from '../JobStatus.jsx';
 import { ExitTimeField, useExitTime } from './ExitTimeField.jsx';
 import { IndicatorRanking } from './IndicatorRanking.jsx';
 import { PairFinder, PairFinderControl } from './PairFinder.jsx';
@@ -136,11 +137,11 @@ export function SharesStudy() {
           </button>
         </div>
         {finderOn && <p className="rounded-lg bg-surface-2 p-2 text-[11px] leading-snug text-muted">A finder is on, so only the finder runs, not the normal share study. It takes a few minutes. Turn the finders off to run the normal study.</p>}
-        {running && <p className="text-xs text-muted">{state.status.step}. This takes a few minutes.</p>}
+        {running && <JobStatus state="running" title="Shares study" step={state.status.step} startedAt={state.status.startedAt} note="This takes a few minutes. You can leave this page." />}
         <StudySource kind={'shares'} />
-        {state?.status?.state === 'failed' && <p className="text-xs text-down">{state.status.error}</p>}
+        {state?.status?.state === 'failed' && <JobStatus state="failed" title="Shares study stopped" error={state.status.error} />}
         {state?.result?.dataSource && <p className="text-xs text-warn">{state.result.dataSource.text}</p>}
-        {error && <p className="text-xs text-down">{error}</p>}
+        {error && <JobStatus state="failed" title="Could not load" error={error} />}
       </Card>
 
       {!state && !error && <Skeleton className="h-40 w-full" />}
