@@ -25,6 +25,7 @@ import { finishWhenDone } from './dayreplay/result.js';
 import { ReplayLadder } from './dayreplay/ladder.js';
 import { YearTest, YearSource } from './yeartest/yearTest.js';
 import { TestRunner } from './dayreplay/testRunner.js';
+import { SpeedCheck } from './dayreplay/speedCheck.js';
 import { StudyService } from './study/service.js';
 import { LearnerService } from './learner/service.js';
 import { LearnService } from './learner/learnService.js';
@@ -99,6 +100,9 @@ async function main() {
     // replay tests of Learn's changes; up to 4 days play side by side, each copy on its own port and database
     dayReplay.ladder = new ReplayLadder({ runners: [0, 1, 2, 3].map((slot) => new TestRunner({ config: env, slot })), learn });
     process.on('exit', () => dayReplay.ladder.runners.forEach((r) => r.child?.kill()));
+    // the speed check (100x/200x vs 50x) plays on its own copy (slot 4), so it never waits for a replay test
+    dayReplay.manager.speedCheck = new SpeedCheck({ runner: new TestRunner({ config: env, slot: 4 }), file: path.join(env.archiveDir, 'speed-check.json') });
+    process.on('exit', () => dayReplay.manager.speedCheck.runner.child?.kill());
   }
   // Research > Year test: one thing over months of the year files, in the background; a run cut short by a restart carries on
   const yearTest = replay ? null : new YearTest({ dir: path.join(env.archiveDir, 'year-tests'), yearFiles, imports: archive.imports, lab, ladder: dayReplay.ladder ?? null });
@@ -116,6 +120,7 @@ async function main() {
     logger.info(`${signal} received, shutting down`);
     dayReplay.manager?.stop();
     dayReplay.ladder?.runners.forEach((r) => r.stop());
+    dayReplay.manager?.speedCheck?.runner.stop();
     settingsSync?.stop();
     engine.stop();
     tracker.stop();
