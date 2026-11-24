@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { confirmEntry, rLadder, ruleBlock, shareRulesOf, DEFAULT_SHARE_RULES } from '../src/scanner/entryRules.js';
+import { confirmEntry, rLadder, ladderKey, rTargetKey, rTargetPrice, ruleBlock, shareRulesOf, DEFAULT_SHARE_RULES, R_LADDERS, TRY_R_TARGETS, TRY_R_TARGET_LOCKS } from '../src/scanner/entryRules.js';
 import { niftyTrendOf, niftyTrendTimeline } from '../src/scanner/marketTrend.js';
 import { ruleTest, tradesFor } from '../src/study/ruleTest.js';
 import { runSharesStudy } from '../src/study/sharesStudy.js';
@@ -164,7 +164,7 @@ test('the shares study also tests the new entry rules on the ideas the live scan
   const r = await runSharesStudy({ nifty1: walk(12, 7), history, params: { days: 5, riskAmount: 300, maxAmount: 100000, settings: { minScore: 70, skipSetups: [], trendScore: true, shareRules: {} } } });
   const t = r.ruleTest;
   assert.ok(t, 'rule test in the result');
-  assert.equal(t.rows.length, 14);
+  assert.equal(t.rows.length, 32);
   assert.ok(t.rows.find((x) => x.key === 'lockR05').trades <= t.now.trades);
   assert.ok(t.now.trades >= 0);
   for (const row of t.rows) {
@@ -215,4 +215,65 @@ test('confirmMinute buys at the close of the 1-minute candle the idea was raised
   assert.match(confirmMinute([b(0, { close: 101 }), b(1)], 0, idea).dropped, /already 1.00R past/);
   const sell = { side: 'SELL', entry: 100, stopLoss: 101 };
   assert.equal(confirmMinute([b(0, { close: 99.7, high: 100.4 }), b(1)], 0, sell).price, 99.7);
+});
+
+// ---- exits worked out from each trade's own stop (24 Nov 2026) ----
+test('a lock in risks can start at 1R: the ladder is picked by its start, and the rupee rows follow the money risked', () => {
+  assert.deepEqual(rLadder(1, 660), [{ at: 660, keep: 330 }, { at: 990, keep: 660 }, { at: 1320, keep: 990 }, { at: 1980, keep: 1650 }]);
+  assert.equal(ladderKey(1), '1');
+  assert.equal(ladderKey(0.9), '1', 'the nearest ladder');
+  assert.equal(ladderKey(0), null);
+  // every ladder keeps less than it needs and rises, as the order engine requires
+  for (const rows of Object.values(R_LADDERS)) rows.forEach(([at, keep], k) => assert.ok(keep > 0 && keep < at && (k === 0 || (at > rows[k - 1][0] && keep > rows[k - 1][1]))));
+});
+
+test('a target in risks is worked out from the trade\'s own stop, for buys and sells, and is off at 0', () => {
+  assert.equal(rTargetPrice(2, 100, 99, 'BUY'), 102);
+  assert.equal(rTargetPrice(1.5, 100, 101, 'SELL'), 98.5);
+  assert.equal(rTargetPrice(0, 100, 99, 'BUY'), null);
+  assert.equal(rTargetPrice(2, 100, 100, 'BUY'), null, 'no stop distance, no target');
+  assert.equal(rTargetKey(2, 0), '2');
+  assert.equal(rTargetKey(2, 1), '2+1');
+  assert.equal(rTargetKey(2, 0.9), '2+1', 'the lock rounds to its ladder like the live trader');
+  assert.ok(shareRulesOf(null).stopMult === 1 && shareRulesOf(null).targetR === 0, 'off by default');
+  assert.match(shareRulesText(shareRulesOf({ targetR: 2, lockFromR: 1 })), /sells at \+2R, profit lock from \+1R/);
+});
+
+test('rule test: a target in risks, with or without a lock, and a wider stop each read the outcome the replay saved for them', () => {
+  const lose = { status: 'STOPPED', exit: 'STOP', exitPrice: 994, exitTime: Date.parse('2026-11-09T05:30:00Z') / 1000, sizedQty: 50 };
+  const win = { status: 'TARGET_HIT', exit: 'TARGET', exitPrice: 1012, exitTime: Date.parse('2026-11-09T05:10:00Z') / 1000, sizedQty: 50 };
+  const i = idea({
+    rtargets: { 2: win, '2+1': { ...win, exitPrice: 1011 } },
+    rlocks: { 1: { ...win, exitPrice: 1003 } },
+    stops: { 1.25: { stopLoss: 992.5, ...lose, sizedQty: 40, targets: {}, rlocks: {}, rtargets: { 2: win } } },
+  });
+  const base = { minScore: 70, setupOn: () => true };
+  const net = (rules) => tradesFor([i], { ...base, rules: { ...shareRulesOf(null), ...rules } });
+  assert.equal(net({}).at(0).exit, 'STOP', 'the normal ladder');
+  assert.equal(net({ targetR: 2 })[0].exitPrice, 1012, 'a target of 2R alone');
+  assert.equal(net({ targetR: 2, lockFromR: 1 })[0].exitPrice, 1011, 'a target of 2R with the 1R lock');
+  assert.equal(net({ lockFromR: 1 })[0].exitPrice, 1003, 'the 1R lock alone');
+  assert.equal(net({ target: 200, targetR: 2 })[0].exitPrice, 1004, 'a fixed rupee target wins over a target in risks');
+  // a wider stop: the stop, the shares and the outcome come from the replay with that stop; one that was never replayed is skipped
+  const wide = net({ stopMult: 1.25 });
+  assert.equal(wide[0].stopLoss, 992.5);
+  assert.equal(wide[0].sizedQty, 40);
+  assert.equal(net({ stopMult: 1.25, targetR: 2 })[0].exitPrice, 1012);
+  assert.equal(net({ stopMult: 1.4 }).length, 0);
+  // the stop distance counts for the smallest-stop rule: 0.75% of 1000 is a 7.5 stop
+  assert.equal(net({ stopMult: 1.25, minStopPct: 0.8 }).length, 0);
+  assert.equal(net({ stopMult: 1.25, minStopPct: 0.7 }).length, 1);
+});
+
+test('the rule test offers every target in risks, with and without a lock, and every stop distance, and "together" joins only one exit', () => {
+  const win = { status: 'TARGET_HIT', exit: 'TARGET', exitPrice: 1012, exitTime: Date.parse('2026-11-09T05:10:00Z') / 1000, sizedQty: 50 };
+  const days = ['2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06'];
+  const ideas = days.flatMap((d) => [0, 1, 2, 3].map((k) => idea({ openedAt: `${d}T0${4 + (k % 2)}:00:00.000Z`, exitTime: Date.parse(`${d}T0${4 + (k % 2)}:30:00Z`) / 1000, rtargets: { 2: win, 1.5: win, '2+1': win } })));
+  const r = ruleTest(ideas, { minScore: 70, skipSetups: [], trendScore: true, shareRules: {} }, { riskAmount: 300, slippagePct: 0.05 });
+  for (const t of TRY_R_TARGETS) assert.ok(r.rows.find((x) => x.key === `targetR${t}`), `target ${t}R`);
+  for (const t of TRY_R_TARGETS) for (const k of TRY_R_TARGET_LOCKS) assert.ok(r.rows.find((x) => x.key === `targetR${t}Lock${k}`));
+  assert.deepEqual(r.rows.find((x) => x.key === 'targetR2').body, { shareRules: { targetR: 2, target: 0, lockFromR: 0 } });
+  assert.deepEqual(r.rows.find((x) => x.key === 'stopMult1.25').body, { shareRules: { stopMult: 1.25 } });
+  assert.ok(r.rows.find((x) => x.key === 'targetR2').totalNet > r.now.totalNet, 'the replay says the 2R target made more');
+  if (r.together) assert.ok(Object.keys(r.together.patch).filter((k) => ['target', 'targetR', 'lockFromR'].includes(k)).length <= 3);
 });

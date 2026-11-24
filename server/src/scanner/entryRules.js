@@ -14,6 +14,8 @@ export const DEFAULT_SHARE_RULES = Object.freeze({
   stopAfterLosses: 0, // no new share trade today after this many losing auto trades
   lockFromR: 0, // profit lock measured in risks of each trade (R_LADDERS) in place of the rupee ladder; 0 = the rupee ladder (Account)
   target: 0, // sell a share trade once its profit reaches this many rupees, in place of the profit ladder; 0 = the ladder (Account)
+  stopMult: 1, // where the stop sits, as a multiple of the scanner's own stop distance (the same money is risked, so a wider stop buys fewer shares); 1 = the scanner's stop
+  targetR: 0, // sell once the profit reaches this many risks (R) of the trade, worked out from its own stop; 0 = off. With lockFromR it is lock + target; alone it replaces the ladder. A fixed rupee `target` wins over it
 });
 
 export const RULE_LABELS = {
@@ -26,6 +28,8 @@ export const RULE_LABELS = {
   minStopPct: 'Smallest stop',
   stopAfterLosses: 'Stop after losses',
   target: 'Fixed profit target',
+  targetR: 'Profit target in risks',
+  stopMult: 'Stop distance (x the scanner stop)',
   lockFromR: 'Profit lock in risks',
 };
 
@@ -106,16 +110,39 @@ export const minuteOf = (t) => istParts(new Date(t * 1000)).minutes;
 /**
  * Profit locks in risks (R) of each trade, added 11 Nov 2026: a rupee ladder starting at +₹300 is +0.3R on a ₹1,000-risk trade but +1R
  * on a ₹315 one, so it caught the 30 Oct winners and missed the 9-11 Nov ones. Rows of [profit, kept] in R; above the last row the stop
- * follows that row's gap behind the best profit. The key is where the lock starts.
+ * follows that row's gap behind the best profit. The key is where the lock starts. 0.75, 1 and 1.5 were added on 24 Nov 2026: on 73
+ * real share trades a 1R stop with no lock before +1R (or a target of 1.5-2R) beat the rupee ladder that cut winners at about 0.45R.
  */
 export const R_LADDERS = {
   0.35: [[0.35, 0.2], [0.6, 0.4], [1, 0.75], [1.5, 1.2]],
   0.5: [[0.5, 0.25], [0.75, 0.45], [1, 0.7], [1.5, 1.15]],
+  0.75: [[0.75, 0.4], [1, 0.65], [1.5, 1.1], [2, 1.6]],
+  1: [[1, 0.5], [1.5, 1], [2, 1.5], [3, 2.5]],
+  1.5: [[1.5, 0.9], [2, 1.4], [3, 2.4]],
 };
+
+/** Profit targets in risks the studies try, alone (the ladder is replaced) and together with a lock (lock + target). */
+export const TRY_R_TARGETS = [1, 1.5, 2, 3];
+export const TRY_R_TARGET_LOCKS = [0.5, 1];
+
+/** The key of R_LADDERS (as text) nearest `fromR`, or null when the lock is off. */
+export function ladderKey(fromR) {
+  if (!(fromR > 0)) return null;
+  return String(Object.keys(R_LADDERS).map(Number).sort((a, b) => Math.abs(a - fromR) - Math.abs(b - fromR))[0]);
+}
+
+/** The key a study uses for "a target in risks, with this lock": `2` for a target alone, `2+1` for a target of 2R with the 1R lock. */
+export const rTargetKey = (targetR, fromR) => (fromR > 0 ? `${targetR}+${ladderKey(fromR)}` : String(targetR));
 
 /** The R ladder starting nearest `fromR`, as rupee rows for a trade that risks `riskRupees`; [] when off. */
 export function rLadder(fromR, riskRupees) {
   if (!(fromR > 0) || !(riskRupees > 0)) return [];
-  const key = Object.keys(R_LADDERS).map(Number).sort((a, b) => Math.abs(a - fromR) - Math.abs(b - fromR))[0];
-  return R_LADDERS[key].map(([at, keep]) => ({ at: Math.round(at * riskRupees), keep: Math.max(1, Math.round(keep * riskRupees)) }));
+  return R_LADDERS[ladderKey(fromR)].map(([at, keep]) => ({ at: Math.round(at * riskRupees), keep: Math.max(1, Math.round(keep * riskRupees)) }));
+}
+
+/** The sale price of a target of `targetR` risks for a trade filled at `fill` with its stop at `stop`; null when off. Not rounded to a tick. */
+export function rTargetPrice(targetR, fill, stop, side) {
+  const risk = Math.abs(fill - stop);
+  if (!(targetR > 0) || !(risk > 0)) return null;
+  return fill + (side === 'BUY' ? 1 : -1) * targetR * risk;
 }

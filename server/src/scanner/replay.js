@@ -4,7 +4,7 @@ import { evaluateStock, MIN_SCORE } from './evaluate.js';
 import { roundToTick } from '../utils/money.js';
 import { LOCK_CHARGES_MULT, roundTripCharges } from '../services/charges.js';
 import { sizeOf } from './backtest.js';
-import { confirmEntry, rLadder, R_LADDERS } from './entryRules.js';
+import { confirmEntry, rLadder, rTargetKey, R_LADDERS, TRY_R_TARGETS, TRY_R_TARGET_LOCKS } from './entryRules.js';
 
 const STEP = 5; // look for ideas every 5 minutes, like a person glancing at the screen
 const MIN_BARS = 60;
@@ -79,7 +79,7 @@ export function followLive(c1, from, idea, ladder = LADDER, money = null) {
   const qty = money ? sizeOf(idea, money) : 0;
   const entryFill = money ? entry * (1 + (dir * (money.slippagePct ?? 0.05)) / 100) : entry;
   const chargesFloor = money && qty ? LOCK_CHARGES_MULT * roundTripCharges({ qty, price: entry }) : 0;
-  const rungs = money && !(money.target > 0) ? [...(money.steps ?? [])].sort((a, b) => a.at - b.at) : [];
+  const rungs = money && (!(money.target > 0) || money.keepSteps) ? [...(money.steps ?? [])].sort((a, b) => a.at - b.at) : []; // a fixed target replaces the ladder, unless `keepSteps` asks for lock + target
   let bestMoney = 0;
   let stop = idea.stopLoss;
   let bestR = 0;
@@ -152,38 +152,55 @@ export const TRY_TARGETS = [200, 250, 300];
  * that is not blocked, not missed and not a switched-off setup, with its facts, its normal result, the result had it waited for a 5-minute
  * close (scanner/entryRules.js confirmEntry), and the result with each fixed target in TRY_TARGETS.
  */
-/** The idea followed with each profit lock in risks (scanner/entryRules.js R_LADDERS), sized like the live trade. */
-function rLocks(c1, i, idea, ladder, money) {
-  const qty = sizeOf(idea, money);
-  const risk = qty * Math.abs(idea.entry - idea.stopLoss);
-  const out = {};
-  for (const k of Object.keys(R_LADDERS)) {
-    const r = followLive(c1, i, idea, ladder, { ...money, target: 0, steps: rLadder(Number(k), risk) });
-    out[k] = { status: r.status, exit: r.exit, exitPrice: r.exitPrice, exitTime: r.exitTime, sizedQty: r.sizedQty };
+// Stops the rule test and the learner also try, as a multiple of the scanner's own stop distance (1 = the scanner's stop).
+export const TRY_STOP_MULTS = [0.75, 1.25, 1.5];
+
+const pack = (r) => ({ status: r.status, exit: r.exit, exitPrice: r.exitPrice, exitTime: r.exitTime, sizedQty: r.sizedQty });
+
+/**
+ * One idea followed with every exit the rule test can pick, sized like the live trade: the normal result, each fixed rupee target
+ * (`targets`), each profit lock in risks (`rlocks`, scanner/entryRules.js R_LADDERS) and each target in risks alone or with a lock
+ * (`rtargets`, keyed by rTargetKey). A target in risks is `t` times the money the trade risks, so it follows the stop.
+ */
+function bundle(c1, i, idea, ladder, money) {
+  const base = followLive(c1, i, idea, ladder, money);
+  const out = { ...pack(base), targets: {}, rlocks: {}, rtargets: {} };
+  for (const t of TRY_TARGETS) out.targets[t] = pack(followLive(c1, i, idea, ladder, { ...money, target: t }));
+  const risk = (base.sizedQty || 0) * Math.abs(idea.entry - idea.stopLoss);
+  if (!(risk > 0)) return { base, out };
+  for (const k of Object.keys(R_LADDERS)) out.rlocks[k] = pack(followLive(c1, i, idea, ladder, { ...money, target: 0, steps: rLadder(Number(k), risk) }));
+  for (const t of TRY_R_TARGETS) {
+    out.rtargets[rTargetKey(t, 0)] = pack(followLive(c1, i, idea, ladder, { ...money, target: t * risk, steps: [] }));
+    for (const k of TRY_R_TARGET_LOCKS) out.rtargets[rTargetKey(t, k)] = pack(followLive(c1, i, idea, ladder, { ...money, target: t * risk, steps: rLadder(k, risk), keepSteps: true }));
   }
-  return out;
+  return { base, out };
+}
+
+/** The same idea with its stop `mult` times as far from the entry (a wider stop buys fewer shares, so the money at risk stays the same). */
+function withStop(idea, mult) {
+  const d = idea.side === 'BUY' ? 1 : -1;
+  return { ...idea, stopLoss: roundToTick(idea.entry - d * Math.abs(idea.entry - idea.stopLoss) * mult) };
 }
 
 function liveIdea(symbol, c1, i, candidates, now, ladder, money) {
   const top = candidates.find((c) => c.score >= MIN_SCORE && c.status !== 'MISSED' && !c.blocked.length && !LIVE_OFF.has(c.setup));
   if (!top || top.status !== 'ENTRY') return null;
   const idea = { symbol, setup: top.setup, side: top.side, score: top.score, entry: top.entry, stopLoss: top.stopLoss, target1: top.target1, target2: top.target2, target3: top.target3, openedAt: now.toISOString(), facts: top.facts ?? null };
-  const out = { ...idea, ...followLive(c1, i, idea, ladder, money), targets: {} };
-  for (const t of TRY_TARGETS) {
-    const r = followLive(c1, i, idea, ladder, { ...money, target: t });
-    out.targets[t] = { status: r.status, exit: r.exit, exitPrice: r.exitPrice, exitTime: r.exitTime, sizedQty: r.sizedQty };
+  const main = bundle(c1, i, idea, ladder, money);
+  const out = { ...idea, ...main.base, targets: main.out.targets, rlocks: main.out.rlocks, rtargets: main.out.rtargets, stops: {} };
+  for (const m of TRY_STOP_MULTS) {
+    const w = withStop(idea, m);
+    out.stops[m] = { stopLoss: w.stopLoss, ...bundle(c1, i, w, ladder, money).out };
   }
-  out.rlocks = rLocks(c1, i, idea, ladder, money);
   const conf = confirmEntry(c1, i, idea);
   if (conf.index != null) {
     const later = { ...idea, entry: conf.price, openedAt: new Date(conf.time * 1000 + 60_000).toISOString() };
-    const r = followLive(c1, conf.index, later, ladder, money);
-    out.confirmed = { entry: conf.price, openedAt: later.openedAt, status: r.status, exit: r.exit, exitPrice: r.exitPrice, exitTime: r.exitTime, sizedQty: r.sizedQty, targets: {} };
-    for (const t of TRY_TARGETS) {
-      const rt = followLive(c1, conf.index, later, ladder, { ...money, target: t });
-      out.confirmed.targets[t] = { status: rt.status, exit: rt.exit, exitPrice: rt.exitPrice, exitTime: rt.exitTime, sizedQty: rt.sizedQty };
+    const c = bundle(c1, conf.index, later, ladder, money);
+    out.confirmed = { entry: conf.price, openedAt: later.openedAt, ...c.out, stops: {} };
+    for (const m of TRY_STOP_MULTS) {
+      const w = withStop(later, m);
+      out.confirmed.stops[m] = { stopLoss: w.stopLoss, ...bundle(c1, conf.index, w, ladder, money).out };
     }
-    out.confirmed.rlocks = rLocks(c1, conf.index, later, ladder, money);
   } else out.confirmed = { dropped: conf.dropped || 'not enough candles after the idea' };
   return out;
 }

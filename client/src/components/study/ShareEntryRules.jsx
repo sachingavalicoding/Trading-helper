@@ -15,8 +15,10 @@ const NUMBERS = [
   { key: 'noChaseR', label: 'Do not chase past (R)', hint: 'Skip when the price already ran this many risks past the entry. 0.5 was the old fixed value.', step: '0.1' },
   { key: 'minStopPct', label: 'Smallest stop (% of price)', hint: 'Skip ideas with a closer stop. 0.5 was the old fixed value; 0 = off.', step: '0.1' },
   { key: 'stopAfterLosses', label: 'No new trade after this many losses a day', hint: '0 = off.', step: '1' },
-  { key: 'lockFromR', label: 'Profit lock in risks (0, 0.35 or 0.5)', hint: '0 = your rupee ladder. 0.5: once a trade is up half its risk the stop keeps a quarter of it, then follows. Works the same for any stop size. Check it in the study first.', step: '0.05' },
-  { key: 'target', label: 'Sell at a fixed profit (₹)', hint: '0 = use your profit ladder. For example 250 sells once the trade is up ₹250.', step: '50' },
+  { key: 'stopMult', label: 'Stop distance (x the scanner stop)', hint: '1 = the scanner\'s own stop. 1.25 or 1.5 puts the stop further away and buys fewer shares for the same money at risk, so normal wiggle does not stop you out. The study tries 0.75, 1.25 and 1.5.', step: '0.05', min: 0.5 },
+  { key: 'lockFromR', label: 'Profit lock in risks (0, 0.35, 0.5, 0.75, 1 or 1.5)', hint: '0 = your rupee ladder (fixed rupees). 1: once a trade is up one full risk the stop keeps half a risk, then follows. Calculated from each trade\'s own stop, so it works the same for any stop size. Check it in the study first.', step: '0.05' },
+  { key: 'targetR', label: 'Sell at a profit of (R, risks)', hint: '0 = off. 2 sells once the trade is up two risks, worked out from its own stop. On its own it replaces the rupee ladder; together with the profit lock above, the lock protects the gain and the target sells it. The study tries 1, 1.5, 2 and 3.', step: '0.25' },
+  { key: 'target', label: 'Sell at a fixed profit (₹)', hint: '0 = use your profit ladder. For example 250 sells once the trade is up ₹250. A fixed rupee target wins over the one in risks.', step: '50' },
 ];
 
 export function ShareEntryRules({ data, reload }) {
@@ -67,7 +69,7 @@ export function ShareEntryRules({ data, reload }) {
               onBlur={() => {
                 if (draft[n.key] == null) return;
                 const v = Number(draft[n.key]);
-                if (!Number.isFinite(v) || v < 0) return toast.error('Enter a number, 0 or more');
+                if (!Number.isFinite(v) || v < (n.min ?? 0)) return toast.error(`Enter a number, ${n.min ?? 0} or more`);
                 if (v !== rules[n.key]) save({ [n.key]: v });
               }}
             />

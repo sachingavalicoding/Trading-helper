@@ -346,3 +346,47 @@ test('a setup switched off in the Account tab is skipped by the auto trader, sav
   const on = await trader.consider(settings({ user: uid, maxOpen: 10, maxShares: 1, skipSetups: ['News gap'] }), { ...gap, _id: `${gap._id}-b` });
   assert.ok(on.order, on.skipped);
 });
+
+// ---- exits worked out from each trade's own stop: a target in risks (R), a lock in risks, and a wider stop (added 24 Nov 2026) ----
+const placeLT = async (shareRules) => {
+  const fresh = await registerUser(app);
+  const uid = fresh.user.id || fresh.user._id;
+  await TradeDefaults.create({ user: uid, shares: { stopLoss: 1000, lockStart: 1000, lockGap: 100 } });
+  ctx.provider.setPrice('LT', 3500);
+  await settle();
+  const r = await trader.consider(settings({ user: uid, maxOpen: 10, riskPct: 1, shareRules }), { ...idea('LT', 'BUY'), stopLoss: 3480 });
+  assert.ok(r.order, r.skipped);
+  const pos = await Position.findOne({ user: uid, symbol: 'LT', status: 'OPEN' }).lean();
+  const target = await Order.findOne({ user: uid, symbol: 'LT', role: 'TARGET', status: 'OPEN' }).lean();
+  const stop = await Order.findOne({ user: uid, symbol: 'LT', role: 'STOPLOSS', status: 'OPEN' }).lean();
+  return { r, pos, target, stop };
+};
+
+test('a target in risks sells at that many risks of this trade, worked out from its own stop, and replaces the ladder', async () => {
+  const { r, pos, target, stop } = await placeLT({ targetR: 2 });
+  assert.equal(r.order.qty, 50, 'the Account stop of 1000 / 20 a share');
+  assert.equal(target.price, 3540, '2R = 2 x 20 above the fill');
+  assert.equal(stop.triggerPrice, 3480);
+  assert.equal(pos.lockSteps.length, 0, 'the rupee ladder is replaced');
+  assert.equal(pos.lockTrigger, null);
+});
+
+test('a target in risks with a lock in risks: the lock climbs from +1R of the money risked and the target still sells', async () => {
+  const { r, pos, target } = await placeLT({ targetR: 3, lockFromR: 1 });
+  assert.equal(target.price, 3560, '3R = 3 x 20 above the fill');
+  assert.deepEqual(pos.lockSteps[0], { at: r.order.qty * 20, keep: Math.round(0.5 * r.order.qty * 20) }, 'at +1R it keeps half a risk');
+  assert.ok(pos.lockSteps.length >= 3);
+});
+
+test('a lock in risks alone sets no target, and 1 means the 1R lock', async () => {
+  const { pos, target } = await placeLT({ lockFromR: 1 });
+  assert.equal(target, null);
+  assert.equal(pos.lockSteps[0].at, 1000, '+1R of 50 shares x 20');
+  assert.equal(pos.lockSteps[0].keep, 500);
+});
+
+test('a wider stop puts the stop further away and buys fewer shares for the same money at risk', async () => {
+  const { r, stop } = await placeLT({ stopMult: 1.5 });
+  assert.equal(stop.triggerPrice, 3470, '1.5 x 20 below the entry');
+  assert.equal(r.order.qty, 33, 'the Account stop of 1000 / 30 a share');
+});

@@ -51,7 +51,9 @@ export function shareRulesText(sr) {
     `no buy once ${sr.noChaseR}R past the entry`,
     `smallest stop ${sr.minStopPct}%`,
     sr.stopAfterLosses > 0 ? `no new trade after ${sr.stopAfterLosses} losses in a day` : null,
-    sr.lockFromR > 0 && !(sr.target > 0) ? `profit lock in risks from +${sr.lockFromR}R (replaces the rupee ladder)` : null,
+    sr.target > 0 ? `sells at +₹${sr.target}` : null,
+    sr.targetR > 0 && !(sr.target > 0) ? `sells at +${sr.targetR}R${sr.lockFromR > 0 ? `, profit lock from +${sr.lockFromR}R` : ''} (replaces the rupee ladder)` : null,
+    sr.lockFromR > 0 && !(sr.targetR > 0) && !(sr.target > 0) ? `profit lock in risks from +${sr.lockFromR}R (replaces the rupee ladder)` : null,
   ]
     .filter(Boolean)
     .join(', ');

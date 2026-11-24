@@ -10,7 +10,7 @@ import { normalizeCombos } from '../combos/combos.js';
 import { bars5Of, breadthByTime, comboMoney, shareChart, shareIdeas, newsDirection } from '../combos/shares.js';
 import { logger } from '../utils/logger.js';
 import { roundToTick } from '../utils/money.js';
-import { confirmEntry, confirmMinute, rLadder, ruleBlock, shareRulesOf } from '../scanner/entryRules.js';
+import { confirmEntry, confirmMinute, rLadder, rTargetPrice, ruleBlock, shareRulesOf } from '../scanner/entryRules.js';
 const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -234,6 +234,7 @@ export class AutoTrader {
     const key = `${settings.user}|${idea._id}`;
     if (this.handled.has(key)) return { skipped: 'already handled' };
     this.handled.add(key);
+    idea = this.#withStopMult(settings, idea);
 
     const seen = {};
     const result = await this.#decide(settings, idea, seen);
@@ -249,6 +250,18 @@ export class AutoTrader {
       await this.#record(settings, idea, { ...base, decision: 'PLACED', status: 'OPEN', qty: order.qty, fillPrice: order.avgFillPrice, order: order._id, position: position?._id });
     }
     return result;
+  }
+
+  /**
+   * "Stop distance" (Account > Entries > Shares, `stopMult`): the stop sits that many times as far from the entry as the scanner's own, on a copy of
+   * the idea (the saved idea is not changed). Sizing then risks the same money, so a wider stop buys fewer shares. Not for a combination's own exits.
+   */
+  #withStopMult(settings, idea) {
+    const m = shareRulesOf(settings.shareRules).stopMult;
+    if (!(m > 0) || m === 1 || idea.combo || idea.comboSnap || !idea.entry || !idea.stopLoss) return idea;
+    const d = idea.side === 'BUY' ? 1 : -1;
+    const plain = typeof idea.toObject === 'function' ? idea.toObject() : { ...idea };
+    return { ...plain, stopLoss: roundToTick(idea.entry - d * Math.abs(idea.entry - idea.stopLoss) * m) };
   }
 
   async #decide(settings, idea, seen) {
@@ -334,16 +347,25 @@ export class AutoTrader {
     if (own) await this.#ownExits(userId, idea, order, own);
     const ownSell = own && (idea.comboSnap.order?.target > 0 || Array.isArray(idea.comboSnap.exits?.steps));
     if (sr.target > 0 && !ownSell) await this.#fixedTarget(userId, idea, order, sr.target);
-    else if (sr.lockFromR > 0 && !ownSell) {
-      // the profit lock in risks of this trade (scanner/entryRules.js R_LADDERS) in place of the rupee ladder
-      const steps = rLadder(sr.lockFromR, order.qty * Math.abs((order.avgFillPrice ?? idea.entry) - idea.stopLoss));
-      try {
-        if (steps.length) await this.engine.setExits(userId, idea.symbol, { lockTrigger: null, lockAmount: null, lockSteps: steps });
-      } catch (e) {
-        logger.warn(`lock in risks for ${idea.symbol} not set: ${e.message}`);
-      }
-    }
+    else if ((sr.lockFromR > 0 || sr.targetR > 0) && !ownSell) await this.#riskExits(userId, idea, order, sr);
     return { order, cut: own ? own.riskAmount : rules.stopLoss };
+  }
+
+  /**
+   * Exits measured in risks (R) of this trade, worked out from its own stop (scanner/entryRules.js), in place of the rupee ladder:
+   * a profit lock from +lockFromR (R_LADDERS), a sale at +targetR, or both (the lock protects the gain, the target sells it).
+   */
+  async #riskExits(userId, idea, order, sr) {
+    const fill = order.avgFillPrice ?? idea.entry;
+    const perShare = Math.abs(fill - idea.stopLoss);
+    const exits = { lockTrigger: null, lockAmount: null, lockSteps: rLadder(sr.lockFromR, order.qty * perShare) };
+    const at = rTargetPrice(sr.targetR, fill, idea.stopLoss, idea.side);
+    if (at != null) exits.target = roundToTick(at);
+    try {
+      await this.engine.setExits(userId, idea.symbol, exits);
+    } catch (e) {
+      logger.warn(`exits in risks for ${idea.symbol} not set: ${e.message}`);
+    }
   }
 
   /** Account > Entries > Shares "fixed profit target": sell at that profit in place of the ladder. */

@@ -8,8 +8,8 @@
 
 import { tradesFor } from '../study/ruleTest.js';
 import { netResult } from '../scanner/backtest.js';
-import { TRY_TARGETS } from '../scanner/replay.js';
-import { shareRulesOf } from '../scanner/entryRules.js';
+import { TRY_STOP_MULTS, TRY_TARGETS } from '../scanner/replay.js';
+import { shareRulesOf, TRY_R_TARGETS, TRY_R_TARGET_LOCKS } from '../scanner/entryRules.js';
 import { splitDays, steady, judge, consistent, marginOf, MIN_LEARN_TRADES } from './tune.js';
 
 /**
@@ -22,7 +22,7 @@ export const SHARE_ROUNDS = 4;
 export const ENTRY_TO = [600, 630, 660, 690, 720, 750, 915];
 export const ENTRY_FROM = [555, 570, 585, 600];
 export const RULE_TRIES = { minVsNifty: [0, 0.3, 0.5], minRelVol: [0, 1.2, 1.5], minStopPct: [0.3, 0.5, 0.8, 1] };
-export const LOCKS_R = [0.35, 0.5];
+export const LOCKS_R = [0.35, 0.5, 0.75, 1, 1.5];
 
 const r2 = (/** @type {number} */ x) => Math.round(x * 100) / 100;
 const rs = (/** @type {number} */ x) => `${x < 0 ? '-' : ''}₹${Math.abs(Math.round(x)).toLocaleString('en-IN')}`;
@@ -45,7 +45,7 @@ export function shareSettingsOf(/** @type {any} */ auto) {
 /** What is saved for a set of share settings (PUT-able AutoSettings fields). */
 export const sharePatch = (/** @type {ShareSettings} */ s) => ({ entryFrom: s.entryFrom, entryTo: s.entryTo, skipSetups: s.skip, shareRules: s.rules });
 
-export const exitWords = (/** @type {Record<string, any>} */ r) => (r.target > 0 ? `sell at +${rs(r.target)}` : r.lockFromR > 0 ? `profit lock from +${r.lockFromR}R` : 'your rupee profit ladder');
+export const exitWords = (/** @type {Record<string, any>} */ r) => (r.target > 0 ? `sell at +${rs(r.target)}` : r.targetR > 0 ? `sell at +${r.targetR}R${r.lockFromR > 0 ? `, profit lock from +${r.lockFromR}R` : ''}` : r.lockFromR > 0 ? `profit lock from +${r.lockFromR}R` : 'your rupee profit ladder');
 
 /** The trades a set of settings takes from the ideas, as { entryTime, net, day }. */
 export function shareTrades(/** @type {any[]} */ ideas, /** @type {ShareSettings} */ s, /** @type {any} */ opts) {
@@ -81,11 +81,21 @@ export function shareMoves(s, setups) {
     const word = /** @type {(v: number) => string} */ (/** @type {any} */ (words)[k]);
     for (const v of list) if (v !== s.rules[k]) out.push({ key: k, group: 'Entry rules', label: word(v), from: word(s.rules[k] ?? 0), to: word(v), apply: rule(k, v) });
   }
-  const exits = [{ target: 0, lockFromR: 0 }, ...LOCKS_R.map((r) => ({ target: 0, lockFromR: r })), ...TRY_TARGETS.map((t) => ({ target: t, lockFromR: 0 }))];
+  // The exits: the rupee ladder, a lock in risks, a fixed rupee target, and a target worked out from each trade's own stop (alone or with a lock).
+  const exits = [
+    { target: 0, targetR: 0, lockFromR: 0 },
+    ...LOCKS_R.map((r) => ({ target: 0, targetR: 0, lockFromR: r })),
+    ...TRY_TARGETS.map((t) => ({ target: t, targetR: 0, lockFromR: 0 })),
+    ...TRY_R_TARGETS.map((t) => ({ target: 0, targetR: t, lockFromR: 0 })),
+    ...TRY_R_TARGETS.flatMap((t) => TRY_R_TARGET_LOCKS.map((k) => ({ target: 0, targetR: t, lockFromR: k }))),
+  ];
   for (const e of exits) {
-    if ((s.rules.target ?? 0) === e.target && (s.rules.lockFromR ?? 0) === e.lockFromR) continue;
+    if ((s.rules.target ?? 0) === e.target && (s.rules.targetR ?? 0) === e.targetR && (s.rules.lockFromR ?? 0) === e.lockFromR) continue;
     out.push({ key: 'exit', group: 'Exit', label: `Exit: ${exitWords(e)}`, from: exitWords(s.rules), to: exitWords(e), apply: (x) => ({ ...x, rules: { ...x.rules, ...e } }) });
   }
+  // Where the stop sits: the scanner's own, or wider / tighter (the same money is risked, so a wider stop buys fewer shares).
+  const stopWord = (/** @type {number} */ m) => (m === 1 ? "the scanner's stop" : `a stop ${m}x as far as the scanner's`);
+  for (const m of [1, ...TRY_STOP_MULTS]) if (m !== (s.rules.stopMult ?? 1)) out.push({ key: 'stopMult', group: 'Stop', label: `Stop: ${stopWord(m)}`, from: stopWord(s.rules.stopMult ?? 1), to: stopWord(m), apply: rule('stopMult', m) });
   return out;
 }
 
