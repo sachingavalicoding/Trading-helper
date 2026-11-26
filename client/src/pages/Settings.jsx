@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Clock, Hourglass, ListChecks, Shield, ShieldCheck, Target, Trash2, Plus, TrendingUp, Wallet } from 'lucide-react';
+import { ArrowLeftRight, Clock, Hourglass, ListChecks, Shield, ShieldCheck, Target, Trash2, Plus, TrendingUp, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { useApi } from '../lib/useApi.js';
 import { api } from '../lib/api.js';
@@ -11,6 +11,7 @@ import { OptionsLimits, SafetyRules, SpeedSettings, StopPlacement, Switch } from
 import { TrailStop } from '../components/options/TrailStop.jsx';
 import { ShareEntryRules } from '../components/study/ShareEntryRules.jsx';
 import { STOP_MODES } from '../lib/stops.js';
+import { SettingsTransfer } from '../components/SettingsTransfer.jsx';
 
 const NUM = 'field num mt-1 !py-2';
 
@@ -234,6 +235,9 @@ export default function Settings() {
           </Fold>
         </div>
       )}
+      <Fold id="set-transfer" icon={ArrowLeftRight} title="Copy settings to another app" summary="Export all settings and combinations as a file or code, or import them from another login">
+        <SettingsTransfer />
+      </Fold>
       <p className="px-1 text-[11px] text-muted">Each change is used by the bots, the studies and the replay alike.</p>
     </div>
   );

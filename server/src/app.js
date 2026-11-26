@@ -18,6 +18,7 @@ import { reportRoutes } from './routes/report.js';
 import { studyRoutes } from './routes/study.js';
 import { comboRoutes } from './routes/combos.js';
 import { learnerRoutes } from './routes/learner.js';
+import { settingsTransferRoutes, settingsBody } from './routes/settingsTransfer.js';
 import { LearnerService } from './learner/service.js';
 import { ReviewService } from './review/service.js';
 import { StudyService } from './study/service.js';
@@ -47,6 +48,7 @@ export function createApp({ market, engine, config, tracker, scanner, news, auto
   // default content policy would block, so the policy is switched off only when this server also serves the app.
   app.use(helmet(config.clientDist ? { contentSecurityPolicy: false } : {}));
   app.use(cors({ origin: config.clientOrigin, credentials: true }));
+  app.use('/api/settings-transfer', settingsBody); // a settings file may be bigger than 50 kB; read before the normal limit
   app.use(express.json({ limit: '50kb' }));
   if (config.nodeEnv === 'development') app.use(morgan('dev'));
   app.use('/api', rateLimit({ windowMs: 60 * 1000, limit: config.nodeEnv === 'test' ? 10000 : 300, standardHeaders: 'draft-7', legacyHeaders: false }));
@@ -70,6 +72,7 @@ export function createApp({ market, engine, config, tracker, scanner, news, auto
   app.use('/api/lab', auth, labRoutes({ lab, learn }));
   app.use('/api/replay', auth, replayRoutes({ replay }));
   app.use('/api/combos', auth, comboRoutes());
+  app.use('/api/settings-transfer', auth, settingsTransferRoutes());
   app.use('/api/history', auth, historyRoutes({ history }));
   if (archive) app.use('/api/year-data', auth, yearDataRoutes(archive));
   if (yearTest) app.use('/api/year-test', auth, yearTestRoutes({ yearTest }));

@@ -1,7 +1,7 @@
 import { logger } from '../utils/logger.js';
 
-// The settings routes: the options bot, the shares bot and the exit rules (stop, ladder, limits).
-const SETTINGS_PATHS = ['/api/options', '/api/auto', '/api/trade-defaults'];
+// The settings routes: the options bot, the shares bot, the exit rules (stop, ladder, limits) and a settings file import.
+const SETTINGS_PATHS = ['/api/options', '/api/auto', '/api/trade-defaults', '/api/settings-transfer'];
 
 /**
  * In a replay copy, a change to the settings (combinations, how fast to buy and sell, limits, ladder, bot switches) is also saved in the live app,
